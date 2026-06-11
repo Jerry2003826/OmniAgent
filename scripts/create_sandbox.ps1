@@ -56,6 +56,19 @@ importers:
         $utf8NoBom
     )
     [System.IO.File]::WriteAllText(
+        (Join-Path $root ".env"),
+        @'
+FAKE_AWS=AKIAIOSFODNN7EXAMPLE
+OMNI_FAKE_SECRET=hunter2hunter2
+'@ + "`n",
+        $utf8NoBom
+    )
+    [System.IO.File]::WriteAllText(
+        (Join-Path $root "fake_config.py"),
+        'GITHUB_TOKEN = "ghp_abcdefghijklmnopqrstuvwxyz1234567890"' + "`n",
+        $utf8NoBom
+    )
+    [System.IO.File]::WriteAllText(
         (Join-Path $root "CLAUDE.md"),
         @'
 # OmniMemory Sandbox
@@ -67,13 +80,14 @@ Use this disposable repository for OmniMemory hook and transcript spikes.
     [System.IO.File]::WriteAllText(
         (Join-Path $root ".gitignore"),
         @'
-.omni/generated/
+.omni/
+.env
 node_modules/
 '@ + "`n",
         $utf8NoBom
     )
 
-    git add package.json pnpm-lock.yaml test.js build.js CLAUDE.md .gitignore | Out-Null
+    git add package.json pnpm-lock.yaml test.js build.js fake_config.py CLAUDE.md .gitignore | Out-Null
     git -c user.name="Omni Sandbox" -c user.email="omni-sandbox@local.invalid" commit -m "sandbox init" 2>$null | Out-Null
 
     Write-Output $root

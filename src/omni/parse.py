@@ -68,7 +68,6 @@ class ParseResult:
 
 def parse_transcript(
     path: Path | str,
-    root: Path | str | None = None,
 ) -> ParseResult:
     transcript_path = Path(path)
     events: list[NormalizedEvent] = []

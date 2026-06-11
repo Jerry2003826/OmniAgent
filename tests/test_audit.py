@@ -104,6 +104,20 @@ def test_audit_accepts_already_redacted_placeholders_on_second_scan(tmp_path: Pa
     assert result.omni_leaks == []
 
 
+def test_audit_accepts_generated_memory_redaction_placeholder(tmp_path: Path) -> None:
+    memory = tmp_path / ".omni" / "generated" / "memory.md"
+    memory.parent.mkdir(parents=True)
+    memory.write_text(
+        "token=\u27e8REDACTED:env:abcd1234\u27e9\n",
+        encoding="utf-8",
+    )
+
+    result = audit.audit_secrets(tmp_path, fixtures_root=FIXTURE_ROOT)
+
+    assert result.ok is True
+    assert result.omni_leaks == []
+
+
 def test_audit_cli_scans_omni_tree_and_reports_json(tmp_path: Path) -> None:
     (tmp_path / ".omni" / "generated").mkdir(parents=True)
     (tmp_path / ".omni" / "generated" / "memory.md").write_text("no secrets\n", encoding="utf-8")

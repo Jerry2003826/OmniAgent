@@ -34,7 +34,7 @@ def test_parse_transcript_normalizes_known_jsonl_events(tmp_path: Path) -> None:
         ],
     )
 
-    result = parse.parse_transcript(transcript, root=tmp_path)
+    result = parse.parse_transcript(transcript)
 
     assert result.archive is None
     assert [event.seq for event in result.events] == [1, 2]
@@ -69,7 +69,7 @@ def test_parse_transcript_archives_unknown_lines_with_redaction(tmp_path: Path, 
         encoding="utf-8",
     )
 
-    result = parse.parse_transcript(transcript, root=tmp_path)
+    result = parse.parse_transcript(transcript)
 
     assert len(result.events) == 1
     assert result.archive is not None
@@ -90,7 +90,7 @@ def test_events_as_jsonl_is_stable(tmp_path: Path) -> None:
     transcript = tmp_path / "transcript.jsonl"
     write_jsonl(transcript, [{"hook_event_name": "SessionEnd", "session_id": "s1"}])
 
-    result = parse.parse_transcript(transcript, root=tmp_path)
+    result = parse.parse_transcript(transcript)
     rendered = parse.events_as_jsonl(result.events)
 
     assert rendered == (

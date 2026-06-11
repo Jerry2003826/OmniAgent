@@ -56,7 +56,19 @@ def test_init_creates_layout_and_is_idempotent(tmp_path: Path) -> None:
 
     gitignore = (tmp_path / ".gitignore").read_text(encoding="utf-8").splitlines()
     assert gitignore.count(".omni/") == 1
+    assert [line for line in gitignore if line.startswith(".omni")] == [".omni/"]
     assert ".omni/generated/" not in gitignore
+    assert ".omni/project_id" not in gitignore
+
+
+def test_init_adds_entire_omni_ignore_when_narrow_entry_exists(tmp_path: Path) -> None:
+    (tmp_path / ".gitignore").write_text(".omni/generated/\nnode_modules/\n", encoding="utf-8")
+
+    result = run_omni(tmp_path, "init")
+
+    assert result.returncode == 0, result.stderr
+    gitignore = (tmp_path / ".gitignore").read_text(encoding="utf-8").splitlines()
+    assert ".omni/" in gitignore
     assert ".omni/project_id" not in gitignore
 
 
@@ -242,6 +254,8 @@ def test_status_cli_reports_project_state_without_creating_layout(tmp_path: Path
     assert empty["omni_dir"] is False
     assert empty["generated_memory"] is False
     assert empty["claude_link"] is False
+    assert "hook_elapsed_ms_p50" not in empty
+    assert "hook_elapsed_ms_p95" not in empty
 
     init = run_omni(tmp_path, "init")
     initialized_status = run_omni(tmp_path, "status")
@@ -253,6 +267,29 @@ def test_status_cli_reports_project_state_without_creating_layout(tmp_path: Path
     assert initialized["omni_dir"] is True
     assert initialized["generated_memory"] is False
     assert initialized["claude_link"] is False
+
+
+def test_status_cli_reports_hook_elapsed_percentiles_when_available(tmp_path: Path) -> None:
+    spool = tmp_path / ".omni" / "spool"
+    spool.mkdir(parents=True)
+    (spool / "hook-a.jsonl").write_text(
+        "\n".join(
+            [
+                json.dumps({"meta": {"elapsed_ms": 10}, "payload": "{}"}),
+                json.dumps({"meta": {"elapsed_ms": 20}, "payload": "{}"}),
+                json.dumps({"meta": {"elapsed_ms": 40}, "payload": "{}"}),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = run_omni(tmp_path, "status")
+    body = json.loads(result.stdout)
+
+    assert result.returncode == 0, result.stderr
+    assert body["hook_elapsed_ms_p50"] == 20
+    assert body["hook_elapsed_ms_p95"] == 40
 
 
 def test_doctor_cli_is_disabled_for_week1(tmp_path: Path) -> None:
@@ -453,6 +490,14 @@ def test_create_sandbox_script_creates_repo_fixture(tmp_path: Path) -> None:
     assert (target / "package.json").is_file()
     assert (target / "pnpm-lock.yaml").is_file()
     assert (target / "CLAUDE.md").is_file()
+    assert "FAKE_AWS=AKIAIOSFODNN7EXAMPLE" in (target / ".env").read_text(encoding="utf-8")
+    assert "OMNI_FAKE_SECRET=hunter2hunter2" in (target / ".env").read_text(encoding="utf-8")
+    assert "ghp_abcdefghijklmnopqrstuvwxyz1234567890" in (
+        target / "fake_config.py"
+    ).read_text(encoding="utf-8")
+    gitignore = (target / ".gitignore").read_text(encoding="utf-8")
+    assert ".omni/" in gitignore
+    assert ".omni/generated/" not in gitignore
 
 
 def test_create_sandbox_script_declares_pnpm_lockfile_fixture() -> None:
@@ -495,6 +540,11 @@ def test_create_sandbox_powershell_script_creates_repo_fixture(tmp_path: Path) -
     assert (target / "package.json").is_file()
     assert (target / "pnpm-lock.yaml").is_file()
     assert (target / "CLAUDE.md").is_file()
+    assert "FAKE_AWS=AKIAIOSFODNN7EXAMPLE" in (target / ".env").read_text(encoding="utf-8")
+    assert "OMNI_FAKE_SECRET=hunter2hunter2" in (target / ".env").read_text(encoding="utf-8")
+    assert "ghp_abcdefghijklmnopqrstuvwxyz1234567890" in (
+        target / "fake_config.py"
+    ).read_text(encoding="utf-8")
     assert not (target / "package.json").read_bytes().startswith(b"\xef\xbb\xbf")
 
 

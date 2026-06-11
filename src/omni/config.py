@@ -71,10 +71,7 @@ def ensure_gitignore_entry(root: Path) -> bool:
     gitignore = root / ".gitignore"
     existing = gitignore.read_text(encoding="utf-8") if gitignore.exists() else ""
     lines = existing.splitlines()
-    normalized = {line.strip().rstrip("/") for line in lines}
-    missing = [
-        entry for entry in GITIGNORE_ENTRIES if entry.rstrip("/") not in normalized
-    ]
+    missing = [entry for entry in GITIGNORE_ENTRIES if not _has_gitignore_entry(lines, entry)]
 
     if not missing:
         return False
@@ -82,3 +79,9 @@ def ensure_gitignore_entry(root: Path) -> bool:
     prefix = "" if not existing or existing.endswith(("\n", "\r\n")) else "\n"
     gitignore.write_text(f"{existing}{prefix}{chr(10).join(missing)}\n", encoding="utf-8")
     return True
+
+
+def _has_gitignore_entry(lines: list[str], entry: str) -> bool:
+    directory = entry.rstrip("/")
+    accepted = {entry, directory, f"/{entry}", f"/{directory}"}
+    return any(line.strip() in accepted for line in lines)

@@ -84,6 +84,27 @@ omni run show <run_id> --seq <seq>
 
 Use the `command` column in `omni run show <run_id>` to identify the first Bash test command and any rediscovery reads before it. Record the first matching test command and any rediscovery events in `docs/spike-report-template.md`.
 
+## S12 Planted Secret Check
+
+The sandbox intentionally contains fake planted secrets in `.env` and
+`fake_config.py`. Ask Claude Code in the sandbox to read `.env`, then verify
+that `.omni/**` contains none of these raw planted values:
+
+```text
+AKIAIOSFODNN7EXAMPLE
+hunter2hunter2
+the fake ghp_ token from fake_config.py
+```
+
+After the run, execute:
+
+```bash
+omni audit secrets
+```
+
+Expected result: `omni audit secrets` exits 0, and no file under `.omni/`
+contains raw planted secrets.
+
 ## G6 Robust Criterion
 
 Strict acceptance passes if the first command that tries to run tests equals the injected command from `.omni/generated/memory.md`.
@@ -129,6 +150,7 @@ If strict acceptance passes, robust acceptance also passes.
 - [ ] G5 static extraction passes at least 11 of 12 assertions; A12 path-limited subject deferral is recorded.
 - [ ] G6 warm run satisfies the robust criterion above on 3 of 3 golden tasks.
 - [ ] G7 hook latency p95 is under 250 ms for week 1, with the hard target under 100 ms.
+- [ ] S12 Claude Code reads sandbox `.env`, and `.omni/**` has no raw planted secrets.
 - [ ] `memory.md` is byte-stable and contains no timestamp, confidence, or `fact_id` in the visible body.
 - [ ] `CLAUDE.md` managed region is created safely and user content outside it is unchanged.
 - [ ] Day-5B items remain out of scope: observed-command extractor, interactive review loop, full `golden_demo.sh` automation, and `omni doctor`.

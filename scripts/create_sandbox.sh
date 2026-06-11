@@ -41,6 +41,15 @@ cat > build.js <<'JS'
 console.log("sandbox build ok");
 JS
 
+cat > .env <<'ENV'
+FAKE_AWS=AKIAIOSFODNN7EXAMPLE
+OMNI_FAKE_SECRET=hunter2hunter2
+ENV
+
+cat > fake_config.py <<'PY'
+GITHUB_TOKEN = "ghp_abcdefghijklmnopqrstuvwxyz1234567890"
+PY
+
 cat > CLAUDE.md <<'MD'
 # OmniMemory Sandbox
 
@@ -48,11 +57,12 @@ Use this disposable repository for OmniMemory hook and transcript spikes.
 MD
 
 cat > .gitignore <<'GITIGNORE'
-.omni/generated/
+.omni/
+.env
 node_modules/
 GITIGNORE
 
-git add package.json pnpm-lock.yaml test.js build.js CLAUDE.md .gitignore >/dev/null
+git add package.json pnpm-lock.yaml test.js build.js fake_config.py CLAUDE.md .gitignore >/dev/null
 git -c user.name='Omni Sandbox' -c user.email='omni-sandbox@local.invalid' commit -m 'sandbox init' >/dev/null 2>&1 || true
 
 printf '%s\n' "$PWD"

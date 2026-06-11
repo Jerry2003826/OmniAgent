@@ -15,7 +15,6 @@ from omni.parse import events_as_jsonl, parse_transcript
 from omni import inject
 from omni import render
 from omni import review
-from omni import doctor
 from omni.status import status_json
 
 
