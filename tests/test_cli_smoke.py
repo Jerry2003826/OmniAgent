@@ -363,6 +363,37 @@ def test_parse_cli_outputs_events_and_redacted_archive(tmp_path: Path) -> None:
     assert not (tmp_path / ".omni" / "artifacts" / "transcript_archive.jsonl").exists()
 
 
+def test_parse_cli_redacts_known_event_meta_in_stdout(tmp_path: Path) -> None:
+    transcript = tmp_path / "transcript.jsonl"
+    secret = "parse-known-meta-secret-123"
+    transcript.write_text(
+        json.dumps(
+            {
+                "type": "tool_use",
+                "timestamp": "2026-06-11T00:00:00Z",
+                "name": "Bash",
+                "api_key": secret,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = run_omni(
+        tmp_path,
+        "parse",
+        str(transcript),
+        extra_env={"OMNI_PARSE_META_SECRET": secret},
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert secret not in result.stdout
+    assert "REDACTED:env:" in result.stdout
+    assert not (tmp_path / ".omni").exists()
+    assert not (tmp_path / ".omni" / "omni.sqlite3").exists()
+    assert not (tmp_path / ".omni" / "artifacts" / "transcript_archive.jsonl").exists()
+
+
 def test_ingest_and_run_show_cli(tmp_path: Path) -> None:
     transcript = tmp_path / "transcript.jsonl"
     transcript.write_text(
@@ -495,6 +526,14 @@ def test_create_sandbox_script_creates_repo_fixture(tmp_path: Path) -> None:
     assert "ghp_abcdefghijklmnopqrstuvwxyz1234567890" in (
         target / "fake_config.py"
     ).read_text(encoding="utf-8")
+    tracked = subprocess.run(
+        ["git", "-C", str(target), "ls-files", "--", "fake_config.py", ".env"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert tracked.returncode == 0, tracked.stderr
+    assert tracked.stdout == ""
     gitignore = (target / ".gitignore").read_text(encoding="utf-8")
     assert ".omni/" in gitignore
     assert ".omni/generated/" not in gitignore
@@ -545,6 +584,14 @@ def test_create_sandbox_powershell_script_creates_repo_fixture(tmp_path: Path) -
     assert "ghp_abcdefghijklmnopqrstuvwxyz1234567890" in (
         target / "fake_config.py"
     ).read_text(encoding="utf-8")
+    tracked = subprocess.run(
+        ["git", "-C", str(target), "ls-files", "--", "fake_config.py", ".env"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    assert tracked.returncode == 0, tracked.stderr
+    assert tracked.stdout == ""
     assert not (target / "package.json").read_bytes().startswith(b"\xef\xbb\xbf")
 
 

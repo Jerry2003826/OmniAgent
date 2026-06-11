@@ -30,6 +30,7 @@ def test_demo_doc_covers_manual_cold_warm_g6_and_definition_of_done() -> None:
         "G6 Robust Criterion",
         "S12 Planted Secret Check",
         "raw planted secrets",
+        "working-tree-only redaction fixtures",
         "Allowed before first correct test command",
         "Forbidden before first correct test command",
         "first matching test command equals injected command",

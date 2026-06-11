@@ -113,10 +113,11 @@ def parse_transcript(
 
 
 def events_as_jsonl(events: list[NormalizedEvent]) -> str:
-    return "".join(
+    payload = "".join(
         json.dumps(event.as_dict(), sort_keys=True, separators=(",", ":")) + "\n"
         for event in events
     )
+    return redact(payload.encode("utf-8")).data.decode("utf-8", errors="replace")
 
 
 def _normalize_event(seq: int, row: dict[str, Any]) -> NormalizedEvent:
