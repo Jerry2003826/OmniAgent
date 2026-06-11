@@ -8,6 +8,8 @@ import sys
 from omni import __version__
 from omni.config import ensure_project_layout
 from omni.hook import install_claude_hooks, run_from_stdin
+from omni.ingest import ingest as ingest_project
+from omni.ingest import run_show
 from omni.parse import events_as_jsonl, parse_transcript
 
 
@@ -23,6 +25,14 @@ def build_parser() -> argparse.ArgumentParser:
     subcommands.add_parser("hook", help=argparse.SUPPRESS)
     parse_parser = subcommands.add_parser("parse", help=argparse.SUPPRESS)
     parse_parser.add_argument("transcript")
+    ingest_parser = subcommands.add_parser("ingest", help=argparse.SUPPRESS)
+    ingest_parser.add_argument("run_id", nargs="?")
+    ingest_parser.add_argument("--transcript")
+    run_parser = subcommands.add_parser("run", help=argparse.SUPPRESS)
+    run_subcommands = run_parser.add_subparsers(dest="run_command", required=True)
+    run_show_parser = run_subcommands.add_parser("show")
+    run_show_parser.add_argument("run_id")
+    run_show_parser.add_argument("--seq", type=int)
 
     return parser
 
@@ -51,6 +61,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "parse":
         result = parse_transcript(args.transcript)
         _print_diff(events_as_jsonl(result.events))
+        return 0
+
+    if args.command == "ingest":
+        result = ingest_project(run_id=args.run_id, transcript=args.transcript)
+        _print_diff(
+            f"run_ids={','.join(result.run_ids)} events_inserted={result.events_inserted} "
+            f"queue_drained={result.queue_drained}\n"
+        )
+        return 0
+
+    if args.command == "run" and args.run_command == "show":
+        _print_diff(run_show(None, args.run_id, seq=args.seq))
         return 0
 
     parser.error(f"unknown command: {args.command}")

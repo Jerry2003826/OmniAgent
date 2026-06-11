@@ -200,6 +200,27 @@ def test_parse_cli_outputs_events_and_redacted_archive(tmp_path: Path) -> None:
     assert "REDACTED:env:" in archive_text
 
 
+def test_ingest_and_run_show_cli(tmp_path: Path) -> None:
+    transcript = tmp_path / "transcript.jsonl"
+    transcript.write_text(
+        '{"type":"tool_use","timestamp":"2026-06-11T00:00:00Z","id":"toolu_cli","name":"Bash","exit_code":0}\n',
+        encoding="utf-8",
+    )
+
+    ingest_result = run_omni(tmp_path, "ingest", "cli_run", "--transcript", str(transcript))
+    show_result = run_omni(tmp_path, "run", "show", "cli_run")
+    expanded_result = run_omni(tmp_path, "run", "show", "cli_run", "--seq", "1")
+
+    assert ingest_result.returncode == 0, ingest_result.stderr
+    assert "events_inserted=1" in ingest_result.stdout
+    assert show_result.returncode == 0, show_result.stderr
+    assert "seq | ts | type | tool | exit | artifact" in show_result.stdout
+    assert "1 | 2026-06-11T00:00:00Z | tool_use | Bash | 0 |" in show_result.stdout
+    assert expanded_result.returncode == 0, expanded_result.stderr
+    assert '"tool_use_id": "toolu_cli"' in expanded_result.stdout
+    assert '"source": "transcript"' in expanded_result.stdout
+
+
 def test_create_sandbox_script_creates_repo_fixture(tmp_path: Path) -> None:
     bash_check = subprocess.run(
         ["bash", "-lc", "true"],
