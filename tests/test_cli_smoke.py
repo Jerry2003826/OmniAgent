@@ -160,6 +160,41 @@ def test_status_cli_reports_project_state_without_creating_layout(tmp_path: Path
     assert initialized["claude_link"] is False
 
 
+def test_doctor_cli_reports_missing_layout_without_creating_it(tmp_path: Path) -> None:
+    result = run_omni(tmp_path, "doctor")
+
+    assert result.returncode == 1
+    assert not (tmp_path / ".omni").exists()
+    body = json.loads(result.stdout)
+    assert body["ok"] is False
+    checks = {check["name"]: check["ok"] for check in body["checks"]}
+    assert checks["omni_dir"] is False
+    assert checks["config"] is False
+
+
+def test_doctor_cli_passes_ready_project(tmp_path: Path) -> None:
+    run_omni(tmp_path, "init")
+    run_omni(tmp_path, "ingest")
+    (tmp_path / ".omni" / "generated" / "memory.md").write_text(
+        "<!-- omni:generated render_ver=1 sha256=test DO NOT EDIT -->\n# Project memory\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "CLAUDE.md").write_text(
+        "# Demo\n<!-- omni:begin -->\n@.omni/generated/memory.md\n<!-- omni:end -->\n",
+        encoding="utf-8",
+    )
+    audit_dir = tmp_path / ".omni" / "audit"
+    audit_dir.mkdir()
+    (audit_dir / "secrets.passed").write_text("ok\n", encoding="utf-8")
+
+    result = run_omni(tmp_path, "doctor")
+
+    assert result.returncode == 0, result.stderr
+    body = json.loads(result.stdout)
+    assert body["ok"] is True
+    assert all(check["ok"] for check in body["checks"])
+
+
 def test_hook_cli_redacts_stdin_to_spool_and_exits_zero(tmp_path: Path) -> None:
     result = run_omni(
         tmp_path,
