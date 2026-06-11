@@ -213,6 +213,8 @@ def _should_redact_secret(secret: bytes, detector: str, allow_values: set[bytes]
         return False
     if detector == "high_entropy":
         return True
+    if detector == "secret_assignment":
+        return True
     return not _looks_like_false_positive(secret)
 
 

@@ -6,6 +6,7 @@ import argparse
 import sys
 
 from omni import __version__
+from omni import db
 from omni.audit import run_audit_cli
 from omni.config import ensure_project_layout
 from omni.hook import install_claude_hooks, run_from_stdin
@@ -23,13 +24,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="omni")
     parser.add_argument("--version", action="version", version=f"omni {__version__}")
 
-    subcommands = parser.add_subparsers(dest="command", required=True)
+    subcommands = parser.add_subparsers(
+        dest="command",
+        required=True,
+        metavar="{init,status,render,inject}",
+    )
     init_parser = subcommands.add_parser("init", help="Create a project-local .omni layout")
     init_parser.add_argument("--install-claude-hooks", action="store_true")
     init_parser.add_argument("--yes", action="store_true")
 
     subcommands.add_parser("status")
-    subcommands.add_parser("doctor")
+    subcommands.add_parser("doctor", help=argparse.SUPPRESS)
     subcommands.add_parser("hook", help=argparse.SUPPRESS)
     parse_parser = subcommands.add_parser("parse", help=argparse.SUPPRESS)
     parse_parser.add_argument("transcript")
@@ -45,11 +50,15 @@ def build_parser() -> argparse.ArgumentParser:
     audit_subcommands = audit_parser.add_subparsers(dest="audit_command", required=True)
     audit_subcommands.add_parser("secrets")
     review_parser = subcommands.add_parser("review", help=argparse.SUPPRESS)
-    review_subcommands = review_parser.add_subparsers(dest="review_command", required=True)
+    review_subcommands = review_parser.add_subparsers(
+        dest="review_command",
+        required=True,
+        metavar="{approve,reject}",
+    )
     for command in ("approve", "reject"):
         review_command = review_subcommands.add_parser(command)
         review_command.add_argument("cand_id")
-    review_subcommands.add_parser("interactive")
+    review_subcommands.add_parser("interactive", help=argparse.SUPPRESS)
     render_parser = subcommands.add_parser("render")
     render_parser.add_argument("--diff", action="store_true")
     render_parser.add_argument("--force", action="store_true")
@@ -57,6 +66,12 @@ def build_parser() -> argparse.ArgumentParser:
     inject_subcommands = inject_parser.add_subparsers(dest="inject_command", required=True)
     inject_claude_parser = inject_subcommands.add_parser("claude")
     inject_claude_parser.add_argument("--mode", choices=("preview", "link"), required=True)
+
+    _hide_subcommands(
+        subcommands,
+        {"doctor", "hook", "parse", "ingest", "run", "audit", "review"},
+    )
+    _hide_subcommands(review_subcommands, {"interactive"})
 
     return parser
 
@@ -92,7 +107,14 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if result.ok else 1
 
     if args.command == "parse":
-        result = parse_transcript(args.transcript)
+        layout = ensure_project_layout()
+        conn = db.connect(layout.root / ".omni" / "omni.sqlite3")
+        db.migrate(conn)
+        try:
+            result = parse_transcript(args.transcript, root=layout.root, conn=conn)
+            conn.commit()
+        finally:
+            conn.close()
         _print_diff(events_as_jsonl(result.events))
         return 0
 
@@ -162,6 +184,12 @@ def _print_diff(diff: str) -> None:
     encoding = sys.stdout.encoding or "utf-8"
     safe_diff = diff.encode(encoding, errors="replace").decode(encoding, errors="replace")
     print(safe_diff, end="")
+
+
+def _hide_subcommands(subparsers: argparse._SubParsersAction, names: set[str]) -> None:
+    subparsers._choices_actions = [
+        action for action in subparsers._choices_actions if action.dest not in names
+    ]
 
 
 if __name__ == "__main__":

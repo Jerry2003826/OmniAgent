@@ -138,3 +138,22 @@ def test_false_positive_guards_and_allow_values_do_not_redact() -> None:
     assert result.status == "clean"
     assert result.detectors == ()
     assert result.data == payload
+
+
+def test_contextual_hex_api_key_or_token_is_redacted_unless_allowlisted() -> None:
+    hex40 = "0123456789abcdef0123456789abcdef01234567"
+    hex64 = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+    payload = f"api_key={hex40}\ntoken={hex64}".encode("utf-8")
+
+    result = redact_mod.redact(payload)
+
+    assert result.status == "redacted"
+    assert "secret_assignment" in result.detectors
+    assert hex40.encode("utf-8") not in result.data
+    assert hex64.encode("utf-8") not in result.data
+
+    allowed = redact_mod.redact(payload, allow_values={hex40, hex64})
+
+    assert allowed.status == "clean"
+    assert allowed.detectors == ()
+    assert allowed.data == payload

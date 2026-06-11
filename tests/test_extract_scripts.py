@@ -31,26 +31,39 @@ def command_facts(conn: sqlite3.Connection) -> dict[tuple[str, str], str]:
 def test_a2_a3_node_pnpm_test_and_build_commands(tmp_path: Path) -> None:
     commands = command_facts(process_repo(tmp_path, "node-pnpm"))
 
-    assert commands[("uses_test_command", "default")] == "pnpm run test"
-    assert commands[("uses_build_command", "default")] == "pnpm run build"
+    assert commands[("uses_test_command", "node")] == "pnpm run test"
+    assert commands[("uses_build_command", "node")] == "pnpm run build"
 
 
 def test_a5_node_npm_default_placeholder_test_is_ignored(tmp_path: Path) -> None:
     commands = command_facts(process_repo(tmp_path, "node-npm"))
 
-    assert ("uses_test_command", "default") not in commands
+    assert ("uses_test_command", "node") not in commands
 
 
 def test_a8_python_uv_test_command(tmp_path: Path) -> None:
     commands = command_facts(process_repo(tmp_path, "python-uv"))
 
-    assert commands[("uses_test_command", "default")] == "uv run pytest"
+    assert commands[("uses_test_command", "python")] == "uv run pytest"
 
 
 def test_a9_python_poetry_test_command(tmp_path: Path) -> None:
     commands = command_facts(process_repo(tmp_path, "python-poetry"))
 
-    assert commands[("uses_test_command", "default")] == "poetry run pytest"
+    assert commands[("uses_test_command", "python")] == "poetry run pytest"
+
+
+def test_python_optional_dev_dependency_detects_pytest(tmp_path: Path) -> None:
+    commands = command_facts(process_repo(tmp_path, "python-optional-pytest"))
+
+    assert commands[("uses_test_command", "python")] == "uv run pytest"
+
+
+def test_mixed_node_python_repo_preserves_both_test_commands(tmp_path: Path) -> None:
+    commands = command_facts(process_repo(tmp_path, "mixed-node-python"))
+
+    assert commands[("uses_test_command", "node")] == "pnpm run test"
+    assert commands[("uses_test_command", "python")] == "uv run pytest"
 
 
 def test_a10_a11_make_only_commands(tmp_path: Path) -> None:

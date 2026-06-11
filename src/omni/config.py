@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from omni.ids import ensure_project_id
+
 OMNI_DIRNAME = ".omni"
 CONFIG_FILENAME = "config.toml"
 GITIGNORE_ENTRY = ".omni/generated/"
@@ -47,6 +49,12 @@ def ensure_project_layout(root: Path | str | None = None) -> InitResult:
     if not config_path.exists():
         config_path.write_text(DEFAULT_CONFIG, encoding="utf-8")
         created.append(config_path)
+
+    project_id_path = omni_dir / "project_id"
+    project_id_exists = project_id_path.exists()
+    ensure_project_id(base)
+    if not project_id_exists:
+        created.append(project_id_path)
 
     gitignore_updated = ensure_gitignore_entry(base)
     return InitResult(

@@ -4,11 +4,14 @@ import json
 from pathlib import Path
 
 from omni import db
+from omni import gate
 from omni import hook
 from omni import ingest
 
 
 def test_single_observed_command_never_auto_commits(tmp_path: Path) -> None:
+    assert "observed_command@1" not in gate.AUTO_ORIGINS
+
     hook.capture_hook(
         json.dumps(
             {

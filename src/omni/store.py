@@ -65,7 +65,6 @@ def put_artifact(
             datetime.now(timezone.utc).isoformat(),
         ),
     )
-    conn.commit()
     return artifact
 
 

@@ -203,7 +203,7 @@ def _ensure_run(conn: sqlite3.Connection, root: Path, run_id: str, transcript: P
 
 
 def _transcript_candidates(conn: sqlite3.Connection, root: Path, path: Path) -> list[EventCandidate]:
-    parsed = parse_transcript(path, root=root)
+    parsed = parse_transcript(path, root=root, conn=conn)
     return [_candidate_from_transcript_event(conn, root, event) for event in parsed.events]
 
 

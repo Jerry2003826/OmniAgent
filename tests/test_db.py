@@ -106,6 +106,23 @@ def test_content_addressed_artifact_store_redacts_and_deduplicates(
     assert conn.execute("SELECT COUNT(*) FROM artifacts").fetchone()[0] == 1
 
 
+def test_put_artifact_does_not_commit_open_transaction(tmp_path: Path) -> None:
+    conn = db.connect(tmp_path / ".omni" / "omni.sqlite3")
+    db.migrate(conn)
+
+    conn.execute("BEGIN")
+    artifact = store.put_artifact(
+        tmp_path,
+        conn,
+        kind="transcript_archive",
+        data=b'{"event":"unknown"}\n',
+    )
+    conn.rollback()
+
+    assert artifact.path.exists()
+    assert conn.execute("SELECT COUNT(*) FROM artifacts").fetchone()[0] == 0
+
+
 def test_ingest_transcript_is_idempotent_and_redacts_db_content(
     tmp_path: Path, monkeypatch
 ) -> None:

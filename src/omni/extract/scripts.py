@@ -16,14 +16,14 @@ ORIGIN = "script_extractor@1"
 NPM_DEFAULT_TEST = 'echo "Error: no test specified" && exit 1'
 
 SCRIPT_MAP = {
-    "test": ("uses_test_command", "default"),
-    "test:unit": ("uses_test_command", "unit"),
-    "test:e2e": ("uses_test_command", "e2e"),
-    "test:integration": ("uses_test_command", "integration"),
-    "build": ("uses_build_command", "default"),
-    "lint": ("uses_lint_command", "default"),
-    "typecheck": ("uses_typecheck_command", "default"),
-    "check:types": ("uses_typecheck_command", "default"),
+    "test": ("uses_test_command", "node"),
+    "test:unit": ("uses_test_command", "node:unit"),
+    "test:e2e": ("uses_test_command", "node:e2e"),
+    "test:integration": ("uses_test_command", "node:integration"),
+    "build": ("uses_build_command", "node"),
+    "lint": ("uses_lint_command", "node"),
+    "typecheck": ("uses_typecheck_command", "node"),
+    "check:types": ("uses_typecheck_command", "node"),
 }
 
 
@@ -86,7 +86,7 @@ def _node_commands(root: Path, pm_name: str) -> dict[tuple[str, str], FactCandid
 
     dev_script = "dev" if "dev" in scripts else "start" if "start" in scripts else None
     if dev_script:
-        key = ("uses_dev_command", "default")
+        key = ("uses_dev_command", "node")
         commands[key] = _candidate(
             root,
             predicate=key[0],
@@ -102,8 +102,8 @@ def _python_commands(root: Path, pm_name: str) -> dict[tuple[str, str], FactCand
     if not pyproject.exists():
         return {}
     parsed = tomllib.loads(pyproject.read_text(encoding="utf-8"))
-    if _has_pytest_config(parsed):
-        key = ("uses_test_command", "default")
+    if _has_pytest_hint(parsed):
+        key = ("uses_test_command", "python")
         return {
             key: _candidate(
                 root,
@@ -168,9 +168,75 @@ def _read_json(path: Path) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def _has_pytest_hint(parsed: dict[str, Any]) -> bool:
+    return (
+        _has_pytest_config(parsed)
+        or _project_optional_dependencies_include_pytest(parsed)
+        or _dependency_groups_include_pytest(parsed)
+        or _poetry_dependencies_include_pytest(parsed)
+    )
+
+
 def _has_pytest_config(parsed: dict[str, Any]) -> bool:
     tool = parsed.get("tool")
     return isinstance(tool, dict) and isinstance(tool.get("pytest"), dict)
+
+
+def _project_optional_dependencies_include_pytest(parsed: dict[str, Any]) -> bool:
+    project = parsed.get("project")
+    if not isinstance(project, dict):
+        return False
+    optional = project.get("optional-dependencies")
+    if not isinstance(optional, dict):
+        return False
+    return any(_dependency_list_includes_pytest(group) for group in optional.values())
+
+
+def _dependency_groups_include_pytest(parsed: dict[str, Any]) -> bool:
+    groups = parsed.get("dependency-groups")
+    if not isinstance(groups, dict):
+        return False
+    return any(_dependency_list_includes_pytest(group) for group in groups.values())
+
+
+def _poetry_dependencies_include_pytest(parsed: dict[str, Any]) -> bool:
+    tool = parsed.get("tool")
+    if not isinstance(tool, dict):
+        return False
+    poetry = tool.get("poetry")
+    if not isinstance(poetry, dict):
+        return False
+
+    dev_dependencies = poetry.get("dev-dependencies")
+    if isinstance(dev_dependencies, dict) and _dependency_dict_includes_pytest(dev_dependencies):
+        return True
+
+    groups = poetry.get("group")
+    if not isinstance(groups, dict):
+        return False
+    for group in groups.values():
+        if isinstance(group, dict):
+            dependencies = group.get("dependencies")
+            if isinstance(dependencies, dict) and _dependency_dict_includes_pytest(dependencies):
+                return True
+    return False
+
+
+def _dependency_list_includes_pytest(value: Any) -> bool:
+    if not isinstance(value, list):
+        return False
+    return any(_dependency_name(item) == "pytest" for item in value)
+
+
+def _dependency_dict_includes_pytest(value: dict[str, Any]) -> bool:
+    return any(name.lower() == "pytest" for name in value)
+
+
+def _dependency_name(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    match = re.match(r"^\s*([A-Za-z0-9_.-]+)", value)
+    return match.group(1).lower() if match else None
 
 
 def _make_targets(path: Path) -> set[str]:

@@ -1,0 +1,6 @@
+[project]
+name = "mixed-node-python"
+version = "0.0.0"
+
+[dependency-groups]
+dev = ["pytest>=8"]

@@ -10,6 +10,8 @@ from pathlib import Path
 
 import pytest
 
+from omni.ids import project_id_for_path
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -54,6 +56,42 @@ def test_init_creates_layout_and_is_idempotent(tmp_path: Path) -> None:
 
     gitignore = (tmp_path / ".gitignore").read_text(encoding="utf-8").splitlines()
     assert gitignore.count(".omni/generated/") == 1
+
+
+def test_init_creates_project_id_file_and_keeps_it_after_path_move(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    first = run_omni(repo, "init")
+
+    assert first.returncode == 0, first.stderr
+    project_id = (repo / ".omni" / "project_id").read_text(encoding="utf-8").strip()
+    assert project_id.startswith("proj_")
+
+    moved = tmp_path / "moved-repo"
+    repo.rename(moved)
+
+    assert project_id_for_path(moved) == project_id
+
+
+def test_git_remote_project_id_is_stable_across_repo_paths(tmp_path: Path) -> None:
+    remote = "https://github.com/example/omni-agent.git"
+    ids: list[str] = []
+    for name in ("repo-a", "repo-b"):
+        repo = tmp_path / name
+        repo.mkdir()
+        subprocess.run(["git", "init"], cwd=repo, text=True, capture_output=True, check=True)
+        subprocess.run(
+            ["git", "remote", "add", "origin", remote],
+            cwd=repo,
+            text=True,
+            capture_output=True,
+            check=True,
+        )
+        result = run_omni(repo, "init")
+        assert result.returncode == 0, result.stderr
+        ids.append((repo / ".omni" / "project_id").read_text(encoding="utf-8").strip())
+
+    assert ids[0] == ids[1]
 
 
 def test_init_does_not_modify_claude_settings(tmp_path: Path) -> None:
@@ -141,6 +179,17 @@ def test_cli_help_smoke(tmp_path: Path) -> None:
     assert result.returncode == 0
     assert "init" in result.stdout
     assert "status" in result.stdout
+    assert "doctor" not in result.stdout
+    assert "review" not in result.stdout
+
+
+def test_review_interactive_is_hidden_from_review_help(tmp_path: Path) -> None:
+    result = run_omni(tmp_path, "review", "--help")
+
+    assert result.returncode == 0
+    assert "approve" in result.stdout
+    assert "reject" in result.stdout
+    assert "interactive" not in result.stdout
 
 
 def test_status_cli_reports_project_state_without_creating_layout(tmp_path: Path) -> None:
@@ -172,6 +221,7 @@ def test_doctor_cli_reports_missing_layout_without_creating_it(tmp_path: Path) -
     assert result.returncode == 1
     assert not (tmp_path / ".omni").exists()
     body = json.loads(result.stdout)
+    assert body["experimental"] is True
     assert body["ok"] is False
     checks = {check["name"]: check["ok"] for check in body["checks"]}
     assert checks["omni_dir"] is False
@@ -194,6 +244,7 @@ def test_doctor_cli_passes_ready_project(tmp_path: Path) -> None:
 
     assert result.returncode == 0, result.stderr
     body = json.loads(result.stdout)
+    assert body["experimental"] is True
     assert body["ok"] is True
     assert all(check["ok"] for check in body["checks"])
 
@@ -299,8 +350,12 @@ def test_parse_cli_outputs_events_and_redacted_archive(tmp_path: Path) -> None:
     event = json.loads(result.stdout)
     assert event["event_type"] == "tool_use"
     assert event["tool"] == "Bash"
-    archive = tmp_path / ".omni" / "artifacts" / "transcript_archive.jsonl"
-    assert archive.exists()
+    assert not (tmp_path / ".omni" / "artifacts" / "transcript_archive.jsonl").exists()
+    conn = sqlite3.connect(tmp_path / ".omni" / "omni.sqlite3")
+    archive_hash = conn.execute(
+        "SELECT hash FROM artifacts WHERE kind = 'transcript_archive'"
+    ).fetchone()[0]
+    archive = tmp_path / ".omni" / "artifacts" / archive_hash[7:9] / archive_hash[9:11] / archive_hash
     archive_text = archive.read_text(encoding="utf-8")
     assert "cli-secret-value-123" not in archive_text
     assert "REDACTED:env:" in archive_text
@@ -393,8 +448,8 @@ def test_ingest_extracts_static_facts_for_render_cli(tmp_path: Path) -> None:
     assert conn.execute("SELECT COUNT(*) FROM facts").fetchone()[0] == 3
     assert conn.execute("SELECT COUNT(*) FROM fact_candidates").fetchone()[0] == 0
     assert "node package manager: pnpm" in memory
-    assert "default test command: pnpm run test" in memory
-    assert "default build command: pnpm run build" in memory
+    assert "node test command: pnpm run test" in memory
+    assert "node build command: pnpm run build" in memory
 
 
 def test_audit_secrets_cli_passes_clean_omni_tree(tmp_path: Path) -> None:

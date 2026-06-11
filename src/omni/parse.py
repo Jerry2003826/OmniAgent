@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from omni import db
 from omni.redact import redact
+from omni.store import put_artifact
 
 KNOWN_EVENT_KEYS = {
     "created_at",
@@ -24,9 +27,6 @@ KNOWN_EVENT_KEYS = {
     "ts",
     "type",
 }
-
-ARCHIVE_PATH = Path(".omni") / "artifacts" / "transcript_archive.jsonl"
-
 
 @dataclass(frozen=True)
 class NormalizedEvent:
@@ -58,6 +58,7 @@ class NormalizedEvent:
 class TranscriptArchive:
     kind: str
     path: Path
+    artifact_hash: str
     line_count: int
     redaction_status: str
     detectors: tuple[str, ...]
@@ -69,7 +70,11 @@ class ParseResult:
     archive: TranscriptArchive | None
 
 
-def parse_transcript(path: Path | str, root: Path | str | None = None) -> ParseResult:
+def parse_transcript(
+    path: Path | str,
+    root: Path | str | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> ParseResult:
     transcript_path = Path(path)
     base = Path(root or Path.cwd()).resolve()
     events: list[NormalizedEvent] = []
@@ -102,13 +107,29 @@ def parse_transcript(path: Path | str, root: Path | str | None = None) -> ParseR
 
     archive = None
     if archive_lines:
-        archive_path = base / ARCHIVE_PATH
-        archive_path.parent.mkdir(parents=True, exist_ok=True)
-        archive_path.write_bytes(b"\n".join(archive_lines) + b"\n")
+        archive_payload = b"\n".join(archive_lines) + b"\n"
+        artifact_conn = conn
+        owns_conn = artifact_conn is None
+        if artifact_conn is None:
+            artifact_conn = db.connect(base / ".omni" / "omni.sqlite3")
+            db.migrate(artifact_conn)
+        try:
+            artifact = put_artifact(
+                base,
+                artifact_conn,
+                kind="transcript_archive",
+                data=archive_payload,
+            )
+            if owns_conn:
+                artifact_conn.commit()
+        finally:
+            if owns_conn:
+                artifact_conn.close()
         archive = TranscriptArchive(
             kind="transcript_archive",
-            path=archive_path,
-            line_count=len(archive_lines),
+            path=artifact.path,
+            artifact_hash=artifact.hash,
+            line_count=artifact.line_count,
             redaction_status=archive_status,
             detectors=tuple(dict.fromkeys(archive_detectors)),
         )

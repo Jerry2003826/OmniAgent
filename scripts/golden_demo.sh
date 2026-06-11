@@ -57,9 +57,9 @@ done
 
 run_omni audit secrets >/dev/null
 
-expected="$(sed -n 's/^- default test command: //p' .omni/generated/memory.md | head -n 1)"
+expected="$(sed -n 's/^- node test command: //p' .omni/generated/memory.md | head -n 1)"
 if [ -z "$expected" ]; then
-  echo "missing default test command in .omni/generated/memory.md" >&2
+  echo "missing node test command in .omni/generated/memory.md" >&2
   exit 1
 fi
 

@@ -38,10 +38,12 @@ class DoctorCheck:
 class DoctorResult:
     ok: bool
     checks: tuple[DoctorCheck, ...]
+    experimental: bool = True
 
     def as_json(self) -> str:
         return json.dumps(
             {
+                "experimental": self.experimental,
                 "ok": self.ok,
                 "checks": [check.as_dict() for check in self.checks],
             },

@@ -1,0 +1,6 @@
+[project]
+name = "python-optional-pytest"
+version = "0.0.0"
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
