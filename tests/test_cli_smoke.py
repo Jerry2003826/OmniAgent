@@ -395,3 +395,72 @@ def test_create_sandbox_powershell_script_creates_repo_fixture(tmp_path: Path) -
     assert (target / "pnpm-lock.yaml").is_file()
     assert (target / "CLAUDE.md").is_file()
     assert not (target / "package.json").read_bytes().startswith(b"\xef\xbb\xbf")
+
+
+def test_golden_demo_script_declares_full_automation_steps() -> None:
+    script = (REPO_ROOT / "scripts" / "golden_demo.sh").read_text(encoding="utf-8")
+
+    assert "create_sandbox.sh" in script
+    assert "omni.cli" in script
+    assert "claude" in script
+    assert "omni inject claude --mode link" in script
+    assert "G6 robust" in script
+
+
+def test_golden_demo_script_runs_with_fake_claude(tmp_path: Path) -> None:
+    bash_check = subprocess.run(
+        ["bash", "-lc", "true"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if bash_check.returncode != 0:
+        pytest.skip(f"bash is not usable: {bash_check.stderr.strip()}")
+
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_claude = fake_bin / "claude"
+    fake_claude.write_text(
+        """#!/usr/bin/env bash
+set -euo pipefail
+sid=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --session-id)
+      sid="$2"
+      shift 2
+      ;;
+    *)
+      shift
+      ;;
+  esac
+done
+if [ -z "$sid" ]; then
+  echo "missing --session-id" >&2
+  exit 2
+fi
+printf '{"hook_event_name":"PostToolUse","session_id":"%s","tool_use_id":"toolu_%s","tool":"Bash","tool_input":{"command":"pnpm run test"},"tool_response":{"stdout":"sandbox test ok","stderr":""}}\\n' "$sid" "$sid" | "$PYTHON_BIN" -m omni.cli hook
+printf '{"hook_event_name":"SessionEnd","session_id":"%s","transcript_path":null}\\n' "$sid" | "$PYTHON_BIN" -m omni.cli hook
+echo "fake claude ran tests"
+""",
+        encoding="utf-8",
+    )
+    fake_claude.chmod(0o755)
+    target = tmp_path / "golden"
+    env = os.environ.copy()
+    env["PATH"] = str(fake_bin) + os.pathsep + env["PATH"]
+    env["PYTHONPATH"] = str(REPO_ROOT / "src")
+
+    result = subprocess.run(
+        ["bash", str(REPO_ROOT / "scripts" / "golden_demo.sh"), str(target)],
+        cwd=REPO_ROOT,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "G6 robust: 3/3" in result.stdout
+    assert (target / ".omni" / "generated" / "memory.md").is_file()
+    assert "@.omni/generated/memory.md" in (target / "CLAUDE.md").read_text(encoding="utf-8")
