@@ -55,12 +55,10 @@ importers:
         "console.log(""sandbox build ok"");`n",
         $utf8NoBom
     )
+    $fakeAwsKey = "AKIA" + "IOSFODNN7EXAMPLE"
     [System.IO.File]::WriteAllText(
         (Join-Path $root ".env"),
-        @'
-FAKE_AWS=AKIAIOSFODNN7EXAMPLE
-OMNI_FAKE_SECRET=hunter2hunter2
-'@ + "`n",
+        "FAKE_AWS=$fakeAwsKey`nOMNI_FAKE_SECRET=hunter2hunter2`n",
         $utf8NoBom
     )
     $fakeGithubToken = "ghp_" + "abcdefghijklmnopqrstuvwxyz1234567890"

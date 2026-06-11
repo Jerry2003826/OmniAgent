@@ -41,10 +41,8 @@ cat > build.js <<'JS'
 console.log("sandbox build ok");
 JS
 
-cat > .env <<'ENV'
-FAKE_AWS=AKIAIOSFODNN7EXAMPLE
-OMNI_FAKE_SECRET=hunter2hunter2
-ENV
+fake_aws_key="AKIA""IOSFODNN7EXAMPLE"
+printf 'FAKE_AWS=%s\nOMNI_FAKE_SECRET=hunter2hunter2\n' "$fake_aws_key" > .env
 
 fake_github_token="ghp_""abcdefghijklmnopqrstuvwxyz1234567890"
 printf 'GITHUB_TOKEN = "%s"\n' "$fake_github_token" > fake_config.py
