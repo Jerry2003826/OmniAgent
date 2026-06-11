@@ -209,6 +209,8 @@ def _looks_like_path_value(value: str) -> bool:
 def _should_redact_secret(secret: bytes, detector: str, allow_values: set[bytes]) -> bool:
     if secret in allow_values:
         return False
+    if _looks_like_redaction_placeholder(secret):
+        return False
     if detector == "high_entropy" and not _looks_high_entropy(secret):
         return False
     if detector == "high_entropy":
@@ -240,6 +242,10 @@ def _looks_like_false_positive(secret: bytes) -> bool:
     if secret.startswith((b"sha256-", b"sha384-", b"sha512-")):
         return True
     return False
+
+
+def _looks_like_redaction_placeholder(secret: bytes) -> bool:
+    return re.fullmatch(rb"\xe2\x9f\xa8REDACTED:[A-Za-z0-9_:-]+\xe2\x9f\xa9", secret) is not None
 
 
 def _replace_findings(data: bytes, findings: list[Finding]) -> bytes:

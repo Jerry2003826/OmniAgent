@@ -10,8 +10,7 @@ from omni.ids import ensure_project_id
 OMNI_DIRNAME = ".omni"
 CONFIG_FILENAME = "config.toml"
 GITIGNORE_ENTRIES = (
-    ".omni/generated/",
-    ".omni/project_id",
+    ".omni/",
 )
 
 OMNI_SUBDIRS = (

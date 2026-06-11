@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from omni import audit
+from omni import redact
 from omni.redact import RedactionResult
 
 
@@ -85,6 +86,17 @@ def test_audit_uses_redaction_allow_file_for_exact_values(tmp_path: Path) -> Non
     (tmp_path / ".omni" / "spool" / "allowed.jsonl").write_text(
         f"token={allowed}\n", encoding="utf-8"
     )
+
+    result = audit.audit_secrets(tmp_path, fixtures_root=FIXTURE_ROOT)
+
+    assert result.ok is True
+    assert result.omni_leaks == []
+
+
+def test_audit_accepts_already_redacted_placeholders_on_second_scan(tmp_path: Path) -> None:
+    (tmp_path / ".omni" / "spool").mkdir(parents=True)
+    redacted = redact.redact(b"token=ghp_abcdefghijklmnopqrstuvwxyz1234567890\n")
+    (tmp_path / ".omni" / "spool" / "redacted.jsonl").write_bytes(redacted.data)
 
     result = audit.audit_secrets(tmp_path, fixtures_root=FIXTURE_ROOT)
 

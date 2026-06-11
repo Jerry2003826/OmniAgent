@@ -55,8 +55,9 @@ def test_init_creates_layout_and_is_idempotent(tmp_path: Path) -> None:
     assert (omni_dir / "config.toml").read_text(encoding="utf-8")
 
     gitignore = (tmp_path / ".gitignore").read_text(encoding="utf-8").splitlines()
-    assert gitignore.count(".omni/generated/") == 1
-    assert gitignore.count(".omni/project_id") == 1
+    assert gitignore.count(".omni/") == 1
+    assert ".omni/generated/" not in gitignore
+    assert ".omni/project_id" not in gitignore
 
 
 def test_init_creates_project_id_file_and_keeps_it_after_path_move(tmp_path: Path) -> None:
@@ -227,7 +228,7 @@ def test_review_interactive_cli_is_disabled_for_week1(tmp_path: Path) -> None:
     result = run_omni(tmp_path, "review", "interactive", input_text="")
 
     assert result.returncode == 2
-    assert "experimental disabled in week-1" in result.stderr
+    assert "experimental disabled in Week-1" in result.stderr
     assert not (tmp_path / ".omni").exists()
 
 
@@ -259,7 +260,7 @@ def test_doctor_cli_is_disabled_for_week1(tmp_path: Path) -> None:
 
     assert result.returncode == 2
     assert not (tmp_path / ".omni").exists()
-    assert "experimental disabled in week-1" in result.stderr
+    assert "experimental disabled in Week-1" in result.stderr
 
 
 def test_hook_cli_redacts_stdin_to_spool_and_exits_zero(tmp_path: Path) -> None:
@@ -321,6 +322,7 @@ def test_parse_cli_outputs_events_and_redacted_archive(tmp_path: Path) -> None:
     assert event["event_type"] == "tool_use"
     assert event["tool"] == "Bash"
     assert not (tmp_path / ".omni").exists()
+    assert not (tmp_path / ".omni" / "omni.sqlite3").exists()
     assert not (tmp_path / ".omni" / "artifacts" / "transcript_archive.jsonl").exists()
 
 
