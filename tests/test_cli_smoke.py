@@ -246,6 +246,47 @@ def test_ingest_and_run_show_cli(tmp_path: Path) -> None:
     assert '"source": "transcript"' in expanded_result.stdout
 
 
+def test_run_show_summary_includes_bash_command_preview_for_g6_review(tmp_path: Path) -> None:
+    transcript = tmp_path / "transcript.jsonl"
+    transcript.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "tool_use",
+                        "timestamp": "2026-06-11T00:00:00Z",
+                        "id": "toolu_read",
+                        "name": "Bash",
+                        "input": {"command": "cat package.json"},
+                        "exit_code": 0,
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "tool_use",
+                        "timestamp": "2026-06-11T00:00:01Z",
+                        "id": "toolu_test",
+                        "name": "Bash",
+                        "input": {"command": "pnpm run test"},
+                        "exit_code": 0,
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    ingest_result = run_omni(tmp_path, "ingest", "g6_run", "--transcript", str(transcript))
+    show_result = run_omni(tmp_path, "run", "show", "g6_run")
+
+    assert ingest_result.returncode == 0, ingest_result.stderr
+    assert show_result.returncode == 0, show_result.stderr
+    assert "command" in show_result.stdout
+    assert "cat package.json" in show_result.stdout
+    assert "pnpm run test" in show_result.stdout
+
+
 def test_ingest_extracts_static_facts_for_render_cli(tmp_path: Path) -> None:
     (tmp_path / "package.json").write_text(
         json.dumps(

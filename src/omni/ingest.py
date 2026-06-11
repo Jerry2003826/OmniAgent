@@ -121,11 +121,11 @@ def run_show(root: Path | str | None, run_id: str, seq: int | None = None) -> st
             return "{}\n" if row is None else json.dumps(dict(row), indent=2, sort_keys=True) + "\n"
 
         rows = conn.execute(
-            "SELECT seq, ts, event_type, tool, exit_code, input_ref, output_ref FROM events "
+            "SELECT seq, ts, event_type, tool, exit_code, input_ref, output_ref, meta FROM events "
             "WHERE run_id = ? ORDER BY seq",
             (run_id,),
         ).fetchall()
-        lines = ["seq | ts | type | tool | exit | artifact"]
+        lines = ["seq | ts | type | tool | exit | artifact | command"]
         for row in rows:
             artifact = (row["output_ref"] or row["input_ref"] or "")[:12]
             lines.append(
@@ -137,6 +137,7 @@ def run_show(root: Path | str | None, run_id: str, seq: int | None = None) -> st
                         row["tool"] or "",
                         "" if row["exit_code"] is None else str(row["exit_code"]),
                         artifact,
+                        _command_preview(row["meta"]),
                     ]
                 )
             )
@@ -416,6 +417,31 @@ def _update_run_bounds(conn: sqlite3.Connection, run_id: str) -> None:
 def _redacted_json(value: Any) -> str:
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return redact(encoded).data.decode("utf-8", errors="replace")
+
+
+def _command_preview(meta_json: str | None) -> str:
+    if not meta_json:
+        return ""
+    try:
+        meta = json.loads(meta_json)
+    except json.JSONDecodeError:
+        return ""
+    command = _nested_command(meta)
+    if command is None:
+        return ""
+    return str(command).replace("\r", " ").replace("\n", " ")[:160]
+
+
+def _nested_command(value: Any) -> Any:
+    if isinstance(value, dict):
+        for key in ("command", "cmd"):
+            if key in value:
+                return value[key]
+        for key in ("input", "tool_input", "parameters", "args"):
+            found = _nested_command(value.get(key))
+            if found is not None:
+                return found
+    return None
 
 
 def _event_id(run_id: str, candidate: EventCandidate) -> str:

@@ -82,7 +82,7 @@ Inspect the run with `omni run show <run_id>` and, if needed, expand relevant ev
 omni run show <run_id> --seq <seq>
 ```
 
-Record the first matching test command and any rediscovery events in `docs/spike-report-template.md`.
+Use the `command` column in `omni run show <run_id>` to identify the first Bash test command and any rediscovery reads before it. Record the first matching test command and any rediscovery events in `docs/spike-report-template.md`.
 
 ## G6 Robust Criterion
 
