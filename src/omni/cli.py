@@ -15,6 +15,7 @@ from omni.parse import events_as_jsonl, parse_transcript
 from omni import inject
 from omni import render
 from omni import review
+from omni.status import status_json
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -26,6 +27,7 @@ def build_parser() -> argparse.ArgumentParser:
     init_parser.add_argument("--install-claude-hooks", action="store_true")
     init_parser.add_argument("--yes", action="store_true")
 
+    subcommands.add_parser("status")
     subcommands.add_parser("hook", help=argparse.SUPPRESS)
     parse_parser = subcommands.add_parser("parse", help=argparse.SUPPRESS)
     parse_parser.add_argument("transcript")
@@ -75,6 +77,10 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "hook":
         run_from_stdin()
+        return 0
+
+    if args.command == "status":
+        _print_diff(status_json("."))
         return 0
 
     if args.command == "parse":

@@ -133,6 +133,30 @@ def test_cli_help_smoke(tmp_path: Path) -> None:
 
     assert result.returncode == 0
     assert "init" in result.stdout
+    assert "status" in result.stdout
+
+
+def test_status_cli_reports_project_state_without_creating_layout(tmp_path: Path) -> None:
+    empty_status = run_omni(tmp_path, "status")
+
+    assert empty_status.returncode == 0, empty_status.stderr
+    assert not (tmp_path / ".omni").exists()
+    empty = json.loads(empty_status.stdout)
+    assert empty["ok"] is True
+    assert empty["omni_dir"] is False
+    assert empty["generated_memory"] is False
+    assert empty["claude_link"] is False
+
+    init = run_omni(tmp_path, "init")
+    initialized_status = run_omni(tmp_path, "status")
+
+    assert init.returncode == 0, init.stderr
+    assert initialized_status.returncode == 0, initialized_status.stderr
+    initialized = json.loads(initialized_status.stdout)
+    assert initialized["ok"] is True
+    assert initialized["omni_dir"] is True
+    assert initialized["generated_memory"] is False
+    assert initialized["claude_link"] is False
 
 
 def test_hook_cli_redacts_stdin_to_spool_and_exits_zero(tmp_path: Path) -> None:
