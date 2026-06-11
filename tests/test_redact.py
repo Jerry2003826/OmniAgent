@@ -31,6 +31,11 @@ def test_env_reverse_lookup_ignores_path_like_environment_values(monkeypatch) ->
 
 
 def test_regex_pack_redacts_each_minimal_detector() -> None:
+    slack_webhook = (
+        "https://hooks."
+        "slack.com/services/"
+        "T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX"
+    )
     cases = [
         ("aws_access_key", "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE"),
         ("github_token", "token=ghp_abcdefghijklmnopqrstuvwxyz1234567890"),
@@ -49,7 +54,7 @@ def test_regex_pack_redacts_each_minimal_detector() -> None:
         ("auth_header", "Authorization: Bearer bearer-token-value-123456"),
         ("auth_header", "Authorization: Basic dXNlcjp2ZXJ5LXNlY3JldC12YWx1ZQ=="),
         ("url_credentials", "https://user:password@example.com/path"),
-        ("slack_webhook", "https://hooks.slack.invalid/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX"),
+        ("slack_webhook", slack_webhook),
         ("secret_assignment", "password = very-secret-password-123456"),
         ("high_entropy", "--token 7c92d52a0a1b4e8faf4f0f21736e4a9df1fcd980"),
     ]

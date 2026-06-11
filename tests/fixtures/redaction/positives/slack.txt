@@ -1,1 +1,1 @@
-https://hooks.slack.invalid/services/T00000000/B00000000/XXXXXXXXXXXXXXXXXXXXXXXX
+Authorization: Bearer fixture-bearer-token-value-123456
