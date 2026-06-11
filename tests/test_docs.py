@@ -20,6 +20,7 @@ def test_demo_doc_covers_manual_cold_warm_g6_and_definition_of_done() -> None:
         "omni inject claude --mode preview",
         "omni inject claude --mode link",
         "omni run show <run_id>",
+        "scripts/create_sandbox.ps1",
     ):
         assert command in text
 
@@ -32,6 +33,7 @@ def test_demo_doc_covers_manual_cold_warm_g6_and_definition_of_done() -> None:
         "first matching test command equals injected command",
         "no forbidden rediscovery event occurred before it",
         "Final Definition Of Done",
+        "Windows PowerShell",
     ):
         assert phrase in text
 

@@ -318,3 +318,39 @@ def test_create_sandbox_script_declares_pnpm_lockfile_fixture() -> None:
 
     assert "pnpm-lock.yaml" in script
     assert "lockfileVersion:" in script
+
+
+def test_create_sandbox_powershell_script_creates_repo_fixture(tmp_path: Path) -> None:
+    powershell_check = subprocess.run(
+        ["powershell", "-NoProfile", "-Command", "$PSVersionTable.PSVersion.Major"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if powershell_check.returncode != 0:
+        pytest.skip(f"powershell is not usable: {powershell_check.stderr.strip()}")
+
+    target = tmp_path / "sandbox-ps"
+
+    result = subprocess.run(
+        [
+            "powershell",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(REPO_ROOT / "scripts" / "create_sandbox.ps1"),
+            str(target),
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (target / ".git").is_dir()
+    assert (target / "package.json").is_file()
+    assert (target / "pnpm-lock.yaml").is_file()
+    assert (target / "CLAUDE.md").is_file()
+    assert not (target / "package.json").read_bytes().startswith(b"\xef\xbb\xbf")

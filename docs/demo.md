@@ -17,11 +17,18 @@ python -m pytest -q
 omni audit secrets
 ```
 
-Create or refresh a sandbox:
+Create or refresh a sandbox on macOS/Linux or another environment with Bash:
 
 ```bash
 bash scripts/create_sandbox.sh /tmp/omni-demo-sandbox
 cd /tmp/omni-demo-sandbox
+```
+
+On Windows PowerShell, use the equivalent script:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/create_sandbox.ps1 $env:TEMP\omni-demo-sandbox
+Set-Location $env:TEMP\omni-demo-sandbox
 ```
 
 Confirm the sandbox contains `package.json`, `pnpm-lock.yaml`, and `CLAUDE.md`.
