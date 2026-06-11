@@ -47,6 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
     for command in ("approve", "reject"):
         review_command = review_subcommands.add_parser(command)
         review_command.add_argument("cand_id")
+    review_subcommands.add_parser("interactive")
     render_parser = subcommands.add_parser("render")
     render_parser.add_argument("--diff", action="store_true")
     render_parser.add_argument("--force", action="store_true")
@@ -110,8 +111,10 @@ def main(argv: list[str] | None = None) -> int:
         try:
             if args.review_command == "approve":
                 result = review.approve(conn, args.cand_id)
-            else:
+            elif args.review_command == "reject":
                 result = review.reject(conn, args.cand_id)
+            else:
+                result = review.interactive(conn)
         finally:
             conn.close()
         _print_diff(result.as_json())

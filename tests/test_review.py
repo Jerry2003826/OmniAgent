@@ -14,12 +14,15 @@ from omni import review
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
-def run_omni(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+def run_omni(
+    cwd: Path, *args: str, input_text: str | None = None
+) -> subprocess.CompletedProcess[str]:
     env = {"PYTHONPATH": str(REPO_ROOT / "src")}
     return subprocess.run(
         [sys.executable, "-m", "omni.cli", *args],
         cwd=cwd,
         env={**env},
+        input=input_text,
         text=True,
         capture_output=True,
         check=False,
@@ -134,3 +137,54 @@ def test_review_cli_approve_and_reject(tmp_path: Path) -> None:
     assert reject.returncode == 0, reject.stderr
     assert json.loads(approve.stdout)["state"] == "approved"
     assert json.loads(reject.stdout)["state"] == "rejected"
+
+
+def test_review_interactive_approves_rejects_and_summarizes(tmp_path: Path) -> None:
+    conn = connect(tmp_path)
+    approve_candidate = gate.stage_candidate(conn, candidate("interactive-approve"))
+    reject_candidate = gate.stage_candidate(conn, candidate("interactive-reject"))
+    conn.close()
+
+    result = run_omni(tmp_path, "review", "interactive", input_text="a\nr\n")
+    conn = connect(tmp_path)
+    states = dict(
+        conn.execute(
+            "SELECT object_norm, state FROM fact_candidates ORDER BY object_norm"
+        ).fetchall()
+    )
+    fact = conn.execute(
+        "SELECT object_norm FROM facts WHERE object_norm = 'interactive-approve'"
+    ).fetchone()
+    suppression = conn.execute(
+        "SELECT object_norm FROM suppressions WHERE object_norm = 'interactive-reject'"
+    ).fetchone()
+
+    assert result.returncode == 0, result.stderr
+    assert approve_candidate.cand_id in result.stdout
+    assert reject_candidate.cand_id in result.stdout
+    assert json.loads(result.stdout.splitlines()[-1]) == {
+        "approved": 1,
+        "rejected": 1,
+        "skipped": 0,
+        "remaining": 0,
+    }
+    assert states == {
+        "interactive-approve": "approved",
+        "interactive-reject": "rejected",
+    }
+    assert fact["object_norm"] == "interactive-approve"
+    assert suppression["object_norm"] == "interactive-reject"
+
+
+def test_review_interactive_no_pending_candidates(tmp_path: Path) -> None:
+    connect(tmp_path).close()
+
+    result = run_omni(tmp_path, "review", "interactive", input_text="")
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout.splitlines()[-1]) == {
+        "approved": 0,
+        "rejected": 0,
+        "skipped": 0,
+        "remaining": 0,
+    }
