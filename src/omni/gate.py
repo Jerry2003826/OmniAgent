@@ -86,8 +86,10 @@ def apply_candidates(
         if _can_auto_commit(conn, with_id):
             auto_committed += insert_fact(conn, with_id)
         else:
+            before = conn.total_changes
             stage_candidate(conn, with_id)
-            pending += 1
+            if conn.total_changes > before:
+                pending += 1
     if commit:
         conn.commit()
     return GateResult(auto_committed=auto_committed, pending=pending)

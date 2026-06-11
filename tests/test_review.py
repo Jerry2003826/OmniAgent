@@ -87,6 +87,20 @@ def test_stage_candidate_does_not_commit_open_transaction(tmp_path: Path) -> Non
     assert row is None
 
 
+def test_apply_candidates_counts_only_newly_staged_candidates(tmp_path: Path) -> None:
+    conn = connect(tmp_path)
+
+    first = gate.apply_candidates(conn, [candidate("duplicate-pending")])
+    second = gate.apply_candidates(conn, [candidate("duplicate-pending")])
+
+    rows = conn.execute(
+        "SELECT cand_id FROM fact_candidates WHERE object_norm = 'duplicate-pending'"
+    ).fetchall()
+    assert first.pending == 1
+    assert second.pending == 0
+    assert len(rows) == 1
+
+
 def test_review_reject_writes_suppression_and_blocks_auto_commit(tmp_path: Path) -> None:
     conn = connect(tmp_path)
     pending = gate.stage_candidate(conn, candidate("blocked"))
@@ -95,7 +109,7 @@ def test_review_reject_writes_suppression_and_blocks_auto_commit(tmp_path: Path)
     auto_result = gate.apply_candidates(conn, [candidate("blocked")])
 
     assert auto_result.auto_committed == 0
-    assert auto_result.pending == 1
+    assert auto_result.pending == 0
     suppression = conn.execute(
         "SELECT object_norm FROM suppressions WHERE object_norm = 'blocked'"
     ).fetchone()

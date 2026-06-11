@@ -22,6 +22,21 @@ Rationale: the hook must remain an observer and exit 0. Per-request files are
 good enough for Week-1, but a later version should make drain processing more
 durable if crash recovery during ingest becomes a requirement.
 
+Decision: legacy `ingest_queue.jsonl` support is best-effort in Week-1. A
+malformed legacy queue line quarantines the whole legacy queue file rather than
+salvaging valid neighboring lines.
+
+Rationale: current hooks no longer append to the legacy shared queue file. The
+legacy reader exists only to drain pre-existing local files during migration,
+and the quarantine preserves the original bytes for manual inspection.
+
+Decision: hook capture `_errors.log` remains a best-effort append-only diagnostic
+log in Week-1.
+
+Rationale: hook failures must not block Claude Code. Error diagnostics are
+redacted before write, but a future version can move to file-per-error records
+if partial diagnostic writes become a practical problem.
+
 Decision: `omni status` computes hook latency p50/p95 by scanning hook spool
 files in Week-1.
 

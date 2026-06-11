@@ -22,3 +22,7 @@ def test_week1_operational_debt_is_documented() -> None:
     assert "week-1" in body.lower()
     assert "summarize on ingest" in body.lower()
     assert "ingest request" in body.lower()
+    assert "legacy" in body.lower()
+    assert "ingest_queue.jsonl" in body
+    assert "best-effort" in body.lower()
+    assert "_errors.log" in body

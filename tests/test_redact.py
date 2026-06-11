@@ -161,6 +161,21 @@ def test_contextual_hex_api_key_token_or_secret_is_redacted_unless_allowlisted()
     assert allowed.data == payload
 
 
+def test_authorization_bearer_hex_tokens_are_contextual_secrets() -> None:
+    hex40 = "0123456789abcdef0123456789abcdef01234567"
+    hex64 = "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+    payload = f"Authorization: Bearer {hex40}\nAuthorization: Bearer {hex64}".encode(
+        "utf-8"
+    )
+
+    result = redact_mod.redact(payload)
+
+    assert result.status == "redacted"
+    assert "auth_header" in result.detectors
+    assert hex40.encode("utf-8") not in result.data
+    assert hex64.encode("utf-8") not in result.data
+
+
 def test_json_api_key_token_or_secret_values_are_redacted() -> None:
     secrets = {
         "api_key": "json-meta-api-key-123456",

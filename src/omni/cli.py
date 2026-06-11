@@ -16,6 +16,7 @@ from omni import inject
 from omni import render
 from omni import review
 from omni import gate
+from omni.redact import redact
 from omni.status import status_json
 
 
@@ -89,7 +90,10 @@ def main(argv: list[str] | None = None) -> int:
             if not installed.ok:
                 print(installed.message, file=sys.stderr)
                 return 2
-            _print_diff(installed.diff)
+            safe_diff = redact(installed.diff.encode("utf-8")).data.decode(
+                "utf-8", errors="replace"
+            )
+            _print_diff(safe_diff)
         return 0
 
     if args.command == "hook":

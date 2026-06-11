@@ -107,6 +107,10 @@ def test_parse_transcript_redacts_known_event_meta_in_return_value(tmp_path: Pat
 
     assert secret not in meta_text
     assert "REDACTED:" in meta_text
+    assert result.events[0].redaction_status == "redacted"
+    assert "openai_token" in result.events[0].detectors
+    assert result.events[0].as_dict()["redaction_status"] == "redacted"
+    assert "openai_token" in result.events[0].as_dict()["detectors"]
     assert secret not in rendered
     assert not (tmp_path / ".omni").exists()
     assert not (tmp_path / ".omni" / "omni.sqlite3").exists()
@@ -199,7 +203,7 @@ def test_events_as_jsonl_is_stable(tmp_path: Path) -> None:
     rendered = parse.events_as_jsonl(result.events)
 
     assert rendered == (
-        '{"duration_ms":null,"event_type":"SessionEnd","exit_code":null,'
-        '"meta":{"session_id":"s1"},"seq":1,"source":"transcript","tool":null,'
+        '{"detectors":[],"duration_ms":null,"event_type":"SessionEnd","exit_code":null,'
+        '"meta":{"session_id":"s1"},"redaction_status":"clean","seq":1,"source":"transcript","tool":null,'
         '"tool_use_id":null,"ts":""}\n'
     )

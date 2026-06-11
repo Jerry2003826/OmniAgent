@@ -118,7 +118,6 @@ def install_claude_hooks(root: Path | str | None = None, *, yes: bool = False) -
 
     claude_dir = base / ".claude"
     settings_path = claude_dir / "settings.json"
-    backup_path = claude_dir / "settings.json.omni-bak"
     original = settings_path.read_text(encoding="utf-8-sig") if settings_path.exists() else "{}\n"
     try:
         settings = _parse_settings(original)
@@ -137,8 +136,8 @@ def install_claude_hooks(root: Path | str | None = None, *, yes: bool = False) -
     )
 
     claude_dir.mkdir(parents=True, exist_ok=True)
-    if settings_path.exists() and not backup_path.exists():
-        shutil.copy2(settings_path, backup_path)
+    if settings_path.exists() and original != rendered:
+        _backup_claude_settings(base, settings_path)
     settings_path.write_text(rendered, encoding="utf-8")
     return InstallResult(ok=True, diff=diff)
 
@@ -206,6 +205,14 @@ def _write_error(spool_dir: Path, exc: Exception) -> None:
             handle.write(line + b"\n")
     except Exception:
         pass
+
+
+def _backup_claude_settings(base: Path, settings_path: Path) -> Path:
+    backup_dir = base / ".omni" / "backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    backup_path = backup_dir / f"claude-settings.{time.time_ns()}.json"
+    shutil.copy2(settings_path, backup_path)
+    return backup_path
 
 
 def _parse_settings(original: str) -> dict[str, object]:

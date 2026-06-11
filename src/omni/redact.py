@@ -37,6 +37,17 @@ _MIN_ENV_SECRET_LENGTH = 8
 _MAX_FULL_REDACTION_BYTES = 1024 * 1024
 _TRUNCATED_EDGE_BYTES = 256 * 1024
 _SECRET_ENV_KEY_HINTS = ("AUTH", "CREDENTIAL", "KEY", "PASSWORD", "SECRET", "TOKEN")
+_ALWAYS_REDACT_DETECTORS = {
+    "auth_header",
+    "aws_access_key",
+    "github_token",
+    "jwt",
+    "openai_token",
+    "pem_private_key",
+    "secret_assignment",
+    "slack_webhook",
+    "url_credentials",
+}
 
 SKIPLIST_PATTERNS = (
     ".env",
@@ -211,11 +222,11 @@ def _should_redact_secret(secret: bytes, detector: str, allow_values: set[bytes]
         return False
     if _looks_like_redaction_placeholder(secret):
         return False
+    if detector in _ALWAYS_REDACT_DETECTORS:
+        return True
     if detector == "high_entropy" and not _looks_high_entropy(secret):
         return False
     if detector == "high_entropy":
-        return True
-    if detector == "secret_assignment":
         return True
     return not _looks_like_false_positive(secret)
 

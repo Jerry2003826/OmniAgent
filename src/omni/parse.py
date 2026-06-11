@@ -41,10 +41,12 @@ class NormalizedEvent:
 
     def as_dict(self) -> dict[str, Any]:
         return {
+            "detectors": list(self.detectors),
             "duration_ms": self.duration_ms,
             "event_type": self.event_type,
             "exit_code": self.exit_code,
             "meta": self.meta,
+            "redaction_status": self.redaction_status,
             "seq": self.seq,
             "source": self.source,
             "tool": self.tool,
