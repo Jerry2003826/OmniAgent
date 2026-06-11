@@ -65,6 +65,23 @@ def test_capture_hook_skips_raw_event_parse_for_oversized_payload(
     assert not list((tmp_path / ".omni" / "spool").glob("ingest-*.json"))
 
 
+def test_capture_hook_discovers_project_root_from_subdirectory(
+    tmp_path: Path, monkeypatch
+) -> None:
+    project = tmp_path / "repo"
+    subdir = project / "src" / "pkg"
+    subdir.mkdir(parents=True)
+    (project / ".git").mkdir()
+    monkeypatch.chdir(subdir)
+
+    result = hook.capture_hook(b'{"hook_event_name":"PostToolUse"}')
+
+    assert result.ok is True
+    assert result.spool_path is not None
+    assert result.spool_path.parent == project / ".omni" / "spool"
+    assert not (subdir / ".omni").exists()
+
+
 def test_capture_hook_withholds_payload_when_skiplisted_path_is_referenced(
     tmp_path: Path,
 ) -> None:

@@ -67,3 +67,11 @@ files in Week-1.
 Rationale: this is acceptable for short sandbox runs. Future versions should
 summarize on ingest or archive processed spool files so status does not scan an
 ever-growing spool tree.
+
+Decision: manual `omni ingest --transcript` is transcript-only unless the user
+also supplies `--run-id`.
+
+Rationale: unscoped hook reconciliation can attach unrelated live-session hook
+spool to a manually ingested transcript. When `--run-id` is provided, Week-1
+treats it as the Claude session id and only reconciles hook records carrying
+that same `session_id`.

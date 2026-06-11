@@ -219,8 +219,17 @@ def _redact_line(record: dict[str, object]) -> bytes:
 
 
 def _hook_base(root: Path | str | None) -> Path:
-    configured = root or os.environ.get("CLAUDE_PROJECT_DIR") or Path.cwd()
-    return Path(configured).resolve()
+    configured = root or os.environ.get("CLAUDE_PROJECT_DIR")
+    if configured is not None:
+        return Path(configured).resolve()
+    return _discover_project_root(Path.cwd().resolve())
+
+
+def _discover_project_root(start: Path) -> Path:
+    for candidate in (start, *start.parents):
+        if (candidate / ".omni").is_dir() or (candidate / ".git").exists():
+            return candidate
+    return start
 
 
 def _redact_skiplisted_payload(payload: bytes) -> RedactionResult | None:

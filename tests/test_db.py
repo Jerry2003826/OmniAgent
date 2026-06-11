@@ -578,6 +578,70 @@ def test_manual_transcript_ingest_does_not_consume_unrelated_queued_hook_spool(
     assert len(list((tmp_path / ".omni" / "spool" / "processed").glob("hook-*.jsonl"))) == 2
 
 
+def test_manual_transcript_without_run_id_does_not_scan_hook_spool(
+    tmp_path: Path, monkeypatch
+) -> None:
+    transcript = tmp_path / "manual.jsonl"
+    transcript.write_text(
+        '{"type":"tool_use","id":"toolu_manual","timestamp":"2026-06-11T00:00:00Z"}\n',
+        encoding="utf-8",
+    )
+
+    def fail_hook_scan(*_args, **_kwargs):
+        raise AssertionError("unscoped manual transcript ingest must not scan hook spool")
+
+    monkeypatch.setattr(ingest, "_hook_candidates", fail_hook_scan)
+
+    result = ingest.ingest(root=tmp_path, transcript=transcript)
+    conn = db.connect(tmp_path / ".omni" / "omni.sqlite3")
+    rows = conn.execute("SELECT run_id, tool_use_id, source FROM events").fetchall()
+
+    assert result.events_inserted == 1
+    assert len(result.run_ids) == 1
+    assert [row["tool_use_id"] for row in rows] == ["toolu_manual"]
+    assert [row["source"] for row in rows] == ["transcript"]
+
+
+def test_ingest_preserves_transcript_order_when_timestamps_are_missing(
+    tmp_path: Path,
+) -> None:
+    transcript = tmp_path / "missing-ts.jsonl"
+    transcript.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "tool_use",
+                        "id": "toolu_order",
+                        "name": "Bash",
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "toolu_order",
+                        "tool": "Bash",
+                        "exit_code": 0,
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    ingest.ingest(root=tmp_path, run_id="run_order", transcript=transcript)
+    conn = db.connect(tmp_path / ".omni" / "omni.sqlite3")
+    rows = conn.execute(
+        "SELECT seq, event_type FROM events WHERE run_id = 'run_order' ORDER BY seq"
+    ).fetchall()
+
+    assert [(row["seq"], row["event_type"]) for row in rows] == [
+        (1, "tool_use"),
+        (2, "tool_result"),
+    ]
+
+
 def test_ingest_drains_queue_and_watchdog_closes_stale_open_runs(tmp_path: Path) -> None:
     transcript = tmp_path / "queued.jsonl"
     transcript.write_text(

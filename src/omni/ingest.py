@@ -40,6 +40,7 @@ class EventCandidate:
     artifact_hash: str | None
     unique_key: str
     redaction_status: str = "clean"
+    sort_index: int = 0
 
 
 def ingest(
@@ -59,13 +60,14 @@ def ingest(
 
         if transcript is not None:
             rid = run_id or _run_id_for_transcript(Path(transcript))
+            manual_session_id = run_id
             inserted, hook_paths = _ingest_one(
                 conn,
                 base,
                 rid,
                 Path(transcript),
-                include_hooks=True,
-                session_id=rid,
+                include_hooks=manual_session_id is not None,
+                session_id=manual_session_id,
             )
             total_inserted += inserted
             consumed_hook_paths.update(hook_paths)
@@ -263,6 +265,7 @@ def _candidate_from_transcript_event(
         artifact_hash=artifact.hash,
         unique_key=f"transcript:{event.tool_use_id or event.seq}:{event.event_type}:{event.ts}",
         redaction_status=event.redaction_status,
+        sort_index=event.seq,
     )
 
 
@@ -365,6 +368,7 @@ def _candidate_from_hook_record(
         artifact_hash=artifact.hash,
         unique_key=f"hook:{record.path.name}:{record.line_no}",
         redaction_status=_merge_redaction_status(record_status, event_status, tool_status, tool_id_status),
+        sort_index=record.line_no,
     )
 
 
@@ -425,12 +429,21 @@ def _reconcile_candidates(
                     event.redaction_status,
                     hook_event.redaction_status,
                 ),
+                sort_index=event.sort_index,
             )
         )
     reconciled.extend(
         event for event in hook_events if not event.tool_use_id or event.tool_use_id not in transcript_tool_ids
     )
-    return sorted(reconciled, key=lambda item: (item.ts or "", item.event_type, item.unique_key))
+    return sorted(
+        reconciled,
+        key=lambda item: (
+            item.ts if item.ts else "\uffff",
+            item.sort_index,
+            item.event_type,
+            item.unique_key,
+        ),
+    )
 
 
 def _insert_event(conn: sqlite3.Connection, run_id: str, seq: int, candidate: EventCandidate) -> int:
@@ -531,7 +544,13 @@ def _renumber_run_events(conn: sqlite3.Connection, run_id: str) -> None:
         """
         SELECT event_id FROM events
         WHERE run_id = ?
-        ORDER BY ts, event_type, COALESCE(tool_use_id, ''), event_id
+        ORDER BY
+          CASE WHEN NULLIF(ts, '') IS NULL THEN 1 ELSE 0 END,
+          NULLIF(ts, ''),
+          seq,
+          event_type,
+          COALESCE(tool_use_id, ''),
+          event_id
         """,
         (run_id,),
     ).fetchall()
