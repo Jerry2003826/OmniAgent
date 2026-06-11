@@ -90,6 +90,8 @@ def _omni_leaks(root: Path, allow_values: set[str]) -> list[Path]:
     for path in sorted(omni_dir.rglob("*")):
         if not path.is_file():
             continue
+        if path.relative_to(omni_dir) == Path("audit") / "secrets.passed":
+            continue
         result = redact_path(path, allow_values=allow_values)
         if result.status != "clean":
             leaks.append(path)

@@ -36,6 +36,7 @@ class _RegexDetector:
 _MIN_ENV_SECRET_LENGTH = 8
 _MAX_FULL_REDACTION_BYTES = 1024 * 1024
 _TRUNCATED_EDGE_BYTES = 256 * 1024
+_SECRET_ENV_KEY_HINTS = ("AUTH", "CREDENTIAL", "KEY", "PASSWORD", "SECRET", "TOKEN")
 
 SKIPLIST_PATTERNS = (
     ".env",
@@ -175,8 +176,8 @@ def _apply_env_reverse_lookup(
     allowed = allow_values or set()
     env_findings = [
         Finding("env", value.encode("utf-8", errors="ignore"))
-        for value in os.environ.values()
-        if _looks_like_env_secret(value)
+        for key, value in os.environ.items()
+        if _looks_like_env_secret(key, value)
         and value.encode("utf-8", errors="ignore") not in allowed
         and value.encode("utf-8", errors="ignore") in data
     ]
@@ -184,8 +185,25 @@ def _apply_env_reverse_lookup(
     return _replace_findings(data, env_findings)
 
 
-def _looks_like_env_secret(value: str) -> bool:
-    return len(value) >= _MIN_ENV_SECRET_LENGTH and not value.isspace()
+def _looks_like_env_secret(key: str, value: str) -> bool:
+    upper_key = key.upper()
+    return (
+        len(value) >= _MIN_ENV_SECRET_LENGTH
+        and not value.isspace()
+        and any(hint in upper_key for hint in _SECRET_ENV_KEY_HINTS)
+        and not _looks_like_path_value(value)
+    )
+
+
+def _looks_like_path_value(value: str) -> bool:
+    stripped = value.strip()
+    if re.match(r"^[A-Za-z]:[\\/]", stripped):
+        return True
+    if stripped.startswith(("/", "\\\\")):
+        return True
+    if ";" in stripped and re.search(r"[A-Za-z]:[\\/]", stripped):
+        return True
+    return False
 
 
 def _should_redact_secret(secret: bytes, detector: str, allow_values: set[bytes]) -> bool:

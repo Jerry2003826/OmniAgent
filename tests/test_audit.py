@@ -24,6 +24,17 @@ def test_audit_secrets_passes_curated_corpus_and_clean_omni_tree(tmp_path: Path)
     assert (tmp_path / ".omni" / "audit" / "secrets.passed").exists()
 
 
+def test_audit_ignores_own_success_marker(tmp_path: Path) -> None:
+    marker = tmp_path / ".omni" / "audit" / "secrets.passed"
+    marker.parent.mkdir(parents=True)
+    marker.write_text("ok\n", encoding="utf-8")
+
+    result = audit.audit_secrets(tmp_path, fixtures_root=FIXTURE_ROOT)
+
+    assert result.ok is True
+    assert result.omni_leaks == []
+
+
 def test_audit_secrets_fails_on_planted_omni_secret(tmp_path: Path) -> None:
     (tmp_path / ".omni" / "spool").mkdir(parents=True)
     leak = tmp_path / ".omni" / "spool" / "leak.jsonl"

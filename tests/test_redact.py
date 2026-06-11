@@ -19,6 +19,17 @@ def test_env_reverse_lookup_redacts_environment_value(monkeypatch) -> None:
     assert not hasattr(result, "original")
 
 
+def test_env_reverse_lookup_ignores_path_like_environment_values(monkeypatch) -> None:
+    monkeypatch.setenv("OMNI_TEMP_PATH", r"C:\Users\Jiarui Li\AppData\Local\Temp")
+    payload = rb'{"cwd":"C:\\Users\\Jiarui Li\\AppData\\Local\\Temp\\omni-demo"}'
+
+    result = redact_mod.redact(payload)
+
+    assert result.status == "clean"
+    assert result.detectors == ()
+    assert result.data == payload
+
+
 def test_regex_pack_redacts_each_minimal_detector() -> None:
     cases = [
         ("aws_access_key", "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE"),
