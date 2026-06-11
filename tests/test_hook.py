@@ -93,6 +93,46 @@ def test_capture_hook_withholds_payload_when_skiplisted_path_is_referenced(
     assert payload["tool_response"]["content"]["error"] == "skiplisted_path_withheld"
 
 
+def test_capture_hook_withholds_skiplisted_write_input_content(
+    tmp_path: Path,
+) -> None:
+    raw_secret = "DB_PASS=lowercaseplainword"
+    replacement_secret = "NEW_PASS=anotherlowercaseplainword"
+    data_secret = "DATA_PASS=thirdlowercaseplainword"
+    result = hook.capture_hook(
+        json.dumps(
+            {
+                "hook_event_name": "PostToolUse",
+                "tool": "Write",
+                "tool_input": {
+                    "file_path": ".env",
+                    "content": raw_secret,
+                    "new_string": replacement_secret,
+                    "data": {"raw": data_secret},
+                },
+                "tool_response": {"stdout": "wrote .env\n"},
+            }
+        ).encode("utf-8"),
+        root=tmp_path,
+    )
+
+    assert result.ok is True
+    assert result.spool_path is not None
+    written = result.spool_path.read_text(encoding="utf-8")
+    assert raw_secret not in written
+    assert replacement_secret not in written
+    assert data_secret not in written
+    record = json.loads(written)
+    payload = json.loads(record["payload"])
+    assert record["meta"]["redaction_status"] == "withheld"
+    assert record["meta"]["detectors"] == ["skiplist"]
+    assert payload["tool"] == "Write"
+    assert payload["tool_input"]["file_path"] == ".env"
+    assert payload["tool_input"]["content"]["error"] == "skiplisted_path_withheld"
+    assert payload["tool_input"]["new_string"]["error"] == "skiplisted_path_withheld"
+    assert payload["tool_input"]["data"]["error"] == "skiplisted_path_withheld"
+
+
 def test_capture_hook_does_not_withhold_directory_listing_that_mentions_env(
     tmp_path: Path,
 ) -> None:

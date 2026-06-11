@@ -238,3 +238,13 @@ def test_secret_assignment_does_not_redact_function_calls() -> None:
 
     assert result.status == "clean"
     assert result.data == payload
+
+
+def test_secret_assignment_redacts_parenthesized_password_literal() -> None:
+    payload = b'password = "p@ss(word)"\n'
+
+    result = redact_mod.redact(payload)
+
+    assert result.status == "redacted"
+    assert "secret_assignment" in result.detectors
+    assert b"p@ss(word)" not in result.data

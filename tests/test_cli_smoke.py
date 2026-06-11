@@ -805,6 +805,33 @@ def test_create_sandbox_scripts_do_not_embed_complete_fake_github_token() -> Non
         assert '"AKIA"' in script
 
 
+def test_shell_scripts_are_executable_in_git_index() -> None:
+    result = subprocess.run(
+        [
+            "git",
+            "ls-files",
+            "-s",
+            "scripts/create_sandbox.sh",
+            "scripts/golden_demo.sh",
+        ],
+        cwd=REPO_ROOT,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    modes = {
+        parts[3]: parts[0]
+        for line in result.stdout.splitlines()
+        if (parts := line.split(maxsplit=3))
+    }
+    assert modes == {
+        "scripts/create_sandbox.sh": "100755",
+        "scripts/golden_demo.sh": "100755",
+    }
+
+
 def test_create_sandbox_powershell_script_creates_repo_fixture(tmp_path: Path) -> None:
     powershell_check = subprocess.run(
         ["powershell", "-NoProfile", "-Command", "$PSVersionTable.PSVersion.Major"],

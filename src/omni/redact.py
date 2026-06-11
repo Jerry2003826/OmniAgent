@@ -223,7 +223,7 @@ def _should_redact_secret(secret: bytes, detector: str, allow_values: set[bytes]
         return False
     if _looks_like_redaction_placeholder(secret):
         return False
-    if detector == "secret_assignment" and b"(" in secret and secret.endswith(b")"):
+    if detector == "secret_assignment" and _looks_like_function_call(secret):
         return False
     if detector in _ALWAYS_REDACT_DETECTORS:
         return True
@@ -232,6 +232,10 @@ def _should_redact_secret(secret: bytes, detector: str, allow_values: set[bytes]
     if detector == "high_entropy":
         return True
     return not _looks_like_false_positive(secret)
+
+
+def _looks_like_function_call(secret: bytes) -> bool:
+    return re.fullmatch(rb"[A-Za-z_][A-Za-z0-9_.]*\(.*\)", secret) is not None
 
 
 def _looks_high_entropy(secret: bytes) -> bool:

@@ -23,6 +23,9 @@ HOOK_COMMAND_ENV = "OMNI_HOOK_COMMAND"
 INGEST_EVENTS = {"Stop", "SessionEnd"}
 AUDIT_PASSED_MARKER = Path(".omni") / "audit" / "secrets.passed"
 MAX_HOOK_EVENT_PARSE_BYTES = 256 * 1024
+INPUT_CONTAINER_KEYS = {"tool_input", "input", "parameters", "args"}
+INPUT_CONTENT_KEYS = {"content", "new_string", "old_string", "text", "data"}
+RESPONSE_CONTAINER_KEYS = {"tool_response", "tool_result", "response", "result"}
 
 CLAUDE_HOOK_EVENTS = (
     "SessionStart",
@@ -226,7 +229,7 @@ def _redact_skiplisted_payload(payload: bytes) -> RedactionResult | None:
     if not _event_input_references_skiplisted_path(event):
         return None
 
-    sanitized = _withhold_response_content(event, _skiplisted_payload_stub(payload))
+    sanitized = _withhold_skiplisted_content(event, _skiplisted_payload_stub(payload))
     encoded = json.dumps(
         sanitized,
         sort_keys=True,
@@ -285,33 +288,49 @@ def _command_references_skiplisted_path(command: str) -> bool:
     return False
 
 
-def _withhold_response_content(value: object, stub: bytes) -> object:
+def _withhold_skiplisted_content(value: object, stub: bytes) -> object:
     stub_obj = json.loads(stub.decode("utf-8"))
-    return _replace_response_content(value, stub_obj, in_response=False)
+    return _replace_skiplisted_content(
+        value,
+        stub_obj,
+        in_response=False,
+        in_input=False,
+    )
 
 
-def _replace_response_content(value: object, stub: dict[str, object], *, in_response: bool) -> object:
+def _replace_skiplisted_content(
+    value: object,
+    stub: dict[str, object],
+    *,
+    in_response: bool,
+    in_input: bool,
+) -> object:
     if isinstance(value, dict):
         replaced: dict[str, object] = {}
         for key, item in value.items():
-            key_in_response = in_response or str(key) in {
-                "tool_response",
-                "tool_result",
-                "response",
-                "result",
-            }
+            key_text = str(key)
+            key_in_response = in_response or key_text in RESPONSE_CONTAINER_KEYS
+            key_in_input = in_input or key_text in INPUT_CONTAINER_KEYS
             if key_in_response and isinstance(item, str):
                 replaced[key] = stub
+            elif key_in_input and key_text in INPUT_CONTENT_KEYS:
+                replaced[key] = stub
             else:
-                replaced[key] = _replace_response_content(
+                replaced[key] = _replace_skiplisted_content(
                     item,
                     stub,
                     in_response=key_in_response,
+                    in_input=key_in_input,
                 )
         return replaced
     if isinstance(value, list):
         return [
-            _replace_response_content(item, stub, in_response=in_response)
+            _replace_skiplisted_content(
+                item,
+                stub,
+                in_response=in_response,
+                in_input=in_input,
+            )
             for item in value
         ]
     return stub if in_response and isinstance(value, str) else value
