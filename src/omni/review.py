@@ -64,7 +64,7 @@ def approve(conn: sqlite3.Connection, cand_id: str) -> ReviewResult:
         conn.commit()
         raise
     conn.execute(
-        "UPDATE fact_candidates SET state = ?, reviewed_at = ? WHERE cand_id = ?",
+        "UPDATE fact_candidates SET state = ?, reviewed_at = ?, review_note = NULL WHERE cand_id = ?",
         ("approved", _now(), cand_id),
     )
     conn.commit()

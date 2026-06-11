@@ -209,6 +209,23 @@ def test_review_approve_exact_duplicate_is_harmless(tmp_path: Path) -> None:
     assert [row["object_norm"] for row in facts] == ["pnpm run test"]
 
 
+def test_review_approve_clears_stale_review_note(tmp_path: Path) -> None:
+    conn = connect(tmp_path)
+    pending = gate.stage_candidate(conn, candidate("stale-note"))
+    conn.execute(
+        "UPDATE fact_candidates SET review_note = ? WHERE cand_id = ?",
+        ("previous conflict requires supersede", pending.cand_id),
+    )
+
+    review.approve(conn, pending.cand_id)
+
+    row = conn.execute(
+        "SELECT state, review_note FROM fact_candidates WHERE cand_id = ?",
+        (pending.cand_id,),
+    ).fetchone()
+    assert dict(row) == {"state": "approved", "review_note": None}
+
+
 def test_review_cli_approve_and_reject(tmp_path: Path) -> None:
     conn = connect(tmp_path)
     approve_candidate = gate.stage_candidate(conn, candidate("cli-approve"))

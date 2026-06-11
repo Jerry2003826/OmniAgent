@@ -21,6 +21,7 @@ LEGACY_HOOK_COMMAND = "omni hook"
 HOOK_COMMAND_ENV = "OMNI_HOOK_COMMAND"
 INGEST_EVENTS = {"Stop", "SessionEnd"}
 AUDIT_PASSED_MARKER = Path(".omni") / "audit" / "secrets.passed"
+MAX_HOOK_EVENT_PARSE_BYTES = 256 * 1024
 
 CLAUDE_HOOK_EVENTS = (
     "SessionStart",
@@ -72,7 +73,7 @@ def capture_hook(payload: bytes, root: Path | str | None = None) -> HookCaptureR
     try:
         spool_dir.mkdir(parents=True, exist_ok=True)
         redaction = _redact_payload(payload)
-        event = _event_from_payload(payload)
+        event = _event_for_enqueue(payload)
         elapsed_ms = int((time.perf_counter() - started) * 1000)
         record = {
             "meta": {
@@ -136,8 +137,6 @@ def install_claude_hooks(root: Path | str | None = None, *, yes: bool = False) -
     )
 
     claude_dir.mkdir(parents=True, exist_ok=True)
-    if settings_path.exists() and original != rendered:
-        _backup_claude_settings(base, settings_path)
     _atomic_write_text(settings_path, rendered)
     return InstallResult(ok=True, diff=_redacted_text(diff))
 
@@ -175,6 +174,12 @@ def _event_from_payload(payload: bytes) -> dict[str, object]:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def _event_for_enqueue(payload: bytes) -> dict[str, object]:
+    if len(payload) > MAX_HOOK_EVENT_PARSE_BYTES:
+        return {}
+    return _event_from_payload(payload)
+
+
 def _redact_line(record: dict[str, object]) -> bytes:
     encoded = json.dumps(record, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return redact(encoded).data
@@ -205,14 +210,6 @@ def _write_error(spool_dir: Path, exc: Exception) -> None:
             handle.write(line + b"\n")
     except Exception:
         pass
-
-
-def _backup_claude_settings(base: Path, settings_path: Path) -> Path:
-    backup_dir = base / ".omni" / "backups"
-    backup_dir.mkdir(parents=True, exist_ok=True)
-    backup_path = backup_dir / f"claude-settings.{time.time_ns()}.json"
-    shutil.copy2(settings_path, backup_path)
-    return backup_path
 
 
 def _atomic_write_text(path: Path, content: str, *, encoding: str = "utf-8") -> None:

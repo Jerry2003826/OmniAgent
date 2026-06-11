@@ -48,8 +48,11 @@ Violations require reverting the commit.
    The process still exits 0.
 
 3. Hooks never write the DB.
-   Stop and SessionEnd hooks only append an ingest request to:
-   `.omni/spool/ingest_queue.jsonl`.
+   Stop and SessionEnd hooks only write redacted ingest request files under:
+   `.omni/spool/`.
+
+   Legacy `.omni/spool/ingest_queue.jsonl` is read best-effort for migration,
+   but new hooks do not append to it.
 
    Only these commands write SQLite:
    - `omni ingest`
@@ -72,8 +75,9 @@ Violations require reverting the commit.
    ```
 
    This command must:
-   - print a diff
-   - back up the original file to `settings.json.omni-bak`
+   - print a redacted diff
+   - write `.claude/settings.json` with atomic temp-file replace
+   - not create a raw settings backup by default
    - never touch global `~/.claude/settings.json`
 
    If `omni audit secrets` has never passed in this checkout, installing hooks additionally requires `--yes`.

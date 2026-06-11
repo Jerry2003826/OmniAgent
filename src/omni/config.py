@@ -11,6 +11,8 @@ OMNI_DIRNAME = ".omni"
 CONFIG_FILENAME = "config.toml"
 GITIGNORE_ENTRIES = (
     ".omni/",
+    ".claude/*.omni-tmp",
+    ".claude/settings.json.omni-bak",
 )
 
 OMNI_SUBDIRS = (

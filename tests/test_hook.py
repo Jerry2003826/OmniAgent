@@ -47,6 +47,22 @@ def test_session_end_writes_per_request_ingest_file(tmp_path: Path, monkeypatch)
     assert "REDACTED:env:" in request_text
 
 
+def test_capture_hook_skips_raw_event_parse_for_oversized_payload(
+    tmp_path: Path, monkeypatch
+) -> None:
+    def fail_raw_parse(_payload: bytes) -> dict[str, object]:
+        raise AssertionError("oversized payload should not be parsed for enqueue detection")
+
+    monkeypatch.setattr(hook, "_event_from_payload", fail_raw_parse)
+    payload = b'{"hook_event_name":"PostToolUse","padding":"' + b"x" * (2 * 1024 * 1024) + b'"}'
+
+    result = hook.capture_hook(payload, root=tmp_path)
+
+    assert result.ok is True
+    assert result.spool_path is not None
+    assert not list((tmp_path / ".omni" / "spool").glob("ingest-*.json"))
+
+
 def test_drain_ingest_queue_reads_request_files_and_quarantines_malformed(
     tmp_path: Path,
 ) -> None:

@@ -28,3 +28,5 @@ def test_week1_operational_debt_is_documented() -> None:
     assert "_errors.log" in body
     assert "output-safety redaction" in body.lower()
     assert "event.detectors" in body
+    assert "no raw claude settings backup" in body.lower()
+    assert "atomic" in body.lower()

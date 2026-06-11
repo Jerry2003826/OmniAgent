@@ -44,6 +44,14 @@ Rationale: parse output is a terminal/log boundary, so a second redaction pass i
 intentional. The final JSONL may be redacted beyond the event.detectors metadata,
 which describes redaction found while normalizing the event.
 
+Decision: no raw Claude settings backup is created during hook installation in
+Week-1. `.claude/settings.json` is written with an atomic temp-file replace
+instead.
+
+Rationale: copying `.claude/settings.json` into `.omni/` would violate
+redaction-before-write and create an original vault. Atomic replace covers the
+main corruption risk without storing raw user-local configuration.
+
 Decision: `omni status` computes hook latency p50/p95 by scanning hook spool
 files in Week-1.
 
