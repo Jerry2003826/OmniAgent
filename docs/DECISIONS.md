@@ -37,6 +37,15 @@ Rationale: hook failures must not block Claude Code. Error diagnostics are
 redacted before write, but a future version can move to file-per-error records
 if partial diagnostic writes become a practical problem.
 
+Decision: skiplisted hook capture keeps read commands visible but withholds Bash
+commands that write inline content to skiplisted paths with `>`, `>>`, or `tee`.
+
+Rationale: command lines are useful evidence for reads such as `cat .env`, where
+the response content is withheld. For writes into skiplisted files, the command
+itself may contain inline secrets, so Week-1 replaces that command with the same
+skiplist stub used for content fields. This does not claim general secret
+detection for arbitrary command text.
+
 Decision: `events_as_jsonl()` performs output-safety redaction even though
 `NormalizedEvent` values are already redacted.
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from omni import hook
 from omni import spool
 
@@ -131,6 +133,70 @@ def test_capture_hook_withholds_skiplisted_write_input_content(
     assert payload["tool_input"]["content"]["error"] == "skiplisted_path_withheld"
     assert payload["tool_input"]["new_string"]["error"] == "skiplisted_path_withheld"
     assert payload["tool_input"]["data"]["error"] == "skiplisted_path_withheld"
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        'echo "DB_PASS=lowercaseplainword" > .env',
+        'echo "DB_PASS=lowercaseplainword" >> .env',
+        'printf "DB_PASS=lowercaseplainword" | tee .env',
+    ],
+)
+def test_capture_hook_withholds_bash_write_command_for_skiplisted_path(
+    tmp_path: Path,
+    command: str,
+) -> None:
+    raw_secret = "DB_PASS=lowercaseplainword"
+    result = hook.capture_hook(
+        json.dumps(
+            {
+                "hook_event_name": "PostToolUse",
+                "tool": "Bash",
+                "tool_input": {"command": command},
+                "tool_response": {"stdout": ""},
+            }
+        ).encode("utf-8"),
+        root=tmp_path,
+    )
+
+    assert result.ok is True
+    assert result.spool_path is not None
+    written = result.spool_path.read_text(encoding="utf-8")
+    assert raw_secret not in written
+    record = json.loads(written)
+    payload = json.loads(record["payload"])
+    assert record["meta"]["redaction_status"] == "withheld"
+    assert record["meta"]["detectors"] == ["skiplist"]
+    assert payload["tool_input"]["command"]["error"] == "skiplisted_path_withheld"
+
+
+def test_capture_hook_preserves_bash_read_command_for_skiplisted_path(
+    tmp_path: Path,
+) -> None:
+    raw_secret = "DB_PASS=lowercaseplainword"
+    command = "cat .env"
+    result = hook.capture_hook(
+        json.dumps(
+            {
+                "hook_event_name": "PostToolUse",
+                "tool": "Bash",
+                "tool_input": {"command": command},
+                "tool_response": {"stdout": raw_secret},
+            }
+        ).encode("utf-8"),
+        root=tmp_path,
+    )
+
+    assert result.ok is True
+    assert result.spool_path is not None
+    written = result.spool_path.read_text(encoding="utf-8")
+    assert raw_secret not in written
+    record = json.loads(written)
+    payload = json.loads(record["payload"])
+    assert record["meta"]["redaction_status"] == "withheld"
+    assert payload["tool_input"]["command"] == command
+    assert payload["tool_response"]["stdout"]["error"] == "skiplisted_path_withheld"
 
 
 def test_capture_hook_does_not_withhold_directory_listing_that_mentions_env(

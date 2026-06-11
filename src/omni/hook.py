@@ -23,9 +23,12 @@ HOOK_COMMAND_ENV = "OMNI_HOOK_COMMAND"
 INGEST_EVENTS = {"Stop", "SessionEnd"}
 AUDIT_PASSED_MARKER = Path(".omni") / "audit" / "secrets.passed"
 MAX_HOOK_EVENT_PARSE_BYTES = 256 * 1024
+COMMAND_KEYS = {"command", "cmd"}
 INPUT_CONTAINER_KEYS = {"tool_input", "input", "parameters", "args"}
 INPUT_CONTENT_KEYS = {"content", "new_string", "old_string", "text", "data"}
 RESPONSE_CONTAINER_KEYS = {"tool_response", "tool_result", "response", "result"}
+SHELL_CONTROL_TOKENS = {"|", "||", "&&", ";", "&", "("}
+SHELL_WRITE_REDIRECT_TOKENS = {">", ">>", ">|", "&>", "&>>"}
 
 CLAUDE_HOOK_EVENTS = (
     "SessionStart",
@@ -259,7 +262,7 @@ def _input_value_references_skiplisted_path(value: object) -> bool:
             if lowered in {"file_path", "filepath", "path", "filename"}:
                 if _string_references_skiplisted_path(str(item)):
                     return True
-            if lowered in {"command", "cmd"} and isinstance(item, str):
+            if lowered in COMMAND_KEYS and isinstance(item, str):
                 if _command_references_skiplisted_path(item):
                     return True
             if isinstance(item, (dict, list)) and _input_value_references_skiplisted_path(item):
@@ -288,6 +291,42 @@ def _command_references_skiplisted_path(command: str) -> bool:
     return False
 
 
+def _command_writes_skiplisted_path(command: str) -> bool:
+    tokens = _shell_tokens(command)
+    for index, token in enumerate(tokens[:-1]):
+        if token in SHELL_WRITE_REDIRECT_TOKENS:
+            if _string_references_skiplisted_path(tokens[index + 1]):
+                return True
+    for index, token in enumerate(tokens):
+        if token != "tee":
+            continue
+        if index != 0 and tokens[index - 1] not in SHELL_CONTROL_TOKENS:
+            continue
+        if _tee_writes_skiplisted_path(tokens[index + 1 :]):
+            return True
+    return False
+
+
+def _shell_tokens(command: str) -> list[str]:
+    try:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        return list(lexer)
+    except ValueError:
+        return []
+
+
+def _tee_writes_skiplisted_path(tokens: list[str]) -> bool:
+    for token in tokens:
+        if token in SHELL_CONTROL_TOKENS or token in SHELL_WRITE_REDIRECT_TOKENS:
+            return False
+        if token == "--" or token.startswith("-"):
+            continue
+        if _string_references_skiplisted_path(token):
+            return True
+    return False
+
+
 def _withhold_skiplisted_content(value: object, stub: bytes) -> object:
     stub_obj = json.loads(stub.decode("utf-8"))
     return _replace_skiplisted_content(
@@ -309,11 +348,19 @@ def _replace_skiplisted_content(
         replaced: dict[str, object] = {}
         for key, item in value.items():
             key_text = str(key)
+            key_lower = key_text.lower()
             key_in_response = in_response or key_text in RESPONSE_CONTAINER_KEYS
-            key_in_input = in_input or key_text in INPUT_CONTAINER_KEYS
+            key_in_input = in_input or key_lower in INPUT_CONTAINER_KEYS
             if key_in_response and isinstance(item, str):
                 replaced[key] = stub
-            elif key_in_input and key_text in INPUT_CONTENT_KEYS:
+            elif key_in_input and key_lower in INPUT_CONTENT_KEYS:
+                replaced[key] = stub
+            elif (
+                key_in_input
+                and key_lower in COMMAND_KEYS
+                and isinstance(item, str)
+                and _command_writes_skiplisted_path(item)
+            ):
                 replaced[key] = stub
             else:
                 replaced[key] = _replace_skiplisted_content(
