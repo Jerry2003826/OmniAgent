@@ -112,6 +112,31 @@ def test_parse_transcript_redacts_known_event_meta_in_return_value(tmp_path: Pat
     assert not (tmp_path / ".omni" / "omni.sqlite3").exists()
 
 
+def test_parse_transcript_redacts_secret_like_known_event_fields(tmp_path: Path) -> None:
+    secret = "ghp_" + "abcdefghijklmnopqrstuvwxyz1234567890"
+    transcript = tmp_path / "transcript.jsonl"
+    write_jsonl(
+        transcript,
+        [
+            {
+                "type": "tool_use",
+                "timestamp": "2026-06-11T00:00:00Z",
+                "id": secret,
+                "name": f"token={secret}",
+            }
+        ],
+    )
+
+    result = parse.parse_transcript(transcript)
+    rendered = parse.events_as_jsonl(result.events)
+    event = result.events[0]
+
+    assert secret not in event.tool
+    assert secret not in event.tool_use_id
+    assert secret not in rendered
+    assert "REDACTED:" in rendered
+
+
 def test_parse_transcript_streams_without_reading_entire_file(
     tmp_path: Path, monkeypatch
 ) -> None:
@@ -138,6 +163,32 @@ def test_parse_transcript_streams_without_reading_entire_file(
 
     assert len(result.events) == 50_000
     assert result.archive is None
+
+
+def test_events_as_jsonl_redacts_each_line_for_large_output() -> None:
+    secret = "sk-" + "largeparseoutputsecretvalue1234567890"
+    events = [
+        parse.NormalizedEvent(
+            seq=index + 1,
+            ts="2026-06-11T00:00:00Z",
+            event_type="tool_use",
+            tool="Bash",
+            tool_use_id=f"toolu_{index}",
+            exit_code=0,
+            duration_ms=None,
+            source="transcript",
+            meta={"api_key": secret, "padding": "x" * 200},
+        )
+        for index in range(6_000)
+    ]
+
+    rendered = parse.events_as_jsonl(events)
+    lines = rendered.splitlines()
+
+    assert len(lines) == len(events)
+    assert "payload_truncated" not in rendered
+    assert secret not in rendered
+    assert all(json.loads(line)["event_type"] == "tool_use" for line in lines)
 
 
 def test_events_as_jsonl_is_stable(tmp_path: Path) -> None:

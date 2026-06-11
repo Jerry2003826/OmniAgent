@@ -5,6 +5,8 @@ import os
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 from omni import db
 from omni import hook
 from omni import ingest
@@ -136,14 +138,15 @@ def test_ingest_transcript_is_idempotent_and_redacts_db_content(
     tmp_path: Path, monkeypatch
 ) -> None:
     monkeypatch.setenv("OMNI_INGEST_SECRET", "ingest-secret-value-123")
+    github_secret = "ghp_" + "abcdefghijklmnopqrstuvwxyz1234567890"
     transcript = tmp_path / "transcript.jsonl"
     transcript.write_text(
         json.dumps(
             {
                 "type": "tool_use",
                 "timestamp": "2026-06-11T00:00:00Z",
-                "id": "toolu_1",
-                "name": "Bash",
+                "id": github_secret,
+                "name": f"token={github_secret}",
                 "api_key": "ingest-secret-value-123",
             }
         )
@@ -165,8 +168,15 @@ def test_ingest_transcript_is_idempotent_and_redacts_db_content(
         conn.execute("SELECT COUNT(*) FROM events WHERE run_id = 'run_transcript'").fetchone()[0]
         == 1
     )
-    event = conn.execute("SELECT source, meta, input_ref FROM events").fetchone()
+    event = conn.execute(
+        "SELECT source, tool, tool_use_id, redaction_status, meta, input_ref FROM events"
+    ).fetchone()
     assert event["source"] == "transcript"
+    assert github_secret not in event["tool"]
+    assert github_secret not in event["tool_use_id"]
+    assert "REDACTED:" in event["tool"]
+    assert "REDACTED:" in event["tool_use_id"]
+    assert event["redaction_status"] == "redacted"
     assert "ingest-secret-value-123" not in event["meta"]
     assert "REDACTED:" in event["meta"]
     assert event["input_ref"]
@@ -174,6 +184,7 @@ def test_ingest_transcript_is_idempotent_and_redacts_db_content(
         path.read_bytes() for path in (tmp_path / ".omni").rglob("*") if path.is_file()
     )
     assert b"ingest-secret-value-123" not in omni_bytes
+    assert github_secret.encode("utf-8") not in omni_bytes
 
 
 def test_ingest_stores_transcript_archive_artifact_for_unknown_lines(
@@ -243,6 +254,57 @@ def test_ingest_reconciles_hook_and_transcript_by_tool_use_id(tmp_path: Path) ->
     ]
 
 
+def test_ingest_redacts_secret_hook_tool_use_id_and_reconciles_transcript(
+    tmp_path: Path,
+) -> None:
+    secret = "ghp_" + "abcdefghijklmnopqrstuvwxyz1234567890"
+    hook.capture_hook(
+        json.dumps(
+            {
+                "hook_event_name": "PostToolUse",
+                "timestamp": "2026-06-11T00:00:00Z",
+                "tool_use_id": secret,
+                "tool": "Bash",
+            }
+        ).encode("utf-8"),
+        root=tmp_path,
+    )
+    transcript = tmp_path / "secret-id.jsonl"
+    transcript.write_text(
+        json.dumps(
+            {
+                "type": "tool_use",
+                "timestamp": "2026-06-11T00:00:01Z",
+                "id": secret,
+                "name": "Bash",
+                "exit_code": 0,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    ingest.ingest(root=tmp_path, run_id="run_secret_id", transcript=transcript)
+    conn = db.connect(tmp_path / ".omni" / "omni.sqlite3")
+    rows = conn.execute(
+        """
+        SELECT source, tool_use_id, redaction_status
+        FROM events
+        WHERE run_id = 'run_secret_id'
+        """
+    ).fetchall()
+    omni_bytes = b"".join(
+        path.read_bytes() for path in (tmp_path / ".omni").rglob("*") if path.is_file()
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["source"] == "reconciled"
+    assert secret not in rows[0]["tool_use_id"]
+    assert "REDACTED:" in rows[0]["tool_use_id"]
+    assert rows[0]["redaction_status"] == "redacted"
+    assert secret.encode("utf-8") not in omni_bytes
+
+
 def test_ingest_later_transcript_event_is_not_dropped_after_hook_only_ingest(
     tmp_path: Path,
 ) -> None:
@@ -276,14 +338,12 @@ def test_ingest_later_transcript_event_is_not_dropped_after_hook_only_ingest(
     show = ingest.run_show(tmp_path, "run_delayed")
 
     assert hook_only.events_inserted == 1
-    assert with_transcript.events_inserted == 1
     assert repeated.events_inserted == 0
-    assert [row["seq"] for row in rows] == [1, 2]
-    assert [row["source"] for row in rows] == ["hook", "reconciled"]
-    assert len({row["event_id"] for row in rows}) == 2
+    assert [row["seq"] for row in rows] == [1]
+    assert [row["source"] for row in rows] == ["reconciled"]
+    assert len({row["event_id"] for row in rows}) == 1
     assert show.count("toolu_delayed") == 0
-    assert "1 | 2026-06-11T00:00:00Z | PostToolUse | Bash |" in show
-    assert "2 | 2026-06-11T00:00:01Z | tool_use | Bash | 0 |" in show
+    assert "1 | 2026-06-11T00:00:01Z | tool_use | Bash | 0 |" in show
 
 
 def test_ingest_calculates_hook_duration_when_possible(tmp_path: Path) -> None:
@@ -351,6 +411,37 @@ def test_ingest_drains_queue_and_watchdog_closes_stale_open_runs(tmp_path: Path)
     assert queue_files == []
     assert closed >= 1
     assert dict(stale) == {"status": "closed", "end_reason": "watchdog"}
+
+
+def test_queued_ingest_keeps_request_file_when_transaction_fails(
+    tmp_path: Path, monkeypatch
+) -> None:
+    transcript = tmp_path / "queued.jsonl"
+    transcript.write_text(
+        '{"type":"tool_use","id":"toolu_q","timestamp":"2026-06-11T00:00:00Z"}\n',
+        encoding="utf-8",
+    )
+    hook.capture_hook(
+        json.dumps(
+            {
+                "hook_event_name": "SessionEnd",
+                "session_id": "queued_run",
+                "transcript_path": "queued.jsonl",
+            }
+        ).encode("utf-8"),
+        root=tmp_path,
+    )
+    request_file = next((tmp_path / ".omni" / "spool").glob("ingest-*.json"))
+
+    def fail_static_extractors(*_args, **_kwargs) -> None:
+        raise RuntimeError("static extractor failed")
+
+    monkeypatch.setattr(ingest.gate, "extract_static_facts", fail_static_extractors)
+
+    with pytest.raises(RuntimeError, match="static extractor failed"):
+        ingest.ingest(root=tmp_path)
+
+    assert request_file.exists()
 
 
 def test_queued_ingest_scopes_hook_events_to_session_id(tmp_path: Path) -> None:

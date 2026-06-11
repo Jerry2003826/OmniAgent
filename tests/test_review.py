@@ -150,13 +150,16 @@ def test_review_approve_rejects_conflicting_single_valued_fact(tmp_path: Path) -
         WHERE predicate = 'uses_test_command' AND qualifier = 'node'
         """
     ).fetchall()
-    state = conn.execute(
-        "SELECT state FROM fact_candidates WHERE cand_id = ?", (pending.cand_id,)
-    ).fetchone()["state"]
+    candidate_row = conn.execute(
+        "SELECT state, review_note FROM fact_candidates WHERE cand_id = ?",
+        (pending.cand_id,),
+    ).fetchone()
     message = str(exc.value)
 
     assert [row["object_norm"] for row in facts] == ["pnpm run test"]
-    assert state == "pending"
+    assert candidate_row["state"] == "pending"
+    assert "conflict requires supersede" in candidate_row["review_note"]
+    assert "pnpm run test" in candidate_row["review_note"]
     assert conflict in message
     assert "pnpm run test" in message
 
@@ -203,9 +206,10 @@ def test_review_cli_approve_conflict_exits_nonzero_and_keeps_candidate_pending(
 
     result = run_omni(tmp_path, "review", "approve", pending.cand_id)
     conn = connect(tmp_path)
-    state = conn.execute(
-        "SELECT state FROM fact_candidates WHERE cand_id = ?", (pending.cand_id,)
-    ).fetchone()["state"]
+    candidate_row = conn.execute(
+        "SELECT state, review_note FROM fact_candidates WHERE cand_id = ?",
+        (pending.cand_id,),
+    ).fetchone()
     facts = conn.execute(
         """
         SELECT object_norm FROM facts
@@ -216,7 +220,8 @@ def test_review_cli_approve_conflict_exits_nonzero_and_keeps_candidate_pending(
     assert result.returncode != 0
     assert "conflict" in result.stderr.lower()
     assert "pnpm run test" in result.stderr
-    assert state == "pending"
+    assert candidate_row["state"] == "pending"
+    assert "conflict requires supersede" in candidate_row["review_note"]
     assert [row["object_norm"] for row in facts] == ["pnpm run test"]
 
 

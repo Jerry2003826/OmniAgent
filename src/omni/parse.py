@@ -36,6 +36,8 @@ class NormalizedEvent:
     duration_ms: int | None
     source: str
     meta: dict[str, Any]
+    redaction_status: str = "clean"
+    detectors: tuple[str, ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -115,38 +117,93 @@ def parse_transcript(
 
 
 def events_as_jsonl(events: list[NormalizedEvent]) -> str:
-    payload = "".join(
-        json.dumps(event.as_dict(), sort_keys=True, separators=(",", ":")) + "\n"
-        for event in events
-    )
-    return redact(payload.encode("utf-8")).data.decode("utf-8", errors="replace")
+    lines: list[str] = []
+    for event in events:
+        raw = json.dumps(event.as_dict(), sort_keys=True, separators=(",", ":")).encode("utf-8")
+        line = redact(raw).data.decode("utf-8", errors="replace")
+        lines.append(line if line.endswith("\n") else line + "\n")
+    return "".join(lines)
 
 
 def _normalize_event(seq: int, row: dict[str, Any]) -> NormalizedEvent:
     meta = {key: value for key, value in row.items() if key not in KNOWN_EVENT_KEYS}
+    ts, ts_status, ts_detectors = _redacted_str(
+        row.get("timestamp") or row.get("ts") or row.get("created_at") or ""
+    )
+    event_type, event_status, event_detectors = _redacted_str(_event_type(row))
+    tool, tool_status, tool_detectors = _redacted_optional_str(
+        row.get("tool") or row.get("tool_name") or row.get("name")
+    )
+    tool_use_id, tool_id_status, tool_id_detectors = _redacted_optional_str(
+        row.get("tool_use_id") or row.get("id")
+    )
+    redacted_meta, meta_status, meta_detectors = _redacted_meta(meta)
     return NormalizedEvent(
         seq=seq,
-        ts=str(row.get("timestamp") or row.get("ts") or row.get("created_at") or ""),
-        event_type=str(_event_type(row)),
-        tool=_optional_str(row.get("tool") or row.get("tool_name") or row.get("name")),
-        tool_use_id=_optional_str(row.get("tool_use_id") or row.get("id")),
+        ts=ts,
+        event_type=event_type,
+        tool=tool,
+        tool_use_id=tool_use_id,
         exit_code=_optional_int(row.get("exit_code")),
         duration_ms=_optional_int(row.get("duration_ms")),
         source="transcript",
-        meta=_redacted_meta(meta),
+        meta=redacted_meta,
+        redaction_status=_merge_redaction_status(
+            ts_status,
+            event_status,
+            tool_status,
+            tool_id_status,
+            meta_status,
+        ),
+        detectors=tuple(
+            dict.fromkeys(
+                ts_detectors
+                + event_detectors
+                + tool_detectors
+                + tool_id_detectors
+                + meta_detectors
+            )
+        ),
     )
 
 
-def _redacted_meta(meta: dict[str, Any]) -> dict[str, Any]:
+def _redacted_meta(meta: dict[str, Any]) -> tuple[dict[str, Any], str, tuple[str, ...]]:
     if not meta:
-        return {}
+        return {}, "clean", ()
     encoded = json.dumps(meta, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    redacted = redact(encoded).data.decode("utf-8", errors="replace")
+    redaction = redact(encoded)
+    redacted = redaction.data.decode("utf-8", errors="replace")
     try:
         parsed = json.loads(redacted)
     except json.JSONDecodeError:
-        return {"redacted_meta": redacted}
-    return parsed if isinstance(parsed, dict) else {"redacted_meta": redacted}
+        return {"redacted_meta": redacted}, redaction.status, redaction.detectors
+    result = parsed if isinstance(parsed, dict) else {"redacted_meta": redacted}
+    return result, redaction.status, redaction.detectors
+
+
+def _redacted_str(value: Any) -> tuple[str, str, tuple[str, ...]]:
+    text = str(value)
+    if _is_redaction_placeholder(text):
+        return text, "redacted", ()
+    redaction = redact(text.encode("utf-8"))
+    return redaction.data.decode("utf-8", errors="replace"), redaction.status, redaction.detectors
+
+
+def _redacted_optional_str(value: Any) -> tuple[str | None, str, tuple[str, ...]]:
+    if value is None:
+        return None, "clean", ()
+    return _redacted_str(value)
+
+
+def _merge_redaction_status(*statuses: str) -> str:
+    for status in ("withheld", "truncated", "redacted"):
+        if status in statuses:
+            return status
+    return "clean"
+
+
+def _is_redaction_placeholder(value: str) -> bool:
+    return value.startswith("\u27e8REDACTED:") and value.endswith("\u27e9")
 
 
 def _event_type(row: dict[str, Any]) -> Any:

@@ -47,7 +47,7 @@ def test_session_end_writes_per_request_ingest_file(tmp_path: Path, monkeypatch)
     assert "REDACTED:env:" in request_text
 
 
-def test_drain_ingest_queue_reads_request_files_and_skips_malformed(
+def test_drain_ingest_queue_reads_request_files_and_quarantines_malformed(
     tmp_path: Path,
 ) -> None:
     spool_dir = tmp_path / ".omni" / "spool"
@@ -67,7 +67,72 @@ def test_drain_ingest_queue_reads_request_files_and_skips_malformed(
     second = spool.drain_ingest_queue(tmp_path)
 
     assert [request["session_id"] for request in requests] == ["s1", "s2"]
-    assert second == []
-    assert not (spool_dir / "ingest-1.json").exists()
-    assert not (spool_dir / "ingest-2.json").exists()
-    assert malformed.exists()
+    assert [request["session_id"] for request in second] == ["s1", "s2"]
+    assert (spool_dir / "ingest-1.json").exists()
+    assert (spool_dir / "ingest-2.json").exists()
+    assert not malformed.exists()
+    assert (spool_dir / "bad" / "ingest-bad.json").exists()
+
+
+def test_ack_ingest_queue_removes_only_successful_request_files(tmp_path: Path) -> None:
+    spool_dir = tmp_path / ".omni" / "spool"
+    spool_dir.mkdir(parents=True)
+    first = spool_dir / "ingest-1.json"
+    second = spool_dir / "ingest-2.json"
+    first.write_text('{"session_id":"s1"}\n', encoding="utf-8")
+    second.write_text('{"session_id":"s2"}\n', encoding="utf-8")
+    requests = spool.drain_ingest_queue(tmp_path)
+
+    spool.ack_ingest_queue(requests[:1])
+
+    assert not first.exists()
+    assert second.exists()
+
+
+def test_iter_hook_records_quarantines_malformed_hook_file(tmp_path: Path) -> None:
+    spool_dir = tmp_path / ".omni" / "spool"
+    spool_dir.mkdir(parents=True)
+    malformed = spool_dir / "hook-bad.jsonl"
+    malformed.write_text("not-json\n", encoding="utf-8")
+
+    records = spool.iter_hook_records(tmp_path)
+
+    assert records == []
+    assert not malformed.exists()
+    assert (spool_dir / "bad" / "hook-bad.jsonl").exists()
+
+
+def test_spool_readers_quarantine_invalid_utf8_files(tmp_path: Path) -> None:
+    spool_dir = tmp_path / ".omni" / "spool"
+    spool_dir.mkdir(parents=True)
+    hook_file = spool_dir / "hook-binary.jsonl"
+    request_file = spool_dir / "ingest-binary.json"
+    legacy_file = spool_dir / "ingest_queue.jsonl"
+    hook_file.write_bytes(b"\xff\xfe\x00")
+    request_file.write_bytes(b"\xff\xfe\x00")
+    legacy_file.write_bytes(b"\xff\xfe\x00")
+
+    records = spool.iter_hook_records(tmp_path)
+    requests = spool.drain_ingest_queue(tmp_path)
+
+    assert records == []
+    assert requests == []
+    assert not hook_file.exists()
+    assert not request_file.exists()
+    assert not legacy_file.exists()
+    assert (spool_dir / "bad" / "hook-binary.jsonl").exists()
+    assert (spool_dir / "bad" / "ingest-binary.json").exists()
+    assert (spool_dir / "bad" / "ingest_queue.jsonl").exists()
+
+
+def test_drain_ingest_queue_quarantines_malformed_legacy_jsonl(tmp_path: Path) -> None:
+    spool_dir = tmp_path / ".omni" / "spool"
+    spool_dir.mkdir(parents=True)
+    legacy = spool_dir / "ingest_queue.jsonl"
+    legacy.write_text('{"session_id":"s1"}\nnot-json\n', encoding="utf-8")
+
+    requests = spool.drain_ingest_queue(tmp_path)
+
+    assert requests == []
+    assert not legacy.exists()
+    assert (spool_dir / "bad" / "ingest_queue.jsonl").exists()

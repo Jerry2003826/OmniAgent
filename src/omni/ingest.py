@@ -16,7 +16,7 @@ from omni.config import ensure_project_layout
 from omni.ids import project_id_for_path
 from omni.parse import NormalizedEvent, parse_transcript
 from omni.redact import redact
-from omni.spool import HookRecord, drain_ingest_queue, iter_hook_records
+from omni.spool import HookRecord, ack_ingest_queue, drain_ingest_queue, iter_hook_records
 from omni.store import REDACTION_VER, put_artifact
 
 
@@ -39,6 +39,7 @@ class EventCandidate:
     meta: dict[str, Any]
     artifact_hash: str | None
     unique_key: str
+    redaction_status: str = "clean"
 
 
 def ingest(
@@ -86,6 +87,8 @@ def ingest(
 
         gate.extract_static_facts(base, conn)
         conn.commit()
+        if transcript is None and requests:
+            ack_ingest_queue(requests)
         return IngestResult(
             run_ids=tuple(dict.fromkeys(run_ids)),
             events_inserted=total_inserted,
@@ -234,6 +237,7 @@ def _candidate_from_transcript_event(
         meta=event.meta,
         artifact_hash=artifact.hash,
         unique_key=f"transcript:{event.tool_use_id or event.seq}:{event.event_type}:{event.ts}",
+        redaction_status=event.redaction_status,
     )
 
 
@@ -250,7 +254,9 @@ def _hook_candidates(
     by_tool: dict[str, list[HookRecord]] = {}
     without_tool: list[HookRecord] = []
     for record in records:
-        tool_use_id = _optional_str(record.payload.get("tool_use_id") or record.payload.get("id"))
+        tool_use_id, _status = _redacted_optional_str(
+            record.payload.get("tool_use_id") or record.payload.get("id")
+        )
         if tool_use_id:
             by_tool.setdefault(tool_use_id, []).append(record)
         else:
@@ -282,18 +288,24 @@ def _candidate_from_hook_record(
     conn: sqlite3.Connection, root: Path, record: HookRecord, duration_ms: int | None
 ) -> EventCandidate:
     payload = record.payload
+    event_type, event_status = _redacted_str(
+        payload.get("hook_event_name") or payload.get("type") or "hook"
+    )
+    tool, tool_status = _redacted_optional_str(
+        payload.get("tool") or payload.get("tool_name") or payload.get("name")
+    )
+    tool_use_id, tool_id_status = _redacted_optional_str(payload.get("tool_use_id") or payload.get("id"))
+    record_status = _record_redaction_status(record)
     artifact = put_artifact(
         root,
         conn,
         kind="hook_event",
         data=json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8"),
     )
-    event_type = str(payload.get("hook_event_name") or payload.get("type") or "hook")
-    tool_use_id = _optional_str(payload.get("tool_use_id") or payload.get("id"))
     return EventCandidate(
         event_type=event_type,
         ts=_timestamp(payload),
-        tool=_optional_str(payload.get("tool") or payload.get("tool_name") or payload.get("name")),
+        tool=tool,
         tool_use_id=tool_use_id,
         exit_code=_optional_int(payload.get("exit_code")),
         duration_ms=_optional_int(payload.get("duration_ms")) or duration_ms,
@@ -322,6 +334,7 @@ def _candidate_from_hook_record(
         },
         artifact_hash=artifact.hash,
         unique_key=f"hook:{record.path.name}:{record.line_no}",
+        redaction_status=_merge_redaction_status(record_status, event_status, tool_status, tool_id_status),
     )
 
 
@@ -378,6 +391,10 @@ def _reconcile_candidates(
                 meta={"transcript": event.meta, "hook": hook_event.meta},
                 artifact_hash=event.artifact_hash or hook_event.artifact_hash,
                 unique_key=f"reconciled:{event.tool_use_id}:{event.event_type}:{event.ts}",
+                redaction_status=_merge_redaction_status(
+                    event.redaction_status,
+                    hook_event.redaction_status,
+                ),
             )
         )
     reconciled.extend(
@@ -388,7 +405,34 @@ def _reconcile_candidates(
 
 def _insert_event(conn: sqlite3.Connection, run_id: str, seq: int, candidate: EventCandidate) -> int:
     event_id = _event_id(run_id, candidate)
-    meta_json = _redacted_json(candidate.meta)
+    meta_json, meta_status = _redacted_json(candidate.meta)
+    redaction_status = _merge_redaction_status(candidate.redaction_status, meta_status)
+    existing = _existing_canonical_event(conn, run_id, candidate)
+    if existing is not None:
+        conn.execute(
+            """
+            UPDATE events
+            SET ts = ?, event_type = ?, tool = ?, tool_use_id = ?, input_ref = ?,
+                output_ref = NULL, exit_code = ?, duration_ms = ?,
+                redaction_status = ?, redaction_ver = ?, source = ?, meta = ?
+            WHERE event_id = ?
+            """,
+            (
+                candidate.ts,
+                candidate.event_type,
+                candidate.tool,
+                candidate.tool_use_id,
+                candidate.artifact_hash,
+                candidate.exit_code,
+                candidate.duration_ms,
+                redaction_status,
+                REDACTION_VER,
+                candidate.source,
+                meta_json,
+                existing["event_id"],
+            ),
+        )
+        return 0
     before = conn.total_changes
     next_seq = _next_event_seq(conn, run_id)
     conn.execute(
@@ -410,13 +454,31 @@ def _insert_event(conn: sqlite3.Connection, run_id: str, seq: int, candidate: Ev
             None,
             candidate.exit_code,
             candidate.duration_ms,
-            "clean",
+            redaction_status,
             REDACTION_VER,
             candidate.source,
             meta_json,
         ),
     )
     return 1 if conn.total_changes > before else 0
+
+
+def _existing_canonical_event(
+    conn: sqlite3.Connection, run_id: str, candidate: EventCandidate
+) -> sqlite3.Row | None:
+    if not candidate.tool_use_id or candidate.source not in {"reconciled", "transcript"}:
+        return None
+    return conn.execute(
+        """
+        SELECT event_id, source FROM events
+        WHERE run_id = ?
+          AND tool_use_id = ?
+          AND source IN ('hook', 'reconciled')
+        ORDER BY CASE source WHEN 'reconciled' THEN 0 ELSE 1 END, seq
+        LIMIT 1
+        """,
+        (run_id, candidate.tool_use_id),
+    ).fetchone()
 
 
 def _next_event_seq(conn: sqlite3.Connection, run_id: str) -> int:
@@ -469,9 +531,43 @@ def _update_run_bounds(conn: sqlite3.Connection, run_id: str) -> None:
         )
 
 
-def _redacted_json(value: Any) -> str:
+def _redacted_json(value: Any) -> tuple[str, str]:
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    return redact(encoded).data.decode("utf-8", errors="replace")
+    redaction = redact(encoded)
+    return redaction.data.decode("utf-8", errors="replace"), redaction.status
+
+
+def _redacted_str(value: Any) -> tuple[str, str]:
+    text = str(value)
+    if _is_redaction_placeholder(text):
+        return text, "redacted"
+    redaction = redact(text.encode("utf-8"))
+    return redaction.data.decode("utf-8", errors="replace"), redaction.status
+
+
+def _redacted_optional_str(value: Any) -> tuple[str | None, str]:
+    if value is None:
+        return None, "clean"
+    return _redacted_str(value)
+
+
+def _record_redaction_status(record: HookRecord) -> str:
+    meta = record.record.get("meta")
+    if not isinstance(meta, dict):
+        return "clean"
+    status = meta.get("redaction_status")
+    return str(status) if isinstance(status, str) else "clean"
+
+
+def _merge_redaction_status(*statuses: str) -> str:
+    for status in ("withheld", "truncated", "redacted"):
+        if status in statuses:
+            return status
+    return "clean"
+
+
+def _is_redaction_placeholder(value: str) -> bool:
+    return value.startswith("\u27e8REDACTED:") and value.endswith("\u27e9")
 
 
 def _command_preview(meta_json: str | None) -> str:

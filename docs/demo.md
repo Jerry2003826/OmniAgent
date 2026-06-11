@@ -92,7 +92,7 @@ and are not added to the sandbox commit. Ask Claude Code in the sandbox to read
 `.env`, then verify that `.omni/**` contains none of these raw planted values:
 
 ```text
-AKIAIOSFODNN7EXAMPLE
+AKIA + IOSFODNN7EXAMPLE
 hunter2hunter2
 the fake ghp_ token from fake_config.py
 ```

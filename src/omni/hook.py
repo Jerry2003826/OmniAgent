@@ -82,9 +82,11 @@ def capture_hook(payload: bytes, root: Path | str | None = None) -> HookCaptureR
             },
             "payload": redaction.data.decode("utf-8", errors="replace"),
         }
-        line = _redact_line(record)
+        line = json.dumps(record, sort_keys=True, separators=(",", ":")).encode("utf-8")
         spool_path = spool_dir / f"hook-{time.time_ns()}-{uuid.uuid4().hex}.jsonl"
-        spool_path.write_bytes(line + b"\n")
+        temp_path = spool_path.with_suffix(".jsonl.tmp")
+        temp_path.write_bytes(line + b"\n")
+        temp_path.replace(spool_path)
 
         if event.get("hook_event_name") in INGEST_EVENTS:
             _enqueue_ingest_request(spool_dir, event)
@@ -229,7 +231,8 @@ def _settings_with_omni_hooks(settings: dict[str, object], *, command: str) -> d
         if not isinstance(groups, list):
             groups = []
         groups = list(groups)
-        if not _has_omni_hook(groups, command):
+        groups, found = _upgrade_omni_hooks(groups, command)
+        if not found:
             groups.append(_hook_group(event_name, command))
         hooks[event_name] = groups
 
@@ -262,14 +265,43 @@ def _hook_group(event_name: str, command: str) -> dict[str, object]:
     return group
 
 
-def _has_omni_hook(groups: list[object], command: str) -> bool:
+def _upgrade_omni_hooks(groups: list[object], command: str) -> tuple[list[object], bool]:
+    upgraded: list[object] = []
+    found = False
     for group in groups:
         if not isinstance(group, dict):
+            upgraded.append(group)
             continue
         handlers = group.get("hooks")
         if not isinstance(handlers, list):
+            upgraded.append(group)
             continue
+
+        new_handlers: list[object] = []
+        group_has_omni = False
         for handler in handlers:
-            if isinstance(handler, dict) and handler.get("command") == command:
-                return True
-    return False
+            if not isinstance(handler, dict):
+                new_handlers.append(handler)
+                continue
+            handler_command = handler.get("command")
+            if handler_command == LEGACY_HOOK_COMMAND:
+                if not found:
+                    replacement = dict(handler)
+                    replacement["command"] = command
+                    new_handlers.append(replacement)
+                    found = True
+                    group_has_omni = True
+                continue
+            if handler_command == command:
+                if not found:
+                    new_handlers.append(handler)
+                    found = True
+                    group_has_omni = True
+                continue
+            new_handlers.append(handler)
+
+        new_group = dict(group)
+        new_group["hooks"] = new_handlers
+        if group_has_omni or new_handlers:
+            upgraded.append(new_group)
+    return upgraded, found

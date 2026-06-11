@@ -50,7 +50,19 @@ def connect_project(root: Path | str | None = None) -> sqlite3.Connection:
 
 def approve(conn: sqlite3.Connection, cand_id: str) -> ReviewResult:
     candidate = _load_candidate(conn, cand_id)
-    gate.insert_fact(conn, candidate)
+    try:
+        gate.insert_fact(conn, candidate)
+    except gate.ConflictRequiresSupersede as exc:
+        conn.execute(
+            """
+            UPDATE fact_candidates
+            SET state = ?, review_note = ?
+            WHERE cand_id = ?
+            """,
+            ("pending", f"conflict requires supersede: {exc}", cand_id),
+        )
+        conn.commit()
+        raise
     conn.execute(
         "UPDATE fact_candidates SET state = ?, reviewed_at = ? WHERE cand_id = ?",
         ("approved", _now(), cand_id),
