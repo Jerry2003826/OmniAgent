@@ -85,6 +85,7 @@ def ingest(
                 run_ids.append(rid)
 
         gate.extract_static_facts(base, conn)
+        gate.extract_observed_facts(conn)
         conn.commit()
         return IngestResult(
             run_ids=tuple(dict.fromkeys(run_ids)),

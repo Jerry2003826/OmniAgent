@@ -45,6 +45,12 @@ def extract_static_facts(repo: Path | str, conn: sqlite3.Connection) -> GateResu
     return apply_candidates(conn, candidates)
 
 
+def extract_observed_facts(conn: sqlite3.Connection) -> GateResult:
+    from omni.extract import observed
+
+    return apply_candidates(conn, observed.detect(conn))
+
+
 def apply_candidates(conn: sqlite3.Connection, candidates: Iterable[FactCandidate]) -> GateResult:
     auto_committed = 0
     pending = 0
