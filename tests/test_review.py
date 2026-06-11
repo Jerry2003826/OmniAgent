@@ -101,6 +101,22 @@ def test_apply_candidates_counts_only_newly_staged_candidates(tmp_path: Path) ->
     assert len(rows) == 1
 
 
+def test_apply_candidates_does_not_commit_open_transaction_by_default(
+    tmp_path: Path,
+) -> None:
+    conn = connect(tmp_path)
+
+    conn.execute("BEGIN")
+    result = gate.apply_candidates(conn, [candidate("transactional-apply")])
+    conn.rollback()
+
+    row = conn.execute(
+        "SELECT cand_id FROM fact_candidates WHERE object_norm = 'transactional-apply'"
+    ).fetchone()
+    assert result.pending == 1
+    assert row is None
+
+
 def test_review_reject_writes_suppression_and_blocks_auto_commit(tmp_path: Path) -> None:
     conn = connect(tmp_path)
     pending = gate.stage_candidate(conn, candidate("blocked"))

@@ -19,6 +19,7 @@ HEADER_RE = re.compile(
     r"^<!-- omni:generated render_ver=1 sha256=([0-9a-f]{64}) DO NOT EDIT -->\r?\n"
 )
 MAX_BODY_CHARS = 6000
+TRUNCATION_NOTICE = "- Additional facts omitted due to size limit."
 
 
 @dataclass(frozen=True)
@@ -107,17 +108,25 @@ def _render_body(facts: list[sqlite3.Row]) -> tuple[str, dict[str, str]]:
         section, line = rendered
         sections[section].append((fact["fact_id"], line))
 
-    line_hashes: dict[str, str] = {}
-    lines = ["# Project memory", ""]
+    lines: list[tuple[str, str | None]] = [("# Project memory", None), ("", None)]
+    omitted = False
     for section in ("Commands", "Boundaries", "Project"):
-        lines.append(f"## {section}")
+        lines.append((f"## {section}", None))
         for fact_id, line in sections[section]:
-            if _body_length(lines) + len(line) + 1 > MAX_BODY_CHARS:
+            if _body_length(_line_texts(lines)) + len(line) + 1 > MAX_BODY_CHARS:
+                omitted = True
                 break
-            lines.append(line)
-            line_hashes[fact_id] = _sha256(line)
-        lines.append("")
-    return "\n".join(lines).rstrip() + "\n", line_hashes
+            lines.append((line, fact_id))
+        lines.append(("", None))
+    if omitted:
+        lines = _with_truncation_notice(lines)
+    rendered_lines = _line_texts(lines)
+    line_hashes = {
+        fact_id: _sha256(line)
+        for line, fact_id in lines
+        if fact_id is not None
+    }
+    return "\n".join(rendered_lines).rstrip() + "\n", line_hashes
 
 
 def _render_fact_line(fact: sqlite3.Row) -> tuple[str, str] | None:
@@ -238,7 +247,36 @@ def _diff(path: Path, rendered: str) -> str:
 
 
 def _body_length(lines: list[str]) -> int:
-    return sum(len(line) + 1 for line in lines)
+    if not lines:
+        return 0
+    return len("\n".join(lines)) + 1
+
+
+def _line_texts(lines: list[tuple[str, str | None]]) -> list[str]:
+    return [line for line, _fact_id in lines]
+
+
+def _with_truncation_notice(
+    lines: list[tuple[str, str | None]],
+) -> list[tuple[str, str | None]]:
+    trimmed = list(lines)
+    while trimmed and trimmed[-1][0] == "":
+        trimmed.pop()
+    while _body_length(_line_texts(trimmed)) + len(TRUNCATION_NOTICE) + 1 > MAX_BODY_CHARS:
+        removable = next(
+            (
+                index
+                for index in range(len(trimmed) - 1, -1, -1)
+                if trimmed[index][1] is not None
+            ),
+            None,
+        )
+        if removable is None:
+            break
+        del trimmed[removable]
+    if _body_length(_line_texts(trimmed)) + len(TRUNCATION_NOTICE) + 1 <= MAX_BODY_CHARS:
+        trimmed.append((TRUNCATION_NOTICE, None))
+    return trimmed
 
 
 def _sha256(value: str) -> str:

@@ -80,7 +80,7 @@ def apply_candidates(
     conn: sqlite3.Connection,
     candidates: Iterable[FactCandidate],
     *,
-    commit: bool = True,
+    commit: bool = False,
 ) -> GateResult:
     auto_committed = 0
     pending = 0

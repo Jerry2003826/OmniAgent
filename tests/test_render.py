@@ -169,3 +169,24 @@ def test_render_orders_commands_by_explicit_predicate_priority(tmp_path: Path) -
             text.index("pnpm run dev"),
         ]
     )
+
+
+def test_render_marks_omitted_facts_when_body_limit_is_reached(
+    tmp_path: Path, monkeypatch
+) -> None:
+    conn = connect(tmp_path)
+    monkeypatch.setattr(render, "MAX_BODY_CHARS", 220)
+    for index in range(20):
+        add_fact(
+            conn,
+            predicate=f"boundary_rule_{index:02d}",
+            qualifier="default",
+            object_norm=f"keep generated memory concise rule {index:02d}",
+        )
+
+    result = render.render_project(conn, tmp_path)
+    text = result.path.read_text(encoding="utf-8")
+
+    assert result.body == text
+    assert "Additional facts omitted due to size limit." in text
+    assert len(result.body.split("\n", 1)[1]) <= render.MAX_BODY_CHARS

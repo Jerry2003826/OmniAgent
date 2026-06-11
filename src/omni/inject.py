@@ -65,7 +65,9 @@ def _linked_text(current: str) -> str:
             region_end += 1
 
     current_region = current[begin:region_end]
-    if current_region != MANAGED_REGION:
+    if current_region != MANAGED_REGION and not (
+        region_end == len(current) and f"{current_region}\n" == MANAGED_REGION
+    ):
         raise ManagedRegionEditedError(_diff(current_region, MANAGED_REGION))
     return current
 

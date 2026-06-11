@@ -69,6 +69,18 @@ def test_link_refuses_to_overwrite_manually_changed_managed_region(tmp_path: Pat
     assert claude_md.read_text(encoding="utf-8").count("manual edit") == 1
 
 
+def test_link_accepts_managed_region_at_eof_without_trailing_newline(
+    tmp_path: Path,
+) -> None:
+    claude_md = tmp_path / "CLAUDE.md"
+    claude_md.write_text(MANAGED_REGION.rstrip("\n"), encoding="utf-8")
+
+    result = inject.inject_claude(tmp_path, mode="link")
+
+    assert result.wrote is False
+    assert claude_md.read_text(encoding="utf-8") == MANAGED_REGION.rstrip("\n")
+
+
 def test_inject_cli_preview_and_link_modes(tmp_path: Path) -> None:
     preview = run_omni(tmp_path, "inject", "claude", "--mode", "preview")
     link = run_omni(tmp_path, "inject", "claude", "--mode", "link")
