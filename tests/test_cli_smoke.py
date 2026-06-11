@@ -255,4 +255,12 @@ def test_create_sandbox_script_creates_repo_fixture(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert (target / ".git").is_dir()
     assert (target / "package.json").is_file()
+    assert (target / "pnpm-lock.yaml").is_file()
     assert (target / "CLAUDE.md").is_file()
+
+
+def test_create_sandbox_script_declares_pnpm_lockfile_fixture() -> None:
+    script = (REPO_ROOT / "scripts" / "create_sandbox.sh").read_text(encoding="utf-8")
+
+    assert "pnpm-lock.yaml" in script
+    assert "lockfileVersion:" in script

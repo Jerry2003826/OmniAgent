@@ -22,6 +22,17 @@ cat > package.json <<'JSON'
 }
 JSON
 
+cat > pnpm-lock.yaml <<'YAML'
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+  .: {}
+YAML
+
 cat > test.js <<'JS'
 console.log("sandbox test ok");
 JS
@@ -41,7 +52,7 @@ cat > .gitignore <<'GITIGNORE'
 node_modules/
 GITIGNORE
 
-git add package.json test.js build.js CLAUDE.md .gitignore >/dev/null
+git add package.json pnpm-lock.yaml test.js build.js CLAUDE.md .gitignore >/dev/null
 git -c user.name='Omni Sandbox' -c user.email='omni-sandbox@local.invalid' commit -m 'sandbox init' >/dev/null 2>&1 || true
 
 printf '%s\n' "$PWD"
