@@ -97,7 +97,7 @@ _REGEX_PACK = (
     _RegexDetector(
         "secret_assignment",
         re.compile(
-            rb"(?i)(?:api[_-]?key|secret|token|password)\b\s*[:=]\s*['\"]?([^'\"\s,}]{8,})['\"]?"
+            rb"(?i)(?:api[_-]?key|secret|token|password)\b['\"]?\s*[:=]\s*['\"]?([^'\"\s,}]{8,})['\"]?"
         ),
         secret_group=1,
     ),

@@ -87,10 +87,9 @@ Use the `command` column in `omni run show <run_id>` to identify the first Bash 
 ## S12 Planted Secret Check
 
 The sandbox intentionally contains fake planted secrets in `.env` and
-`fake_config.py`. Both files are working-tree-only redaction fixtures; `.env`
-is ignored, and `fake_config.py` is not added to the sandbox commit. Ask Claude
-Code in the sandbox to read `.env`, then verify that `.omni/**` contains none
-of these raw planted values:
+`fake_config.py`. Both files are ignored working-tree-only redaction fixtures
+and are not added to the sandbox commit. Ask Claude Code in the sandbox to read
+`.env`, then verify that `.omni/**` contains none of these raw planted values:
 
 ```text
 AKIAIOSFODNN7EXAMPLE

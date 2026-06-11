@@ -159,3 +159,21 @@ def test_contextual_hex_api_key_token_or_secret_is_redacted_unless_allowlisted()
     assert allowed.status == "clean"
     assert allowed.detectors == ()
     assert allowed.data == payload
+
+
+def test_json_api_key_token_or_secret_values_are_redacted() -> None:
+    secrets = {
+        "api_key": "json-meta-api-key-123456",
+        "token": "json-meta-token-123456",
+        "secret": "json-meta-secret-123456",
+    }
+    payload = json.dumps({"meta": secrets}, sort_keys=True, separators=(",", ":")).encode(
+        "utf-8"
+    )
+
+    result = redact_mod.redact(payload)
+
+    assert result.status == "redacted"
+    assert "secret_assignment" in result.detectors
+    for secret in secrets.values():
+        assert secret.encode("utf-8") not in result.data

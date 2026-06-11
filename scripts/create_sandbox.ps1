@@ -63,9 +63,10 @@ OMNI_FAKE_SECRET=hunter2hunter2
 '@ + "`n",
         $utf8NoBom
     )
+    $fakeGithubToken = "ghp_" + "abcdefghijklmnopqrstuvwxyz1234567890"
     [System.IO.File]::WriteAllText(
         (Join-Path $root "fake_config.py"),
-        'GITHUB_TOKEN = "ghp_abcdefghijklmnopqrstuvwxyz1234567890"' + "`n",
+        "GITHUB_TOKEN = `"$fakeGithubToken`"" + "`n",
         $utf8NoBom
     )
     [System.IO.File]::WriteAllText(
@@ -82,6 +83,7 @@ Use this disposable repository for OmniMemory hook and transcript spikes.
         @'
 .omni/
 .env
+fake_config.py
 node_modules/
 '@ + "`n",
         $utf8NoBom

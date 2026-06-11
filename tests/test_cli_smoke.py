@@ -13,6 +13,7 @@ import pytest
 from omni.ids import project_id_for_path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+FAKE_GITHUB_TOKEN = "ghp_" + "abcdefghijklmnopqrstuvwxyz1234567890"
 
 
 def rendered_memory(body: str = "# Project memory\n") -> str:
@@ -365,14 +366,18 @@ def test_parse_cli_outputs_events_and_redacted_archive(tmp_path: Path) -> None:
 
 def test_parse_cli_redacts_known_event_meta_in_stdout(tmp_path: Path) -> None:
     transcript = tmp_path / "transcript.jsonl"
-    secret = "parse-known-meta-secret-123"
+    secrets = {
+        "api_key": "parse-known-meta-api-key-123",
+        "token": "parse-known-meta-token-456",
+        "secret": "parse-known-meta-secret-789",
+    }
     transcript.write_text(
         json.dumps(
             {
                 "type": "tool_use",
                 "timestamp": "2026-06-11T00:00:00Z",
                 "name": "Bash",
-                "api_key": secret,
+                **secrets,
             }
         )
         + "\n",
@@ -383,12 +388,12 @@ def test_parse_cli_redacts_known_event_meta_in_stdout(tmp_path: Path) -> None:
         tmp_path,
         "parse",
         str(transcript),
-        extra_env={"OMNI_PARSE_META_SECRET": secret},
     )
 
     assert result.returncode == 0, result.stderr
-    assert secret not in result.stdout
-    assert "REDACTED:env:" in result.stdout
+    for secret in secrets.values():
+        assert secret not in result.stdout
+    assert "REDACTED:secret_assignment:" in result.stdout
     assert not (tmp_path / ".omni").exists()
     assert not (tmp_path / ".omni" / "omni.sqlite3").exists()
     assert not (tmp_path / ".omni" / "artifacts" / "transcript_archive.jsonl").exists()
@@ -523,9 +528,7 @@ def test_create_sandbox_script_creates_repo_fixture(tmp_path: Path) -> None:
     assert (target / "CLAUDE.md").is_file()
     assert "FAKE_AWS=AKIAIOSFODNN7EXAMPLE" in (target / ".env").read_text(encoding="utf-8")
     assert "OMNI_FAKE_SECRET=hunter2hunter2" in (target / ".env").read_text(encoding="utf-8")
-    assert "ghp_abcdefghijklmnopqrstuvwxyz1234567890" in (
-        target / "fake_config.py"
-    ).read_text(encoding="utf-8")
+    assert FAKE_GITHUB_TOKEN in (target / "fake_config.py").read_text(encoding="utf-8")
     tracked = subprocess.run(
         ["git", "-C", str(target), "ls-files", "--", "fake_config.py", ".env"],
         text=True,
@@ -536,6 +539,8 @@ def test_create_sandbox_script_creates_repo_fixture(tmp_path: Path) -> None:
     assert tracked.stdout == ""
     gitignore = (target / ".gitignore").read_text(encoding="utf-8")
     assert ".omni/" in gitignore
+    assert ".env" in gitignore
+    assert "fake_config.py" in gitignore
     assert ".omni/generated/" not in gitignore
 
 
@@ -544,6 +549,14 @@ def test_create_sandbox_script_declares_pnpm_lockfile_fixture() -> None:
 
     assert "pnpm-lock.yaml" in script
     assert "lockfileVersion:" in script
+
+
+def test_create_sandbox_scripts_do_not_embed_complete_fake_github_token() -> None:
+    for script_name in ("create_sandbox.sh", "create_sandbox.ps1"):
+        script = (REPO_ROOT / "scripts" / script_name).read_text(encoding="utf-8")
+
+        assert FAKE_GITHUB_TOKEN not in script
+        assert '"ghp_"' in script
 
 
 def test_create_sandbox_powershell_script_creates_repo_fixture(tmp_path: Path) -> None:
@@ -581,9 +594,7 @@ def test_create_sandbox_powershell_script_creates_repo_fixture(tmp_path: Path) -
     assert (target / "CLAUDE.md").is_file()
     assert "FAKE_AWS=AKIAIOSFODNN7EXAMPLE" in (target / ".env").read_text(encoding="utf-8")
     assert "OMNI_FAKE_SECRET=hunter2hunter2" in (target / ".env").read_text(encoding="utf-8")
-    assert "ghp_abcdefghijklmnopqrstuvwxyz1234567890" in (
-        target / "fake_config.py"
-    ).read_text(encoding="utf-8")
+    assert FAKE_GITHUB_TOKEN in (target / "fake_config.py").read_text(encoding="utf-8")
     tracked = subprocess.run(
         ["git", "-C", str(target), "ls-files", "--", "fake_config.py", ".env"],
         text=True,
@@ -592,6 +603,9 @@ def test_create_sandbox_powershell_script_creates_repo_fixture(tmp_path: Path) -
     )
     assert tracked.returncode == 0, tracked.stderr
     assert tracked.stdout == ""
+    gitignore = (target / ".gitignore").read_text(encoding="utf-8")
+    assert ".env" in gitignore
+    assert "fake_config.py" in gitignore
     assert not (target / "package.json").read_bytes().startswith(b"\xef\xbb\xbf")
 
 

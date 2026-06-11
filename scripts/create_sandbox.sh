@@ -46,9 +46,8 @@ FAKE_AWS=AKIAIOSFODNN7EXAMPLE
 OMNI_FAKE_SECRET=hunter2hunter2
 ENV
 
-cat > fake_config.py <<'PY'
-GITHUB_TOKEN = "ghp_abcdefghijklmnopqrstuvwxyz1234567890"
-PY
+fake_github_token="ghp_""abcdefghijklmnopqrstuvwxyz1234567890"
+printf 'GITHUB_TOKEN = "%s"\n' "$fake_github_token" > fake_config.py
 
 cat > CLAUDE.md <<'MD'
 # OmniMemory Sandbox
@@ -59,6 +58,7 @@ MD
 cat > .gitignore <<'GITIGNORE'
 .omni/
 .env
+fake_config.py
 node_modules/
 GITIGNORE
 
