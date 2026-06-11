@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import json
 import sqlite3
@@ -10,6 +11,11 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+def rendered_memory(body: str = "# Project memory\n") -> str:
+    digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
+    return f"<!-- omni:generated render_ver=1 sha256={digest} DO NOT EDIT -->\n{body}"
 
 
 def run_omni(
@@ -175,10 +181,7 @@ def test_doctor_cli_reports_missing_layout_without_creating_it(tmp_path: Path) -
 def test_doctor_cli_passes_ready_project(tmp_path: Path) -> None:
     run_omni(tmp_path, "init")
     run_omni(tmp_path, "ingest")
-    (tmp_path / ".omni" / "generated" / "memory.md").write_text(
-        "<!-- omni:generated render_ver=1 sha256=test DO NOT EDIT -->\n# Project memory\n",
-        encoding="utf-8",
-    )
+    (tmp_path / ".omni" / "generated" / "memory.md").write_text(rendered_memory(), encoding="utf-8")
     (tmp_path / "CLAUDE.md").write_text(
         "# Demo\n<!-- omni:begin -->\n@.omni/generated/memory.md\n<!-- omni:end -->\n",
         encoding="utf-8",
@@ -193,6 +196,49 @@ def test_doctor_cli_passes_ready_project(tmp_path: Path) -> None:
     body = json.loads(result.stdout)
     assert body["ok"] is True
     assert all(check["ok"] for check in body["checks"])
+
+
+def test_doctor_cli_fails_on_generated_memory_hash_mismatch(tmp_path: Path) -> None:
+    run_omni(tmp_path, "init")
+    run_omni(tmp_path, "ingest")
+    (tmp_path / ".omni" / "generated" / "memory.md").write_text(
+        "<!-- omni:generated render_ver=1 sha256="
+        + ("0" * 64)
+        + " DO NOT EDIT -->\n# Project memory\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "CLAUDE.md").write_text(
+        "<!-- omni:begin -->\n@.omni/generated/memory.md\n<!-- omni:end -->\n",
+        encoding="utf-8",
+    )
+    audit_dir = tmp_path / ".omni" / "audit"
+    audit_dir.mkdir()
+    (audit_dir / "secrets.passed").write_text("ok\n", encoding="utf-8")
+
+    result = run_omni(tmp_path, "doctor")
+
+    assert result.returncode == 1
+    checks = {check["name"]: check["ok"] for check in json.loads(result.stdout)["checks"]}
+    assert checks["generated_memory"] is False
+
+
+def test_doctor_cli_fails_on_corrupt_database(tmp_path: Path) -> None:
+    run_omni(tmp_path, "init")
+    (tmp_path / ".omni" / "omni.sqlite3").write_text("not sqlite", encoding="utf-8")
+    (tmp_path / ".omni" / "generated" / "memory.md").write_text(rendered_memory(), encoding="utf-8")
+    (tmp_path / "CLAUDE.md").write_text(
+        "<!-- omni:begin -->\n@.omni/generated/memory.md\n<!-- omni:end -->\n",
+        encoding="utf-8",
+    )
+    audit_dir = tmp_path / ".omni" / "audit"
+    audit_dir.mkdir()
+    (audit_dir / "secrets.passed").write_text("ok\n", encoding="utf-8")
+
+    result = run_omni(tmp_path, "doctor")
+
+    assert result.returncode == 1
+    checks = {check["name"]: check["ok"] for check in json.loads(result.stdout)["checks"]}
+    assert checks["database_schema"] is False
 
 
 def test_hook_cli_redacts_stdin_to_spool_and_exits_zero(tmp_path: Path) -> None:
@@ -440,6 +486,15 @@ def test_golden_demo_script_declares_full_automation_steps() -> None:
     assert "claude" in script
     assert "omni inject claude --mode link" in script
     assert "G6 robust" in script
+
+
+def test_golden_demo_script_evaluator_handles_nested_meta_and_allowed_prelude() -> None:
+    script = (REPO_ROOT / "scripts" / "golden_demo.sh").read_text(encoding="utf-8")
+
+    assert "def nested_command" in script
+    assert "allowed_prelude_commands" in script
+    assert '"pwd"' in script
+    assert '"git status"' in script
 
 
 def test_golden_demo_script_runs_with_fake_claude(tmp_path: Path) -> None:

@@ -138,6 +138,8 @@ def _load_candidate(conn: sqlite3.Connection, cand_id: str) -> gate.FactCandidat
     row = conn.execute("SELECT * FROM fact_candidates WHERE cand_id = ?", (cand_id,)).fetchone()
     if row is None:
         raise KeyError(cand_id)
+    if row["state"] != "pending":
+        raise ValueError(f"candidate {cand_id} is not pending")
     return _candidate_from_row(row)
 
 

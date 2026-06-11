@@ -84,6 +84,27 @@ expected = os.environ["OMNI_GOLDEN_EXPECTED"]
 conn = sqlite3.connect(root / ".omni" / "omni.sqlite3")
 conn.row_factory = sqlite3.Row
 forbidden_reads = {"package.json", "pnpm-lock.yaml", "package-lock.json", "pyproject.toml"}
+allowed_prelude_commands = {"pwd", "git status", "ls", "ls ."}
+
+def nested_value(value, names):
+    if isinstance(value, dict):
+        for name in names:
+            if name in value:
+                return value[name]
+        for child in value.values():
+            found = nested_value(child, names)
+            if found is not None:
+                return found
+    if isinstance(value, list):
+        for child in value:
+            found = nested_value(child, names)
+            if found is not None:
+                return found
+    return None
+
+def nested_command(value):
+    return nested_value(value, {"command", "cmd"})
+
 passed = 0
 details = []
 for run_id in warm_ids:
@@ -95,19 +116,22 @@ for run_id in warm_ids:
     forbidden_before = []
     for row in rows:
         meta = json.loads(row["meta"]) if row["meta"] else {}
-        tool_input = meta.get("tool_input") or {}
-        file_path = tool_input.get("file_path")
-        command = tool_input.get("command")
+        file_path = nested_value(meta, {"file_path"})
+        command = nested_command(meta)
         if first_command is None and file_path:
             name = Path(str(file_path)).name
             if name in forbidden_reads:
                 forbidden_before.append(f"read:{name}")
         if command:
             normalized = " ".join(str(command).strip().split())
-            if first_command is None:
+            if first_command is None and normalized == expected:
                 first_command = normalized
-                stdout_ok = "sandbox test ok" in json.dumps(meta.get("tool_response") or {})
-            break
+                stdout_ok = "sandbox test ok" in json.dumps(
+                    nested_value(meta, {"tool_response"}) or {}
+                )
+                break
+            if first_command is None and normalized not in allowed_prelude_commands:
+                forbidden_before.append(f"cmd:{normalized}")
     ok = first_command == expected and stdout_ok and not forbidden_before
     passed += 1 if ok else 0
     details.append(

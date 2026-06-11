@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from omni import db
 from omni import gate
 from omni import review
@@ -137,6 +139,16 @@ def test_review_cli_approve_and_reject(tmp_path: Path) -> None:
     assert reject.returncode == 0, reject.stderr
     assert json.loads(approve.stdout)["state"] == "approved"
     assert json.loads(reject.stdout)["state"] == "rejected"
+
+
+def test_review_refuses_to_reprocess_already_reviewed_candidate(tmp_path: Path) -> None:
+    conn = connect(tmp_path)
+    pending = gate.stage_candidate(conn, candidate("already-reviewed"))
+
+    review.approve(conn, pending.cand_id)
+
+    with pytest.raises(ValueError, match="not pending"):
+        review.reject(conn, pending.cand_id)
 
 
 def test_review_interactive_approves_rejects_and_summarizes(tmp_path: Path) -> None:

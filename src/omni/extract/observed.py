@@ -82,6 +82,15 @@ def _nested_command(value: Any) -> Any:
             found = _nested_command(value.get(key))
             if found is not None:
                 return found
+        for child in value.values():
+            found = _nested_command(child)
+            if found is not None:
+                return found
+    if isinstance(value, list):
+        for child in value:
+            found = _nested_command(child)
+            if found is not None:
+                return found
     return None
 
 
