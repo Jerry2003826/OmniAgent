@@ -28,7 +28,7 @@ def build_parser() -> argparse.ArgumentParser:
     subcommands = parser.add_subparsers(
         dest="command",
         required=True,
-        metavar="{init,status,render,inject}",
+        metavar="{init,status,render,inject,eval}",
     )
     init_parser = subcommands.add_parser("init", help="Create a project-local .omni layout")
     init_parser.add_argument("--install-claude-hooks", action="store_true")
@@ -74,6 +74,13 @@ def build_parser() -> argparse.ArgumentParser:
     inject_subcommands = inject_parser.add_subparsers(dest="inject_command", required=True)
     inject_claude_parser = inject_subcommands.add_parser("claude")
     inject_claude_parser.add_argument("--mode", choices=("preview", "link"), required=True)
+    eval_parser = subcommands.add_parser("eval")
+    eval_subcommands = eval_parser.add_subparsers(dest="eval_command", required=True)
+    eval_run_parser = eval_subcommands.add_parser("run")
+    eval_run_parser.add_argument("run_id")
+    eval_dogfood_parser = eval_subcommands.add_parser("dogfood")
+    eval_dogfood_parser.add_argument("--cold", required=True)
+    eval_dogfood_parser.add_argument("--warm", required=True)
 
     _hide_subcommands(
         subcommands,
@@ -224,6 +231,23 @@ def main(argv: list[str] | None = None) -> int:
             print(str(exc), file=sys.stderr)
             return 2
         _print_diff(result.body if args.mode == "preview" else result.diff)
+        return 0
+
+    if args.command == "eval":
+        from omni import eval as behavior_eval
+
+        if args.eval_command == "run":
+            result = behavior_eval.evaluate_run(project_root(), args.run_id)
+        elif args.eval_command == "dogfood":
+            result = behavior_eval.evaluate_dogfood(
+                project_root(),
+                cold_run_id=args.cold,
+                warm_run_id=args.warm,
+            )
+        else:
+            parser.error(f"unknown eval command: {args.eval_command}")
+            return 2
+        _print_diff(behavior_eval.as_json(result))
         return 0
 
     parser.error(f"unknown command: {args.command}")

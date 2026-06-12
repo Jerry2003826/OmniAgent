@@ -176,6 +176,29 @@ def test_week2_go_no_go_doc_defines_gates_and_dogfood_entry() -> None:
         assert phrase in text
 
 
+def test_experience_memory_v0_doc_covers_behavior_eval_v0() -> None:
+    doc = REPO_ROOT / "docs" / "experience-memory-v0.md"
+
+    text = doc.read_text(encoding="utf-8")
+
+    for phrase in (
+        "Behavior Eval v0",
+        "omni eval run <run_id>",
+        "omni eval dogfood --cold <run_id> --warm <run_id>",
+        "read-only",
+        "no DB writes",
+        "no new tables",
+        "failed_to_help",
+        "unihack negative sample",
+        "CLAUDE.md",
+        "README.md",
+        "package.json",
+        "DEPLOY.md",
+        "pnpm verification command",
+    ):
+        assert phrase in text
+
+
 def test_minimal_linux_ci_workflow_runs_pytest_on_311_and_312() -> None:
     workflow = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 
