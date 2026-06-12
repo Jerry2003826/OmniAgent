@@ -3,8 +3,12 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from pathlib import Path
 
 import omni.redact as redact_mod
+
+
+FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "redaction"
 
 
 def test_env_reverse_lookup_redacts_environment_value(monkeypatch) -> None:
@@ -101,6 +105,17 @@ def test_redacted_github_token_placeholder_is_clean_on_second_scan() -> None:
     assert "github_token" in first.detectors
     assert second.status == "clean"
     assert second.detectors == ()
+
+
+def test_redaction_fixture_corpus_is_idempotent() -> None:
+    fixtures = sorted(path for path in FIXTURE_ROOT.rglob("*") if path.is_file())
+
+    assert fixtures
+    for path in fixtures:
+        first = redact_mod.redact(path.read_bytes()).data
+        second = redact_mod.redact(first).data
+
+        assert second == first, path
 
 
 def test_redact_minimal_uses_same_redactor() -> None:
