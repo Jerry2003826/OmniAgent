@@ -24,6 +24,7 @@ REDISCOVERY_FILES = (
 )
 
 MEMORY_PATH = ".omni/generated/memory.md"
+MAX_DETAIL_CHARS = 200
 
 
 def evaluate_run(root: Path | str, run_id: str) -> dict[str, Any]:
@@ -94,7 +95,8 @@ def evaluate_dogfood(
         and warm_position < cold_position
     )
     rediscovery_improved = warm["rediscovery_count"] < cold["rediscovery_count"]
-    improvement = bool(rediscovery_improved or position_improved)
+    warm_executed_expected = bool(warm["expected_verification_executed"])
+    improvement = bool(warm_executed_expected and (rediscovery_improved or position_improved))
 
     return {
         "cold_run_id": cold_run_id,
@@ -230,7 +232,7 @@ def _rediscovery_event(event: dict[str, Any], kind: str, detail: str) -> dict[st
         "seq": event["seq"],
         "kind": kind,
         "tool": event["tool"],
-        "detail": detail,
+        "detail": _safe_detail(detail),
     }
 
 
@@ -287,10 +289,10 @@ def _first_with_glob(values: list[str]) -> str | None:
 def _detail_for(event: dict[str, Any], target: str) -> str:
     command = _nested_command(event["meta"])
     if command is not None:
-        return _normalize_command(str(command))
+        return f"command: {_normalize_command(str(command))}"
     for value in _nested_strings(event["meta"]):
         if target == "LS" or _path_in_text(value, target):
-            return value
+            return _target_detail(value, target)
     return str(event["tool"] or event["event_type"] or "")
 
 
@@ -300,13 +302,24 @@ def _classify(
     if not has_expected or not has_events:
         return ("unknown", "insufficient evidence: no active expected facts or no events")
     if result["expected_verification_executed"] and result["rediscovery_count"] == 0:
-        return ("helped", "expected command executed before rediscovery")
+        return (
+            "helped",
+            f"expected command executed before rediscovery: {result['first_expected_command']}",
+        )
     if result["expected_verification_executed"]:
-        return ("neutral", "expected command executed after rediscovery")
+        return (
+            "neutral",
+            "expected command executed after rediscovery: "
+            f"{result['first_expected_command']}; rediscovery before expected command: "
+            f"{_rediscovery_kinds(result)}",
+        )
     if (result["claude_md_read"] or result["memory_md_read"]) and result["rediscovery_count"] > 0:
         return (
             "failed_to_help",
-            "CLAUDE.md or memory was read, rediscovery occurred, and no expected command executed",
+            "CLAUDE.md or memory context was seen if detectable; "
+            f"expected commands include {_expected_commands_summary(result)}; "
+            "no expected verification command executed; "
+            f"rediscovery occurred before expected command: {_rediscovery_kinds(result)}",
         )
     return ("unknown", "insufficient evidence")
 
@@ -357,6 +370,47 @@ def _nested_strings(value: Any) -> list[str]:
 
 def _normalize_command(command: str) -> str:
     return " ".join(command.strip().split())
+
+
+def _target_detail(value: str, target: str) -> str:
+    if _looks_like_path(value, target):
+        return f"path: {_normalize_command(value)}"
+    if target == "LS":
+        return "directory listing"
+    return f"matched: {target}"
+
+
+def _looks_like_path(value: str, target: str) -> bool:
+    if "\n" in value or "\r" in value:
+        return False
+    normalized = value.replace("\\", "/").strip().lower()
+    normalized_target = target.replace("\\", "/").lower()
+    return normalized == normalized_target or normalized.endswith(f"/{normalized_target}")
+
+
+def _safe_detail(detail: str) -> str:
+    normalized = _normalize_command(detail)
+    if len(normalized) <= MAX_DETAIL_CHARS:
+        return normalized
+    return normalized[: MAX_DETAIL_CHARS - 14].rstrip() + "...[truncated]"
+
+
+def _expected_commands_summary(result: dict[str, Any]) -> str:
+    commands = [
+        command
+        for predicate in EXPECTED_PREDICATES
+        for command in result["active_expected_commands"].get(predicate, [])
+    ]
+    return ", ".join(commands) if commands else "none"
+
+
+def _rediscovery_kinds(result: dict[str, Any]) -> str:
+    kinds = []
+    for event in result["rediscovery_events_before_first_expected_command"]:
+        kind = event["kind"]
+        if kind not in kinds:
+            kinds.append(kind)
+    return ", ".join(kinds) if kinds else "none"
 
 
 def _unknown_result(run_id: str, reason: str) -> dict[str, Any]:

@@ -58,7 +58,32 @@ def test_eval_run_reports_failed_to_help_for_unihack_style_negative_sample(
         "broad_scan",
     ]
     assert result["memory_effect"] == "failed_to_help"
-    assert "CLAUDE.md or memory was read" in result["reason"]
+    assert "CLAUDE.md or memory context was seen" in result["reason"]
+    assert "expected commands include pnpm run test" in result["reason"]
+    assert "no expected verification command executed" in result["reason"]
+    assert "README.md" in result["reason"]
+    assert "package.json" in result["reason"]
+    assert "DEPLOY.md" in result["reason"]
+    assert "broad_scan" in result["reason"]
+
+
+def test_eval_run_does_not_dump_raw_event_payload_in_json_output(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_fact(conn, "uses_test_command", "pnpm run test")
+    raw_payload = "README.md\n" + ("private project narrative " * 80)
+    _insert_event(
+        conn,
+        "safe_output_run",
+        1,
+        tool="Read",
+        meta={"tool_response": {"stdout": raw_payload}},
+    )
+    conn.commit()
+
+    encoded = eval_module.as_json(eval_module.evaluate_run(tmp_path, "safe_output_run"))
+
+    assert "private project narrative" not in encoded
+    assert "README.md" in encoded
 
 
 def test_eval_run_reports_neutral_when_expected_command_follows_rediscovery(
@@ -88,6 +113,17 @@ def test_eval_run_reports_unknown_without_facts_or_events(tmp_path: Path) -> Non
     assert result["observed_commands"] == []
     assert result["memory_effect"] == "unknown"
     assert "insufficient evidence" in result["reason"]
+
+
+def test_eval_run_reports_unknown_without_active_facts(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_event(conn, "no_facts_run", 1, tool="Bash", meta={"tool_input": {"command": "pnpm run test"}})
+    conn.commit()
+
+    result = eval_module.evaluate_run(tmp_path, "no_facts_run")
+
+    assert result["memory_effect"] == "unknown"
+    assert "no active expected facts" in result["reason"]
 
 
 def test_eval_run_missing_database_reports_unknown_without_creating_layout(
@@ -123,6 +159,28 @@ def test_eval_dogfood_reports_improvement_when_warm_has_less_rediscovery(
         "cold": "neutral",
         "warm": "neutral",
         "summary": "warm reduced rediscovery or reached expected commands earlier",
+    }
+
+
+def test_eval_dogfood_reports_no_improvement_when_warm_fails_to_run_expected_command(
+    tmp_path: Path,
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_fact(conn, "uses_test_command", "pnpm run test")
+    _insert_event(conn, "cold_run", 1, tool="Read", meta={"tool_input": {"file_path": "README.md"}})
+    _insert_event(conn, "cold_run", 2, tool="Read", meta={"tool_input": {"file_path": "package.json"}})
+    _insert_event(conn, "cold_run", 3, tool="Bash", meta={"tool_input": {"command": "pnpm run test"}})
+    _insert_event(conn, "warm_run", 1, tool="Read", meta={"tool_input": {"file_path": "CLAUDE.md"}})
+    _insert_event(conn, "warm_run", 2, tool="Read", meta={"tool_input": {"file_path": "README.md"}})
+    conn.commit()
+
+    result = eval_module.evaluate_dogfood(tmp_path, cold_run_id="cold_run", warm_run_id="warm_run")
+
+    assert result["improvement"] is False
+    assert result["memory_effect_summary"] == {
+        "cold": "neutral",
+        "warm": "failed_to_help",
+        "summary": "no measurable warm-run improvement",
     }
 
 
