@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import os
 import json
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -957,20 +958,15 @@ def test_shell_scripts_are_executable_in_git_index() -> None:
 
 
 def test_create_sandbox_powershell_script_creates_repo_fixture(tmp_path: Path) -> None:
-    powershell_check = subprocess.run(
-        ["powershell", "-NoProfile", "-Command", "$PSVersionTable.PSVersion.Major"],
-        text=True,
-        capture_output=True,
-        check=False,
-    )
-    if powershell_check.returncode != 0:
-        pytest.skip(f"powershell is not usable: {powershell_check.stderr.strip()}")
+    pwsh = shutil.which("pwsh")
+    if pwsh is None:
+        pytest.skip("pwsh is not available")
 
     target = tmp_path / "sandbox-ps"
 
     result = subprocess.run(
         [
-            "powershell",
+            pwsh,
             "-NoProfile",
             "-ExecutionPolicy",
             "Bypass",
