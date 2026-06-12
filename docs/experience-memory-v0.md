@@ -74,3 +74,34 @@ command.
 The unihack negative sample should be represented as `failed_to_help`: Claude
 read `CLAUDE.md`, then rediscovered `README.md`, `package.json`, `DEPLOY.md`,
 and broad project structure, and did not run any pnpm verification command.
+
+## Outcome Log v0
+
+Outcome Log v0 adds a small user-marked record for an ingested run:
+
+```bash
+omni outcome mark <run_id>
+omni outcome show <run_id>
+```
+
+`omni outcome mark <run_id>` records the human-visible outcome for an existing
+run. In v0 this is explicitly user-marked. OmniMemory does not infer task
+success, task failure, or test status automatically.
+
+The logged fields are:
+
+- task type: `validation`, `bugfix`, `docs`, `refactor`, `exploration`, or
+  `unknown`
+- status: `success`, `failed`, or `unknown`
+- tests status: `passed`, `failed`, `not_run`, or `unknown`
+- memory effect: `helped`, `neutral`, `failed_to_help`, or `unknown`
+- optional redacted free text: summary, final command, and note
+
+If the caller does not provide `memory_effect`, the outcome command may reuse
+Behavior Eval v0 when the local evidence is available, but it falls back to
+`unknown` and never blocks the mark operation on eval uncertainty.
+
+Outcome records are an anchor for future experience and failure memory work:
+they connect a run id, the observed memory effect, and a user-marked outcome.
+Outcome Log v0 does not create experience candidates, failure memory, automatic
+verify logic, or any runtime memory behavior.

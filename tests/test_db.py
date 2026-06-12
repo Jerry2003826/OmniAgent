@@ -22,6 +22,7 @@ EXPECTED_TABLES = {
     "fact_candidates",
     "facts",
     "meta",
+    "outcomes",
     "runs",
     "suppressions",
 }
@@ -49,7 +50,7 @@ def test_migration_creates_schema_and_seed_meta(tmp_path: Path) -> None:
 
     assert table_names(conn) == EXPECTED_TABLES
     assert dict(conn.execute("SELECT key, value FROM meta")) == {
-        "schema_version": "1",
+        "schema_version": "2",
         "commit_seq": "0",
         "redaction_ver": "1",
     }
@@ -73,6 +74,20 @@ def test_migration_is_idempotent(tmp_path: Path) -> None:
 
     assert table_names(conn) == EXPECTED_TABLES
     assert conn.execute("SELECT COUNT(*) FROM meta").fetchone()[0] == 3
+
+
+def test_migration_002_adds_outcomes_to_existing_schema_1_database(tmp_path: Path) -> None:
+    conn = db.connect(tmp_path / ".omni" / "omni.sqlite3")
+    conn.executescript(db.migration_sql("001_init.sql"))
+    conn.commit()
+
+    db.migrate(conn)
+
+    assert "outcomes" in table_names(conn)
+    assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == "2"
+    indexes = conn.execute("PRAGMA index_list(outcomes)").fetchall()
+    assert any(index["name"] == "uq_outcomes_run_id" and index["unique"] for index in indexes)
+    assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
 def test_migration_sql_does_not_set_pragmas() -> None:

@@ -28,7 +28,7 @@ def build_parser() -> argparse.ArgumentParser:
     subcommands = parser.add_subparsers(
         dest="command",
         required=True,
-        metavar="{init,status,render,inject,eval}",
+        metavar="{init,status,render,inject,eval,outcome}",
     )
     init_parser = subcommands.add_parser("init", help="Create a project-local .omni layout")
     init_parser.add_argument("--install-claude-hooks", action="store_true")
@@ -81,6 +81,57 @@ def build_parser() -> argparse.ArgumentParser:
     eval_dogfood_parser = eval_subcommands.add_parser("dogfood")
     eval_dogfood_parser.add_argument("--cold", required=True)
     eval_dogfood_parser.add_argument("--warm", required=True)
+    outcome_parser = subcommands.add_parser("outcome")
+    outcome_subcommands = outcome_parser.add_subparsers(
+        dest="outcome_command",
+        required=True,
+        metavar="{mark,show}",
+    )
+    outcome_mark_parser = outcome_subcommands.add_parser("mark")
+    outcome_mark_parser.add_argument("run_id")
+    status_group = outcome_mark_parser.add_mutually_exclusive_group()
+    status_group.add_argument("--success", dest="outcome_status", action="store_const", const="success")
+    status_group.add_argument("--failed", dest="outcome_status", action="store_const", const="failed")
+    status_group.add_argument("--unknown", dest="outcome_status", action="store_const", const="unknown")
+    tests_group = outcome_mark_parser.add_mutually_exclusive_group()
+    tests_group.add_argument(
+        "--tests-passed",
+        dest="tests_status",
+        action="store_const",
+        const="passed",
+    )
+    tests_group.add_argument(
+        "--tests-failed",
+        dest="tests_status",
+        action="store_const",
+        const="failed",
+    )
+    tests_group.add_argument(
+        "--tests-not-run",
+        dest="tests_status",
+        action="store_const",
+        const="not_run",
+    )
+    tests_group.add_argument(
+        "--tests-unknown",
+        dest="tests_status",
+        action="store_const",
+        const="unknown",
+    )
+    outcome_mark_parser.add_argument(
+        "--memory-effect",
+        choices=("helped", "neutral", "failed_to_help", "unknown"),
+    )
+    outcome_mark_parser.add_argument(
+        "--task-type",
+        choices=("validation", "bugfix", "docs", "refactor", "exploration", "unknown"),
+        default="unknown",
+    )
+    outcome_mark_parser.add_argument("--summary", dest="task_summary")
+    outcome_mark_parser.add_argument("--final-command")
+    outcome_mark_parser.add_argument("--note")
+    outcome_show_parser = outcome_subcommands.add_parser("show")
+    outcome_show_parser.add_argument("run_id")
 
     _hide_subcommands(
         subcommands,
@@ -248,6 +299,41 @@ def main(argv: list[str] | None = None) -> int:
             parser.error(f"unknown eval command: {args.eval_command}")
             return 2
         _print_diff(behavior_eval.as_json(result))
+        return 0
+
+    if args.command == "outcome":
+        from omni import outcome
+
+        try:
+            conn = outcome.connect_project(project_root())
+        except FileNotFoundError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        try:
+            try:
+                if args.outcome_command == "mark":
+                    result = outcome.mark_outcome(
+                        conn,
+                        args.run_id,
+                        status=args.outcome_status or "unknown",
+                        tests_status=args.tests_status or "unknown",
+                        memory_effect=args.memory_effect,
+                        task_type=args.task_type,
+                        task_summary=args.task_summary,
+                        final_command=args.final_command,
+                        note=args.note,
+                    )
+                elif args.outcome_command == "show":
+                    result = outcome.show_outcome(conn, args.run_id)
+                else:
+                    parser.error(f"unknown outcome command: {args.outcome_command}")
+                    return 2
+            except ValueError as exc:
+                print(str(exc), file=sys.stderr)
+                return 2
+        finally:
+            conn.close()
+        _print_diff(outcome.as_json(result))
         return 0
 
     parser.error(f"unknown command: {args.command}")

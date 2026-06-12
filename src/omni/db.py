@@ -6,7 +6,11 @@ import sqlite3
 from pathlib import Path
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
-LATEST_SCHEMA_VERSION = "1"
+MIGRATIONS = (
+    ("1", "001_init.sql"),
+    ("2", "002_outcomes.sql"),
+)
+LATEST_SCHEMA_VERSION = MIGRATIONS[-1][0]
 
 
 def connect(path: Path | str) -> sqlite3.Connection:
@@ -21,9 +25,13 @@ def connect(path: Path | str) -> sqlite3.Connection:
 
 
 def migrate(conn: sqlite3.Connection) -> None:
-    if _current_schema_version(conn) == LATEST_SCHEMA_VERSION:
+    current = _current_schema_version(conn)
+    if current == LATEST_SCHEMA_VERSION:
         return
-    conn.executescript(migration_sql("001_init.sql"))
+    current_int = 0 if current is None else int(current)
+    for version, filename in MIGRATIONS:
+        if int(version) > current_int:
+            conn.executescript(migration_sql(filename))
     conn.commit()
 
 

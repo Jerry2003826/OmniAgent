@@ -199,6 +199,13 @@ def test_experience_memory_v0_doc_covers_behavior_eval_v0() -> None:
         "not causal proof",
         "cold/warm comparison",
         "project-level facts",
+        "Outcome Log v0",
+        "omni outcome mark <run_id>",
+        "omni outcome show <run_id>",
+        "user-marked",
+        "does not infer task",
+        "anchor for future experience and failure memory",
+        "does not create experience candidates",
     ):
         assert phrase in text
 
