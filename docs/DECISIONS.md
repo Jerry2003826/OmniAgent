@@ -106,6 +106,17 @@ an explicit run id, but it only consumes hook records whose payload
 spool for the real scoped request or a correctly scoped recovery. The default
 path should not steal hooks before the real session request arrives.
 
+Decision: `omni init --install-claude-hooks` installs into
+`.claude/settings.local.json` by default. Project-level installation into
+`.claude/settings.json` remains available only with
+`--claude-hooks-scope project`.
+
+Rationale: dogfood hooks are personal capture configuration. Committing them to
+a shared project can either break other users who do not have `omni` installed
+or silently enable capture for users who do. The local settings target keeps
+dogfood opt-in per checkout while preserving an explicit project-scope escape
+hatch for disposable sandboxes or intentionally single-user repos.
+
 Decision: installed Claude hooks use the portable command `omni hook` by
 default. `OMNI_HOOK_COMMAND` remains the explicit escape hatch for local
 environments that need a fully qualified command.

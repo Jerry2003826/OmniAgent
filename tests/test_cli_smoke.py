@@ -196,15 +196,15 @@ def test_init_install_claude_hooks_requires_yes_until_audit_passes(tmp_path: Pat
 
     assert result.returncode == 2
     assert "--yes" in result.stderr
-    assert not (tmp_path / ".claude" / "settings.json").exists()
+    assert not (tmp_path / ".claude" / "settings.local.json").exists()
 
 
-def test_init_install_claude_hooks_prints_diff_and_preserves_project_settings(
+def test_init_install_claude_hooks_defaults_to_local_settings(
     tmp_path: Path,
 ) -> None:
     claude_dir = tmp_path / ".claude"
     claude_dir.mkdir()
-    settings = claude_dir / "settings.json"
+    project_settings = claude_dir / "settings.json"
     diff_secret = "diff-secret-value-123456"
     original = json.dumps(
         {
@@ -226,7 +226,7 @@ def test_init_install_claude_hooks_prints_diff_and_preserves_project_settings(
         indent=2,
         sort_keys=True,
     ) + "\n"
-    settings.write_text(original, encoding="utf-8")
+    project_settings.write_text(original, encoding="utf-8")
 
     home = tmp_path / "home"
     global_claude = home / ".claude"
@@ -246,29 +246,83 @@ def test_init_install_claude_hooks_prints_diff_and_preserves_project_settings(
     assert result.returncode == 0, result.stderr
     gitignore = (tmp_path / ".gitignore").read_text(encoding="utf-8").splitlines()
     assert gitignore.count(".omni/") == 1
+    assert gitignore.count(".claude/settings.local.json") == 1
     assert gitignore.count(".claude/*.omni-tmp") == 1
     assert gitignore.count(".claude/settings.json.omni-bak") == 1
-    assert "--- .claude/settings.json" in result.stdout
-    assert "+++ .claude/settings.json (omni)" in result.stdout
+    assert "--- .claude/settings.local.json" in result.stdout
+    assert "+++ .claude/settings.local.json (omni)" in result.stdout
     assert "omni hook" in result.stdout
     assert diff_secret not in result.stdout
     assert not (claude_dir / "settings.json.omni-bak").exists()
     assert not (tmp_path / ".omni" / "backups").exists()
+    assert project_settings.read_text(encoding="utf-8") == original
     assert global_settings.read_text(encoding="utf-8") == global_original
 
+    local_settings = claude_dir / "settings.local.json"
+    updated = json.loads(local_settings.read_text(encoding="utf-8"))
+    command = updated["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+    assert command == "omni hook"
+    assert updated["hooks"]["PostToolUse"][0]["hooks"][0]["command"] == command
+    assert updated["hooks"]["Stop"][0]["hooks"][0]["command"] == command
+    assert updated["hooks"]["SessionEnd"][0]["hooks"][0]["command"] == command
+
+
+def test_init_install_claude_hooks_project_scope_preserves_project_settings(
+    tmp_path: Path,
+) -> None:
+    claude_dir = tmp_path / ".claude"
+    claude_dir.mkdir()
+    settings = claude_dir / "settings.json"
+    diff_secret = "diff-secret-value-123456"
+    settings.write_text(
+        json.dumps(
+            {
+                "permissions": {},
+                "hooks": {
+                    "Notification": [
+                        {
+                            "matcher": "*",
+                            "hooks": [
+                                {
+                                    "type": "command",
+                                    "command": f"echo token={diff_secret}",
+                                }
+                            ],
+                        }
+                    ]
+                },
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = run_omni(
+        tmp_path,
+        "init",
+        "--install-claude-hooks",
+        "--claude-hooks-scope",
+        "project",
+        "--yes",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "--- .claude/settings.json" in result.stdout
+    assert "+++ .claude/settings.json (omni)" in result.stdout
+    assert diff_secret not in result.stdout
+    assert not (claude_dir / "settings.local.json").exists()
     updated = json.loads(settings.read_text(encoding="utf-8"))
     command = updated["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
-    assert updated["permissions"] == {}
-    assert command == "omni hook"
     user_commands = [
         handler["command"]
         for group in updated["hooks"]["Notification"]
         for handler in group["hooks"]
     ]
+    assert updated["permissions"] == {}
+    assert command == "omni hook"
     assert f"echo token={diff_secret}" in user_commands
-    assert updated["hooks"]["PostToolUse"][0]["hooks"][0]["command"] == command
-    assert updated["hooks"]["Stop"][0]["hooks"][0]["command"] == command
-    assert updated["hooks"]["SessionEnd"][0]["hooks"][0]["command"] == command
 
 
 def test_init_install_claude_hooks_gitignore_entries_are_idempotent(tmp_path: Path) -> None:
@@ -282,13 +336,16 @@ def test_init_install_claude_hooks_gitignore_entries_are_idempotent(tmp_path: Pa
     assert "Updated" not in second.stdout
     lines = before.splitlines()
     assert lines.count(".omni/") == 1
+    assert lines.count(".claude/settings.local.json") == 1
     assert lines.count(".claude/*.omni-tmp") == 1
     assert lines.count(".claude/settings.json.omni-bak") == 1
 
 
 def test_install_claude_hooks_uses_portable_default_command(tmp_path: Path) -> None:
     result = hook.install_claude_hooks(tmp_path, yes=True)
-    settings = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    settings = json.loads(
+        (tmp_path / ".claude" / "settings.local.json").read_text(encoding="utf-8")
+    )
     command = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
 
     assert result.ok is True
@@ -302,7 +359,8 @@ def test_install_claude_hooks_does_not_write_raw_settings_backup_under_omni(
     claude_dir = tmp_path / ".claude"
     claude_dir.mkdir()
     secret = "sk-" + "settingsbackupsecretvalue1234567890"
-    (claude_dir / "settings.json").write_text(
+    project_settings = claude_dir / "settings.json"
+    project_settings.write_text(
         json.dumps({"hooks": {}, "env": {"TOKEN": secret}}) + "\n",
         encoding="utf-8",
     )
@@ -314,6 +372,9 @@ def test_install_claude_hooks_does_not_write_raw_settings_backup_under_omni(
     omni_bytes = b"".join(path.read_bytes() for path in omni_files)
     assert secret.encode("utf-8") not in omni_bytes
     assert not list((tmp_path / ".omni").glob("backups/*"))
+    assert project_settings.read_text(encoding="utf-8") == (
+        json.dumps({"hooks": {}, "env": {"TOKEN": secret}}) + "\n"
+    )
 
 
 def test_init_install_claude_hooks_redacts_printed_diff(tmp_path: Path) -> None:
@@ -329,7 +390,9 @@ def test_init_install_claude_hooks_redacts_printed_diff(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert diff_secret not in result.stdout
     assert "REDACTED:secret_assignment:" in result.stdout
-    settings = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    settings = json.loads(
+        (tmp_path / ".claude" / "settings.local.json").read_text(encoding="utf-8")
+    )
     assert diff_secret in settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
 
 
@@ -342,7 +405,9 @@ def test_install_claude_hooks_returned_diff_is_redacted(tmp_path: Path, monkeypa
     assert result.ok is True
     assert diff_secret not in result.diff
     assert "REDACTED:secret_assignment:" in result.diff
-    settings = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    settings = json.loads(
+        (tmp_path / ".claude" / "settings.local.json").read_text(encoding="utf-8")
+    )
     assert diff_secret in settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
 
 
@@ -351,7 +416,7 @@ def test_install_claude_hooks_writes_settings_through_temp_file(
 ) -> None:
     claude_dir = tmp_path / ".claude"
     claude_dir.mkdir()
-    settings = claude_dir / "settings.json"
+    settings = claude_dir / "settings.local.json"
     original = '{"permissions":{}}\n'
     settings.write_text(original, encoding="utf-8")
     original_write_text = Path.write_text
@@ -364,7 +429,7 @@ def test_install_claude_hooks_writes_settings_through_temp_file(
         newline: str | None = None,
     ) -> int:
         if self == settings and "omni hook" in data:
-            raise AssertionError("settings.json must be replaced from a temp file")
+            raise AssertionError("settings.local.json must be replaced from a temp file")
         return original_write_text(
             self, data, encoding=encoding, errors=errors, newline=newline
         )
@@ -375,15 +440,15 @@ def test_install_claude_hooks_writes_settings_through_temp_file(
 
     assert result.ok is True
     assert "omni hook" in settings.read_text(encoding="utf-8")
-    assert not (claude_dir / "settings.json.omni-tmp").exists()
+    assert not (claude_dir / "settings.local.json.omni-tmp").exists()
 
 
-def test_init_install_claude_hooks_fails_closed_on_invalid_project_settings(
+def test_init_install_claude_hooks_fails_closed_on_invalid_local_settings(
     tmp_path: Path,
 ) -> None:
     claude_dir = tmp_path / ".claude"
     claude_dir.mkdir()
-    settings = claude_dir / "settings.json"
+    settings = claude_dir / "settings.local.json"
     original = "{ invalid json\n"
     settings.write_text(original, encoding="utf-8")
 
@@ -396,12 +461,12 @@ def test_init_install_claude_hooks_fails_closed_on_invalid_project_settings(
     assert not (claude_dir / "settings.json.omni-bak").exists()
 
 
-def test_init_install_claude_hooks_fails_closed_on_non_object_project_settings(
+def test_init_install_claude_hooks_fails_closed_on_non_object_local_settings(
     tmp_path: Path,
 ) -> None:
     claude_dir = tmp_path / ".claude"
     claude_dir.mkdir()
-    settings = claude_dir / "settings.json"
+    settings = claude_dir / "settings.local.json"
     original = "[]\n"
     settings.write_text(original, encoding="utf-8")
 
@@ -419,7 +484,9 @@ def test_install_claude_hooks_honors_hook_command_override(
     monkeypatch.setenv("OMNI_HOOK_COMMAND", "custom omni hook")
 
     result = hook.install_claude_hooks(tmp_path, yes=True)
-    settings = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    settings = json.loads(
+        (tmp_path / ".claude" / "settings.local.json").read_text(encoding="utf-8")
+    )
 
     assert result.ok is True
     assert settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"] == "custom omni hook"
@@ -428,7 +495,7 @@ def test_install_claude_hooks_honors_hook_command_override(
 def test_install_claude_hooks_replaces_legacy_omni_hook_command(tmp_path: Path) -> None:
     claude_dir = tmp_path / ".claude"
     claude_dir.mkdir()
-    settings = claude_dir / "settings.json"
+    settings = claude_dir / "settings.local.json"
     settings.write_text(
         json.dumps(
             {
@@ -468,7 +535,7 @@ def test_install_claude_hooks_replaces_legacy_omni_hook_command(tmp_path: Path) 
 def test_install_claude_hooks_replaces_old_python_module_hook_command(tmp_path: Path) -> None:
     claude_dir = tmp_path / ".claude"
     claude_dir.mkdir()
-    settings = claude_dir / "settings.json"
+    settings = claude_dir / "settings.local.json"
     old_command = f'"{sys.executable}" -m omni.cli hook'
     settings.write_text(
         json.dumps(
@@ -508,7 +575,7 @@ def test_install_claude_hooks_replaces_old_python_module_hook_command(tmp_path: 
 def test_init_install_claude_hooks_handles_utf8_bom_settings_with_non_utf8_stdout(tmp_path: Path) -> None:
     claude_dir = tmp_path / ".claude"
     claude_dir.mkdir()
-    settings = claude_dir / "settings.json"
+    settings = claude_dir / "settings.local.json"
     original = b"\xef\xbb\xbf{\"permissions\":{}}\n"
     settings.write_bytes(original)
 

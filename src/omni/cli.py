@@ -32,6 +32,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     init_parser = subcommands.add_parser("init", help="Create a project-local .omni layout")
     init_parser.add_argument("--install-claude-hooks", action="store_true")
+    init_parser.add_argument(
+        "--claude-hooks-scope",
+        choices=("local", "project"),
+        default="local",
+        help=argparse.SUPPRESS,
+    )
     init_parser.add_argument("--yes", action="store_true")
 
     subcommands.add_parser("status")
@@ -97,7 +103,11 @@ def main(argv: list[str] | None = None) -> int:
             from omni.hook import install_claude_hooks
             from omni.redact import redact
 
-            installed = install_claude_hooks(result.root, yes=args.yes)
+            installed = install_claude_hooks(
+                result.root,
+                yes=args.yes,
+                scope=args.claude_hooks_scope,
+            )
             if not installed.ok:
                 print(installed.message, file=sys.stderr)
                 return 2

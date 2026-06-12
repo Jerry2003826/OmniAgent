@@ -11,6 +11,7 @@ OMNI_DIRNAME = ".omni"
 CONFIG_FILENAME = "config.toml"
 OMNI_GITIGNORE_ENTRIES = (".omni/",)
 CLAUDE_HOOK_GITIGNORE_ENTRIES = (
+    ".claude/settings.local.json",
     ".claude/*.omni-tmp",
     ".claude/settings.json.omni-bak",
 )

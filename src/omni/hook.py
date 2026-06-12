@@ -21,6 +21,10 @@ DEFAULT_HOOK_COMMAND = "omni hook"
 HOOK_COMMAND_ENV = "OMNI_HOOK_COMMAND"
 INGEST_EVENTS = {"Stop", "SessionEnd"}
 AUDIT_PASSED_MARKER = Path(".omni") / "audit" / "secrets.passed"
+CLAUDE_HOOK_SETTINGS_BY_SCOPE = {
+    "local": "settings.local.json",
+    "project": "settings.json",
+}
 MAX_HOOK_EVENT_PARSE_BYTES = 256 * 1024
 COMMAND_KEYS = {"command", "cmd"}
 INPUT_CONTAINER_KEYS = {"tool_input", "input", "parameters", "args"}
@@ -121,22 +125,31 @@ def run_from_stdin() -> HookCaptureResult:
         return HookCaptureResult(ok=True)
 
 
-def install_claude_hooks(root: Path | str | None = None, *, yes: bool = False) -> InstallResult:
+def install_claude_hooks(
+    root: Path | str | None = None,
+    *,
+    yes: bool = False,
+    scope: str = "local",
+) -> InstallResult:
     base = Path(root or Path.cwd()).resolve()
+    settings_filename = CLAUDE_HOOK_SETTINGS_BY_SCOPE.get(scope)
+    if settings_filename is None:
+        return InstallResult(ok=False, message=f"invalid Claude hook scope: {scope}")
     if not yes and not (base / AUDIT_PASSED_MARKER).exists():
         return InstallResult(
             ok=False,
             message=(
                 "omni audit secrets has not passed in this checkout; rerun with --yes "
-                "to install project Claude hooks anyway."
+                "to install Claude hooks anyway."
             ),
         )
 
     claude_dir = base / ".claude"
-    settings_path = claude_dir / "settings.json"
+    settings_path = claude_dir / settings_filename
+    settings_label = f".claude/{settings_filename}"
     original = settings_path.read_text(encoding="utf-8-sig") if settings_path.exists() else "{}\n"
     try:
-        settings = _parse_settings(original)
+        settings = _parse_settings(original, label=settings_label)
     except ValueError as exc:
         return InstallResult(ok=False, message=str(exc))
     hook_command = _hook_command()
@@ -146,8 +159,8 @@ def install_claude_hooks(root: Path | str | None = None, *, yes: bool = False) -
         difflib.unified_diff(
             original.splitlines(keepends=True),
             rendered.splitlines(keepends=True),
-            fromfile=".claude/settings.json",
-            tofile=".claude/settings.json (omni)",
+            fromfile=settings_label,
+            tofile=f"{settings_label} (omni)",
         )
     )
 
@@ -540,13 +553,13 @@ def _redacted_text(value: str) -> str:
     return redact(value.encode("utf-8")).data.decode("utf-8", errors="replace")
 
 
-def _parse_settings(original: str) -> dict[str, object]:
+def _parse_settings(original: str, *, label: str = ".claude/settings.json") -> dict[str, object]:
     try:
         parsed = json.loads(original) if original.strip() else {}
     except json.JSONDecodeError as exc:
-        raise ValueError(f"invalid .claude/settings.json: {exc.msg}") from exc
+        raise ValueError(f"invalid {label}: {exc.msg}") from exc
     if not isinstance(parsed, dict):
-        raise ValueError("invalid .claude/settings.json: root must be a JSON object")
+        raise ValueError(f"invalid {label}: root must be a JSON object")
     return parsed
 
 
