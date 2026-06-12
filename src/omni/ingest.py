@@ -249,6 +249,7 @@ def _transcript_candidates(conn: sqlite3.Connection, root: Path, path: Path) -> 
 def _candidate_from_transcript_event(
     conn: sqlite3.Connection, root: Path, event: NormalizedEvent
 ) -> EventCandidate:
+    unique_key = _transcript_unique_key(event)
     artifact = put_artifact(
         root,
         conn,
@@ -270,10 +271,19 @@ def _candidate_from_transcript_event(
         source="transcript",
         meta=event.meta,
         artifact_hash=artifact.hash,
-        unique_key=f"transcript:{event.tool_use_id or event.seq}:{event.event_type}:{event.ts}",
+        unique_key=unique_key,
         redaction_status=event.redaction_status,
         sort_index=event.seq,
     )
+
+
+def _transcript_unique_key(event: NormalizedEvent) -> str:
+    uuid = event.meta.get("uuid")
+    if isinstance(uuid, str) and uuid:
+        return f"transcript:{uuid}"
+    # TODO: Do not infer nested Claude tool ids from message.content/toolUseResult
+    # until recorded evidence requires changing transcript/hook reconciliation.
+    return f"transcript:{event.tool_use_id or event.seq}:{event.event_type}:{event.ts}"
 
 
 def _hook_candidates(

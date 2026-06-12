@@ -692,6 +692,156 @@ def test_ingest_preserves_transcript_order_when_timestamps_are_missing(
     ]
 
 
+def test_resume_transcript_uses_uuid_when_mode_row_is_inserted_before_old_rows(
+    tmp_path: Path,
+) -> None:
+    transcript = tmp_path / "resume.jsonl"
+    original_rows = [
+        _claude_assistant_row("msg-old-1", "2026-06-12T00:00:00Z", "first"),
+        _claude_user_row("msg-old-2", "2026-06-12T00:00:01Z", "second"),
+    ]
+    _write_transcript(transcript, original_rows)
+
+    first = ingest.ingest(root=tmp_path, run_id="run_resume", transcript=transcript)
+    _write_transcript(transcript, [_claude_mode_row(), *original_rows])
+    second = ingest.ingest(root=tmp_path, run_id="run_resume", transcript=transcript)
+
+    conn = db.connect(tmp_path / ".omni" / "omni.sqlite3")
+    rows = conn.execute(
+        """
+        SELECT event_type, meta
+        FROM events
+        WHERE run_id = 'run_resume'
+        ORDER BY seq
+        """
+    ).fetchall()
+    uuids = [
+        json.loads(row["meta"]).get("uuid")
+        for row in rows
+        if json.loads(row["meta"]).get("uuid")
+    ]
+
+    assert first.events_inserted == 2
+    assert second.events_inserted == 1
+    assert [row["event_type"] for row in rows] == ["assistant", "user", "mode"]
+    assert sorted(uuids) == ["msg-old-1", "msg-old-2"]
+
+
+def test_resume_transcript_uses_uuid_when_old_timestamps_are_rewritten(
+    tmp_path: Path,
+) -> None:
+    transcript = tmp_path / "resume-rewritten-ts.jsonl"
+    _write_transcript(
+        transcript,
+        [
+            _claude_assistant_row("msg-stable-1", "2026-06-12T00:00:00Z", "first"),
+            _claude_user_row("msg-stable-2", "2026-06-12T00:00:01Z", "second"),
+        ],
+    )
+
+    first = ingest.ingest(root=tmp_path, run_id="run_rewritten_ts", transcript=transcript)
+    _write_transcript(
+        transcript,
+        [
+            _claude_assistant_row("msg-stable-1", "2026-06-12T01:00:00Z", "first"),
+            _claude_user_row("msg-stable-2", "2026-06-12T01:00:01Z", "second"),
+        ],
+    )
+    second = ingest.ingest(root=tmp_path, run_id="run_rewritten_ts", transcript=transcript)
+
+    conn = db.connect(tmp_path / ".omni" / "omni.sqlite3")
+    count = conn.execute(
+        "SELECT COUNT(*) FROM events WHERE run_id = 'run_rewritten_ts'"
+    ).fetchone()[0]
+
+    assert first.events_inserted == 2
+    assert second.events_inserted == 0
+    assert count == 2
+
+
+def test_transcript_rows_without_uuid_keep_existing_fallback_identity(
+    tmp_path: Path,
+) -> None:
+    transcript = tmp_path / "mode-only.jsonl"
+    _write_transcript(transcript, [_claude_mode_row()])
+
+    first = ingest.ingest(root=tmp_path, run_id="run_mode", transcript=transcript)
+    second = ingest.ingest(root=tmp_path, run_id="run_mode", transcript=transcript)
+
+    conn = db.connect(tmp_path / ".omni" / "omni.sqlite3")
+    row = conn.execute(
+        "SELECT event_type, meta FROM events WHERE run_id = 'run_mode'"
+    ).fetchone()
+
+    assert first.events_inserted == 1
+    assert second.events_inserted == 0
+    assert row["event_type"] == "mode"
+    assert json.loads(row["meta"]) == {"mode": "default", "sessionId": "session-resume"}
+
+
+def _write_transcript(path: Path, rows: list[dict[str, object]]) -> None:
+    path.write_text(
+        "\n".join(json.dumps(row, sort_keys=True) for row in rows) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _claude_assistant_row(uuid: str, timestamp: str, text: str) -> dict[str, object]:
+    return {
+        "type": "assistant",
+        "timestamp": timestamp,
+        "uuid": uuid,
+        "parentUuid": None,
+        "sessionId": "session-resume",
+        "cwd": "C:\\sandbox",
+        "gitBranch": "master",
+        "isSidechain": False,
+        "userType": "external",
+        "version": "2.1.173",
+        "entrypoint": "cli",
+        "message": {
+            "id": f"msg-{uuid}",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-test",
+            "content": [{"type": "text", "text": text}],
+            "stop_details": None,
+            "stop_reason": "end_turn",
+            "stop_sequence": None,
+            "usage": {},
+        },
+    }
+
+
+def _claude_user_row(uuid: str, timestamp: str, text: str) -> dict[str, object]:
+    return {
+        "type": "user",
+        "timestamp": timestamp,
+        "uuid": uuid,
+        "parentUuid": None,
+        "sessionId": "session-resume",
+        "cwd": "C:\\sandbox",
+        "gitBranch": "master",
+        "isSidechain": False,
+        "userType": "external",
+        "version": "2.1.173",
+        "entrypoint": "cli",
+        "permissionMode": "bypassPermissions",
+        "promptId": "prompt-resume",
+        "promptSource": "user",
+        "sourceToolAssistantUUID": None,
+        "message": {"role": "user", "content": [{"type": "text", "text": text}]},
+    }
+
+
+def _claude_mode_row() -> dict[str, object]:
+    return {
+        "type": "mode",
+        "sessionId": "session-resume",
+        "mode": "default",
+    }
+
+
 def test_ingest_drains_queue_and_watchdog_closes_stale_open_runs(tmp_path: Path) -> None:
     transcript = tmp_path / "queued.jsonl"
     transcript.write_text(
