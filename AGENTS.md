@@ -1,6 +1,8 @@
-# OmniMemory — Week-1 Vertical Slice
+# OmniMemory v0.2 / Experience Memory foundations
 
 ## Goal
+
+Current phase: OmniMemory v0.2 / Experience Memory foundations.
 
 Build ONE closed loop:
 
@@ -16,7 +18,7 @@ NO multi-engine router.
 NO Computer Use.  
 NO automatic evolution.  
 NO answer cache.  
-NO new tables beyond migration 001.
+No new tables beyond approved migrations for the current phase. Approved now: 001_init.sql and 002_outcomes.sql.
 
 Day-5B items are week-2 unless Day-5A acceptance passes early:
 - observed_command extractor
@@ -59,6 +61,14 @@ Violations require reverting the commit.
    - `omni ingest`
    - `omni review`
    - `omni render`
+   - `omni outcome mark`
+
+   These commands are read-only:
+   - `omni parse`
+   - `omni status`
+   - `omni eval run`
+   - `omni eval dogfood`
+   - `omni outcome show`
 
 4. Never modify user content in `CLAUDE.md` outside the managed region:
 
