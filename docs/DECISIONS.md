@@ -21,6 +21,17 @@ state. Users with `$HOME` or another parent directory managed as a git repo
 should run `omni init` from the intended project root if no closer `.git` or
 `.omni/` exists.
 
+Decision: command footprints are proportional to the action requested. Bare
+`omni init` may ensure `.omni/` is ignored by git, and
+`omni init --install-claude-hooks` may additionally ignore hook-owned temporary
+and legacy backup paths. Non-init commands such as `omni ingest` and
+`omni audit secrets` never modify user files while ensuring the `.omni/`
+layout.
+
+Rationale: routine commands should not create surprise working-tree diffs in
+real projects. The only commands that modify `.gitignore` are the commands
+whose visible purpose is initialization or hook installation.
+
 ## Week-1 spool and status limits
 
 Decision: Week-1 writes one ingest request file per hook stop event instead of

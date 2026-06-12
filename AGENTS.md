@@ -69,6 +69,9 @@ Violations require reverting the commit.
    ```
 
 5. `omni init` creates `.omni/` only.
+   Bare `omni init` may ensure exactly one gitignore entry: `.omni/`.
+   Routine commands such as `omni ingest` and `omni audit secrets` must not
+   modify `.gitignore` or other user files while ensuring the `.omni/` layout.
    Installing hooks into project-level `.claude/settings.json` requires:
 
    ```bash
@@ -77,6 +80,8 @@ Violations require reverting the commit.
 
    This command must:
    - print a redacted diff
+   - ensure hook-owned gitignore entries for `.claude/*.omni-tmp` and
+     `.claude/settings.json.omni-bak`
    - write `.claude/settings.json` with atomic temp-file replace
    - not create a raw settings backup by default
    - never touch global `~/.claude/settings.json`

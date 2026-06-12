@@ -6,7 +6,13 @@ import argparse
 import sys
 
 from omni import __version__
-from omni.config import ensure_project_layout, project_root
+from omni.config import (
+    CLAUDE_HOOK_GITIGNORE_ENTRIES,
+    OMNI_GITIGNORE_ENTRIES,
+    ensure_gitignore_entry,
+    ensure_project_layout,
+    project_root,
+)
 
 
 def run_from_stdin():
@@ -78,8 +84,14 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.command == "init":
         result = ensure_project_layout()
+        gitignore_updated = ensure_gitignore_entry(result.root, OMNI_GITIGNORE_ENTRIES)
+        if args.install_claude_hooks:
+            gitignore_updated = (
+                ensure_gitignore_entry(result.root, CLAUDE_HOOK_GITIGNORE_ENTRIES)
+                or gitignore_updated
+            )
         print(f"Initialized OmniMemory at {result.omni_dir}")
-        if result.gitignore_updated:
+        if gitignore_updated:
             print(f"Updated {result.root / '.gitignore'}")
         if args.install_claude_hooks:
             from omni.hook import install_claude_hooks

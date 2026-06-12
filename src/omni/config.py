@@ -9,11 +9,12 @@ from omni.ids import ensure_project_id
 
 OMNI_DIRNAME = ".omni"
 CONFIG_FILENAME = "config.toml"
-GITIGNORE_ENTRIES = (
-    ".omni/",
+OMNI_GITIGNORE_ENTRIES = (".omni/",)
+CLAUDE_HOOK_GITIGNORE_ENTRIES = (
     ".claude/*.omni-tmp",
     ".claude/settings.json.omni-bak",
 )
+GITIGNORE_ENTRIES = OMNI_GITIGNORE_ENTRIES + CLAUDE_HOOK_GITIGNORE_ENTRIES
 
 OMNI_SUBDIRS = (
     "spool",
@@ -64,20 +65,19 @@ def ensure_project_layout(root: Path | str | None = None) -> InitResult:
     if not project_id_exists:
         created.append(project_id_path)
 
-    gitignore_updated = ensure_gitignore_entry(base)
     return InitResult(
         root=base,
         omni_dir=omni_dir,
         created=tuple(created),
-        gitignore_updated=gitignore_updated,
+        gitignore_updated=False,
     )
 
 
-def ensure_gitignore_entry(root: Path) -> bool:
+def ensure_gitignore_entry(root: Path, entries: tuple[str, ...] = GITIGNORE_ENTRIES) -> bool:
     gitignore = root / ".gitignore"
     existing = gitignore.read_text(encoding="utf-8") if gitignore.exists() else ""
     lines = existing.splitlines()
-    missing = [entry for entry in GITIGNORE_ENTRIES if not _has_gitignore_entry(lines, entry)]
+    missing = [entry for entry in entries if not _has_gitignore_entry(lines, entry)]
 
     if not missing:
         return False

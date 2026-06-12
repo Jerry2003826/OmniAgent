@@ -62,11 +62,12 @@ def test_init_creates_layout_and_is_idempotent(tmp_path: Path) -> None:
 
     gitignore = (tmp_path / ".gitignore").read_text(encoding="utf-8").splitlines()
     assert gitignore.count(".omni/") == 1
-    assert ".claude/*.omni-tmp" in gitignore
-    assert ".claude/settings.json.omni-bak" in gitignore
+    assert ".claude/*.omni-tmp" not in gitignore
+    assert ".claude/settings.json.omni-bak" not in gitignore
     assert [line for line in gitignore if line.startswith(".omni")] == [".omni/"]
     assert ".omni/generated/" not in gitignore
     assert ".omni/project_id" not in gitignore
+    assert "Updated" not in second.stdout
 
 
 def test_init_adds_entire_omni_ignore_when_narrow_entry_exists(tmp_path: Path) -> None:
@@ -77,9 +78,37 @@ def test_init_adds_entire_omni_ignore_when_narrow_entry_exists(tmp_path: Path) -
     assert result.returncode == 0, result.stderr
     gitignore = (tmp_path / ".gitignore").read_text(encoding="utf-8").splitlines()
     assert ".omni/" in gitignore
-    assert ".claude/*.omni-tmp" in gitignore
-    assert ".claude/settings.json.omni-bak" in gitignore
+    assert ".claude/*.omni-tmp" not in gitignore
+    assert ".claude/settings.json.omni-bak" not in gitignore
     assert ".omni/project_id" not in gitignore
+
+
+def test_ingest_does_not_modify_existing_gitignore(tmp_path: Path) -> None:
+    gitignore = tmp_path / ".gitignore"
+    original = "node_modules/\n"
+    gitignore.write_text(original, encoding="utf-8")
+    transcript = tmp_path / "transcript.jsonl"
+    transcript.write_text(
+        '{"type":"tool_use","timestamp":"2026-06-11T00:00:00Z","id":"toolu_clean","name":"Bash"}\n',
+        encoding="utf-8",
+    )
+
+    result = run_omni(tmp_path, "ingest", "clean_run", "--transcript", str(transcript))
+
+    assert result.returncode == 0, result.stderr
+    assert gitignore.read_text(encoding="utf-8") == original
+
+
+def test_audit_secrets_does_not_modify_existing_gitignore(tmp_path: Path) -> None:
+    gitignore = tmp_path / ".gitignore"
+    original = "node_modules/\n"
+    gitignore.write_text(original, encoding="utf-8")
+
+    result = run_omni(tmp_path, "audit", "secrets")
+
+    assert result.returncode == 0, result.stderr
+    assert '"ok": true' in result.stdout
+    assert gitignore.read_text(encoding="utf-8") == original
 
 
 def test_init_creates_project_id_file_and_keeps_it_after_path_move(tmp_path: Path) -> None:
@@ -215,6 +244,10 @@ def test_init_install_claude_hooks_prints_diff_and_preserves_project_settings(
     )
 
     assert result.returncode == 0, result.stderr
+    gitignore = (tmp_path / ".gitignore").read_text(encoding="utf-8").splitlines()
+    assert gitignore.count(".omni/") == 1
+    assert gitignore.count(".claude/*.omni-tmp") == 1
+    assert gitignore.count(".claude/settings.json.omni-bak") == 1
     assert "--- .claude/settings.json" in result.stdout
     assert "+++ .claude/settings.json (omni)" in result.stdout
     assert "omni hook" in result.stdout
@@ -236,6 +269,21 @@ def test_init_install_claude_hooks_prints_diff_and_preserves_project_settings(
     assert updated["hooks"]["PostToolUse"][0]["hooks"][0]["command"] == command
     assert updated["hooks"]["Stop"][0]["hooks"][0]["command"] == command
     assert updated["hooks"]["SessionEnd"][0]["hooks"][0]["command"] == command
+
+
+def test_init_install_claude_hooks_gitignore_entries_are_idempotent(tmp_path: Path) -> None:
+    first = run_omni(tmp_path, "init", "--install-claude-hooks", "--yes")
+    before = (tmp_path / ".gitignore").read_text(encoding="utf-8")
+    second = run_omni(tmp_path, "init", "--install-claude-hooks", "--yes")
+
+    assert first.returncode == 0, first.stderr
+    assert second.returncode == 0, second.stderr
+    assert before == (tmp_path / ".gitignore").read_text(encoding="utf-8")
+    assert "Updated" not in second.stdout
+    lines = before.splitlines()
+    assert lines.count(".omni/") == 1
+    assert lines.count(".claude/*.omni-tmp") == 1
+    assert lines.count(".claude/settings.json.omni-bak") == 1
 
 
 def test_install_claude_hooks_uses_portable_default_command(tmp_path: Path) -> None:
