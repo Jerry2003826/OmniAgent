@@ -49,6 +49,7 @@ def connect_project(root: Path | str | None = None) -> sqlite3.Connection:
 
 
 def extract_candidates(conn: sqlite3.Connection, run_id: str) -> list[dict[str, Any]]:
+    _ensure_run_exists(conn, run_id)
     outcome_row = _outcome_for_run(conn, run_id)
     if outcome_row is None:
         return []
@@ -201,6 +202,12 @@ def _outcome_for_run(conn: sqlite3.Connection, run_id: str) -> sqlite3.Row | Non
         """,
         (run_id,),
     ).fetchone()
+
+
+def _ensure_run_exists(conn: sqlite3.Connection, run_id: str) -> None:
+    row = conn.execute("SELECT 1 FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+    if row is None:
+        raise ValueError(f"unknown run: {run_id}")
 
 
 def _evaluate_run(conn: sqlite3.Connection, run_id: str) -> dict[str, Any]:

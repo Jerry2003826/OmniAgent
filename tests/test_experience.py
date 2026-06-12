@@ -112,6 +112,13 @@ def test_extract_without_outcome_creates_no_candidate(
     assert experience.list_candidates(conn, state="all") == []
 
 
+def test_extract_unknown_run_raises_clear_error(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+
+    with pytest.raises(ValueError, match="unknown run: missing_run"):
+        experience.extract_candidates(conn, "missing_run")
+
+
 def test_extract_unknown_eval_creates_no_candidate(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -239,6 +246,36 @@ def test_cli_extract_ls_show_approve_reject_work(
     assert approved["state"] == "approved"
     assert reject_code == 0
     assert rejected["state"] == "rejected"
+
+
+def test_cli_extract_unknown_run_exits_nonzero_with_clear_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    conn = _fixture_db(tmp_path)
+    conn.close()
+    monkeypatch.chdir(tmp_path)
+
+    code = cli.main(["experience", "extract", "missing_run"])
+    captured = capsys.readouterr()
+
+    assert code == 2
+    assert "unknown run: missing_run" in captured.err
+    assert captured.out == ""
+
+
+def test_cli_extract_known_run_without_outcome_returns_created_zero(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_run(conn, "run_without_outcome")
+    conn.close()
+    monkeypatch.chdir(tmp_path)
+
+    code = cli.main(["experience", "extract", "run_without_outcome"])
+    output = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert output == {"created": 0, "candidates": []}
 
 
 def test_evidence_contains_eval_and_outcome_summary_without_raw_secrets(
