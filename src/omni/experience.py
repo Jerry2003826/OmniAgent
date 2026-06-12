@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -160,12 +161,21 @@ def approve_candidate(conn: sqlite3.Connection, exp_cand_id: str) -> dict[str, A
         raise ValueError(f"rejected candidate cannot be approved in v0: {exp_cand_id}")
 
     _validate_choice("state", candidate["state"], STATE_VALUES)
+    _validate_choice("kind", candidate["kind"], KIND_VALUES)
     if note_id is None:
-        note_id = _create_experience_note(conn, candidate)
+        try:
+            note_id = _create_experience_note(conn, candidate)
+        except sqlite3.IntegrityError:
+            # Another writer approved this candidate after our existence check;
+            # recover by reusing its committed active note.
+            conn.rollback()
+            note_id = _active_note_id_for_candidate(conn, exp_cand_id)
+            if note_id is None:
+                raise
     conn.execute(
         """
         UPDATE experience_candidates
-        SET state = 'approved', reviewed_at = ?, review_note = NULL
+        SET state = 'approved', reviewed_at = ?
         WHERE exp_cand_id = ?
         """,
         (_now(), exp_cand_id),
@@ -275,7 +285,11 @@ def _evaluate_run(conn: sqlite3.Connection, run_id: str) -> dict[str, Any]:
         return {"memory_effect": "unknown", "reason": "insufficient evidence"}
     try:
         return behavior_eval.evaluate_run(root, run_id)
-    except Exception:
+    except Exception as exc:
+        print(
+            f"warning: eval unavailable for {run_id}: {type(exc).__name__}",
+            file=sys.stderr,
+        )
         return {"memory_effect": "unknown", "reason": "eval unavailable"}
 
 
@@ -305,7 +319,7 @@ def _set_candidate_state(
     conn.execute(
         """
         UPDATE experience_candidates
-        SET state = ?, reviewed_at = ?, review_note = NULL
+        SET state = ?, reviewed_at = ?
         WHERE exp_cand_id = ?
         """,
         (state, _now(), exp_cand_id),

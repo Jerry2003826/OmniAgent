@@ -40,8 +40,20 @@ def migrate(conn: sqlite3.Connection) -> None:
     current_int = 0 if current is None else int(current)
     for version, filename in MIGRATIONS:
         if int(version) > current_int:
-            conn.executescript(migration_sql(filename))
+            _apply_migration(conn, filename)
     conn.commit()
+
+
+def _apply_migration(conn: sqlite3.Connection, filename: str) -> None:
+    # executescript runs statements in autocommit mode; the explicit BEGIN/COMMIT
+    # makes each migration all-or-nothing so a mid-script failure cannot leave
+    # tables created while schema_version stays behind.
+    try:
+        conn.executescript(f"BEGIN;\n{migration_sql(filename)}\nCOMMIT;")
+    except Exception:
+        if conn.in_transaction:
+            conn.rollback()
+        raise
 
 
 def migration_sql(filename: str) -> str:

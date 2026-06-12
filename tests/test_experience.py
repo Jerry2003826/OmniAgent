@@ -557,6 +557,125 @@ def test_connect_project_readonly_missing_db_raises_file_not_found(tmp_path: Pat
         experience.connect_project_readonly(tmp_path)
 
 
+def test_reject_twice_is_idempotent_and_preserves_reviewed_at(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_outcome(
+        conn,
+        "run_double_reject",
+        status="success",
+        tests_status="passed",
+        memory_effect="helped",
+        task_type="validation",
+    )
+    _fake_eval(monkeypatch, memory_effect="helped")
+    [candidate] = experience.extract_candidates(conn, "run_double_reject")
+
+    first = experience.reject_candidate(conn, candidate["exp_cand_id"])
+    second = experience.reject_candidate(conn, candidate["exp_cand_id"])
+
+    assert first["state"] == "rejected"
+    assert second == first
+    assert second["reviewed_at"] == first["reviewed_at"]
+    assert _active_note_count(conn, candidate["exp_cand_id"]) == 0
+
+
+def test_approve_recovers_when_note_appears_concurrently(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_outcome(
+        conn,
+        "run_race",
+        status="success",
+        tests_status="passed",
+        memory_effect="helped",
+        task_type="validation",
+    )
+    _fake_eval(monkeypatch, memory_effect="helped")
+    [candidate] = experience.extract_candidates(conn, "run_race")
+    row = conn.execute(
+        "SELECT * FROM experience_candidates WHERE exp_cand_id = ?",
+        (candidate["exp_cand_id"],),
+    ).fetchone()
+    existing_note_id = experience._create_experience_note(conn, row)
+    conn.commit()
+    real_lookup = experience._active_note_id_for_candidate
+    calls = {"count": 0}
+
+    def racing_lookup(conn_arg: sqlite3.Connection, exp_cand_id: str) -> str | None:
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return None
+        return real_lookup(conn_arg, exp_cand_id)
+
+    monkeypatch.setattr(experience, "_active_note_id_for_candidate", racing_lookup)
+
+    approved = experience.approve_candidate(conn, candidate["exp_cand_id"])
+
+    assert approved["state"] == "approved"
+    assert approved["note_id"] == existing_note_id
+    assert _active_note_count(conn, candidate["exp_cand_id"]) == 1
+
+
+def test_approve_rejects_unknown_candidate_kind(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_run(conn, "run_weird_kind")
+    conn.execute(
+        """
+        INSERT INTO experience_candidates(
+          exp_cand_id, run_id, outcome_id, task_type, kind, trigger,
+          claim, suggested_action, evidence, state, created_at,
+          reviewed_at, review_note
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            "exp_cand_weird",
+            "run_weird_kind",
+            None,
+            "validation",
+            "weird",
+            None,
+            "claim",
+            "action",
+            "{}",
+            "pending",
+            "2026-06-13T00:00:00+00:00",
+            None,
+            None,
+        ),
+    )
+    conn.commit()
+
+    with pytest.raises(ValueError, match="invalid kind: weird"):
+        experience.approve_candidate(conn, "exp_cand_weird")
+    assert _active_note_count(conn, "exp_cand_weird") == 0
+
+
+def test_extract_warns_on_stderr_when_eval_crashes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_outcome(
+        conn,
+        "run_eval_crash",
+        status="failed",
+        tests_status="not_run",
+        memory_effect="failed_to_help",
+        task_type="validation",
+    )
+
+    def boom(root: Path | str, run_id: str) -> dict[str, object]:
+        raise RuntimeError("eval exploded")
+
+    monkeypatch.setattr(experience.behavior_eval, "evaluate_run", boom)
+
+    assert experience.extract_candidates(conn, "run_eval_crash") == []
+    captured = capsys.readouterr()
+    assert "warning: eval unavailable for run_eval_crash: RuntimeError" in captured.err
+
+
 def _fixture_db(root: Path) -> sqlite3.Connection:
     (root / ".omni").mkdir()
     conn = db.connect(root / ".omni" / "omni.sqlite3")

@@ -140,6 +140,51 @@ def test_migration_004_adds_experience_notes_to_existing_schema_3_database(
     assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
+def test_failed_migration_rolls_back_completely_and_can_retry(
+    tmp_path: Path, monkeypatch
+) -> None:
+    conn = db.connect(tmp_path / ".omni" / "omni.sqlite3")
+    db.migrate(conn)
+    original_migration_sql = db.migration_sql
+    probe_sql = {
+        "sql": (
+            "CREATE TABLE migration_probe(x TEXT);\n"
+            "INSERT INTO missing_table VALUES(1);\n"
+            "UPDATE meta SET value = '5' WHERE key = 'schema_version';\n"
+        )
+    }
+
+    def fake_migration_sql(filename: str) -> str:
+        if filename == "005_probe.sql":
+            return probe_sql["sql"]
+        return original_migration_sql(filename)
+
+    monkeypatch.setattr(db, "MIGRATIONS", db.MIGRATIONS + (("5", "005_probe.sql"),))
+    monkeypatch.setattr(db, "LATEST_SCHEMA_VERSION", "5")
+    monkeypatch.setattr(db, "migration_sql", fake_migration_sql)
+
+    with pytest.raises(sqlite3.OperationalError):
+        db.migrate(conn)
+
+    assert (
+        conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0]
+        == "4"
+    )
+    assert "migration_probe" not in table_names(conn)
+
+    probe_sql["sql"] = (
+        "CREATE TABLE migration_probe(x TEXT);\n"
+        "UPDATE meta SET value = '5' WHERE key = 'schema_version';\n"
+    )
+    db.migrate(conn)
+
+    assert (
+        conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0]
+        == "5"
+    )
+    assert "migration_probe" in table_names(conn)
+
+
 def test_migration_sql_does_not_set_pragmas() -> None:
     sql = db.migration_sql("001_init.sql")
     executable_sql = "\n".join(
