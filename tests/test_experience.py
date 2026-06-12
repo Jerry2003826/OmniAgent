@@ -184,6 +184,30 @@ def test_approve_twice_is_idempotent_for_existing_active_note(
     assert _active_note_count(conn, candidate["exp_cand_id"]) == 1
 
 
+def test_approved_candidate_cannot_be_rejected_in_v0(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_outcome(
+        conn,
+        "run_approved_then_reject",
+        status="success",
+        tests_status="passed",
+        memory_effect="helped",
+        task_type="validation",
+    )
+    _fake_eval(monkeypatch, memory_effect="helped")
+    [candidate] = experience.extract_candidates(conn, "run_approved_then_reject")
+    approved = experience.approve_candidate(conn, candidate["exp_cand_id"])
+
+    with pytest.raises(ValueError, match="approved candidate cannot be rejected in v0"):
+        experience.reject_candidate(conn, candidate["exp_cand_id"])
+
+    assert experience.show_candidate(conn, candidate["exp_cand_id"])["state"] == "approved"
+    assert _active_note_count(conn, candidate["exp_cand_id"]) == 1
+    assert _active_note_for_candidate(conn, candidate["exp_cand_id"])["note_id"] == approved["note_id"]
+
+
 def test_rejected_candidate_cannot_be_approved_in_v0(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -295,23 +319,36 @@ def test_list_show_approve_and_reject_candidates(
         memory_effect="helped",
         task_type="validation",
     )
+    _insert_outcome(
+        conn,
+        "run_review_reject",
+        status="success",
+        tests_status="passed",
+        memory_effect="helped",
+        task_type="validation",
+    )
     _fake_eval(monkeypatch, memory_effect="helped")
     [candidate] = experience.extract_candidates(conn, "run_review")
+    [reject_candidate] = experience.extract_candidates(conn, "run_review_reject")
 
     pending = experience.list_candidates(conn)
     shown = experience.show_candidate(conn, candidate["exp_cand_id"])
     approved = experience.approve_candidate(conn, candidate["exp_cand_id"])
     approved_list = experience.list_candidates(conn, state="approved")
-    rejected = experience.reject_candidate(conn, candidate["exp_cand_id"])
+    rejected = experience.reject_candidate(conn, reject_candidate["exp_cand_id"])
     approved_candidate = {key: value for key, value in approved.items() if key != "note_id"}
 
-    assert pending == [candidate]
+    assert {item["exp_cand_id"] for item in pending} == {
+        candidate["exp_cand_id"],
+        reject_candidate["exp_cand_id"],
+    }
     assert shown == candidate
     assert approved["state"] == "approved"
     assert approved["note_id"]
     assert approved["reviewed_at"]
     assert approved_list == [approved_candidate]
     assert rejected["state"] == "rejected"
+    assert _active_note_count(conn, rejected["exp_cand_id"]) == 0
 
 
 def test_cli_extract_ls_show_approve_reject_work(
@@ -326,6 +363,14 @@ def test_cli_extract_ls_show_approve_reject_work(
         memory_effect="helped",
         task_type="validation",
     )
+    _insert_outcome(
+        conn,
+        "run_cli_reject",
+        status="success",
+        tests_status="passed",
+        memory_effect="helped",
+        task_type="validation",
+    )
     conn.close()
     _fake_eval(monkeypatch, memory_effect="helped", first_expected_command="pnpm run test")
     monkeypatch.chdir(tmp_path)
@@ -333,19 +378,27 @@ def test_cli_extract_ls_show_approve_reject_work(
     extract_code = cli.main(["experience", "extract", "run_cli_exp"])
     extracted = json.loads(capsys.readouterr().out)
     exp_cand_id = extracted["candidates"][0]["exp_cand_id"]
+    reject_extract_code = cli.main(["experience", "extract", "run_cli_reject"])
+    reject_extracted = json.loads(capsys.readouterr().out)
+    reject_exp_cand_id = reject_extracted["candidates"][0]["exp_cand_id"]
     ls_code = cli.main(["experience", "ls"])
     listed = json.loads(capsys.readouterr().out)
     show_code = cli.main(["experience", "show", exp_cand_id])
     shown = json.loads(capsys.readouterr().out)
     approve_code = cli.main(["experience", "approve", exp_cand_id])
     approved = json.loads(capsys.readouterr().out)
-    reject_code = cli.main(["experience", "reject", exp_cand_id])
+    reject_code = cli.main(["experience", "reject", reject_exp_cand_id])
     rejected = json.loads(capsys.readouterr().out)
 
     assert extract_code == 0
     assert extracted["created"] == 1
+    assert reject_extract_code == 0
+    assert reject_extracted["created"] == 1
     assert ls_code == 0
-    assert listed["candidates"][0]["exp_cand_id"] == exp_cand_id
+    assert {item["exp_cand_id"] for item in listed["candidates"]} == {
+        exp_cand_id,
+        reject_exp_cand_id,
+    }
     assert show_code == 0
     assert shown["exp_cand_id"] == exp_cand_id
     assert approve_code == 0
@@ -353,6 +406,38 @@ def test_cli_extract_ls_show_approve_reject_work(
     assert approved["note_id"]
     assert reject_code == 0
     assert rejected["state"] == "rejected"
+
+
+def test_cli_reject_approved_candidate_exits_nonzero_with_clear_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_outcome(
+        conn,
+        "run_cli_approved_reject",
+        status="success",
+        tests_status="passed",
+        memory_effect="helped",
+        task_type="validation",
+    )
+    conn.close()
+    _fake_eval(monkeypatch, memory_effect="helped", first_expected_command="pnpm run test")
+    monkeypatch.chdir(tmp_path)
+
+    extract_code = cli.main(["experience", "extract", "run_cli_approved_reject"])
+    extracted = json.loads(capsys.readouterr().out)
+    exp_cand_id = extracted["candidates"][0]["exp_cand_id"]
+    approve_code = cli.main(["experience", "approve", exp_cand_id])
+    approved = json.loads(capsys.readouterr().out)
+    reject_code = cli.main(["experience", "reject", exp_cand_id])
+    captured = capsys.readouterr()
+
+    assert extract_code == 0
+    assert approve_code == 0
+    assert approved["state"] == "approved"
+    assert reject_code == 2
+    assert f"approved candidate cannot be rejected in v0: {exp_cand_id}" in captured.err
+    assert captured.out == ""
 
 
 def test_cli_extract_unknown_run_exits_nonzero_with_clear_error(

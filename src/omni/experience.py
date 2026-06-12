@@ -160,6 +160,17 @@ def approve_candidate(conn: sqlite3.Connection, exp_cand_id: str) -> dict[str, A
 
 
 def reject_candidate(conn: sqlite3.Connection, exp_cand_id: str) -> dict[str, Any]:
+    candidate = conn.execute(
+        "SELECT state FROM experience_candidates WHERE exp_cand_id = ?",
+        (exp_cand_id,),
+    ).fetchone()
+    if candidate is None:
+        raise ValueError(f"unknown experience candidate: {exp_cand_id}")
+    if candidate["state"] == "approved":
+        raise ValueError(f"approved candidate cannot be rejected in v0: {exp_cand_id}")
+    if candidate["state"] == "rejected":
+        return show_candidate(conn, exp_cand_id)
+    _validate_choice("state", candidate["state"], STATE_VALUES)
     return _set_candidate_state(conn, exp_cand_id, "rejected")
 
 

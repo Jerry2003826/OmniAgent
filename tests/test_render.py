@@ -334,6 +334,35 @@ def test_approved_experience_note_render_is_byte_stable(tmp_path: Path) -> None:
     assert first == second
 
 
+def test_approved_note_still_renders_after_reject_attempt(tmp_path: Path) -> None:
+    conn = connect(tmp_path)
+    add_experience_candidate(
+        conn,
+        exp_cand_id="exp_cand_reject_attempt_render",
+        run_id="run_reject_attempt_render",
+        kind="fast_path",
+    )
+    approved = experience.approve_candidate(conn, "exp_cand_reject_attempt_render")
+
+    with pytest.raises(ValueError, match="approved candidate cannot be rejected in v0"):
+        experience.reject_candidate(conn, "exp_cand_reject_attempt_render")
+
+    note = conn.execute(
+        """
+        SELECT status
+        FROM experience_notes
+        WHERE note_id = ?
+        """,
+        (approved["note_id"],),
+    ).fetchone()
+    result = render.render_project(conn, tmp_path)
+    text = result.path.read_text(encoding="utf-8")
+
+    assert note["status"] == "active"
+    assert experience.show_candidate(conn, "exp_cand_reject_attempt_render")["state"] == "approved"
+    assert "For validation tasks, prefer the known verification command early." in text
+
+
 def test_fast_path_uses_test_command_when_fact_exists(tmp_path: Path) -> None:
     conn = connect(tmp_path)
     add_fact(conn, predicate="uses_test_command", qualifier="node", object_norm="pnpm run test")
