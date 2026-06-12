@@ -10,6 +10,8 @@ from typing import Any
 
 _REQUEST_PATH_KEY = "__omni_spool_path"
 _LEGACY_QUEUE_KEY = "__omni_legacy_queue"
+DEFAULT_PROCESSED_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
+DEFAULT_PROCESSED_MAX_BYTES = 128 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -127,6 +129,50 @@ def ack_hook_records(root: Path | str, paths: set[Path]) -> None:
         path.replace(target)
 
 
+def prune_processed_hook_records(
+    root: Path | str,
+    *,
+    max_age_seconds: int = DEFAULT_PROCESSED_MAX_AGE_SECONDS,
+    max_bytes: int = DEFAULT_PROCESSED_MAX_BYTES,
+    now_ts: float | None = None,
+) -> int:
+    processed_dir = spool_dir(root) / "processed"
+    if not processed_dir.exists():
+        return 0
+
+    now = time.time() if now_ts is None else now_ts
+    entries: list[tuple[Path, float, int]] = []
+    for path in sorted(processed_dir.glob("hook-*.jsonl*")):
+        if not path.is_file():
+            continue
+        try:
+            stat = path.stat()
+        except OSError:
+            continue
+        entries.append((path, stat.st_mtime, stat.st_size))
+
+    deleted: set[Path] = set()
+    for path, mtime, _size in entries:
+        if max_age_seconds >= 0 and now - mtime >= max_age_seconds:
+            if _unlink_best_effort(path):
+                deleted.add(path)
+
+    remaining = [entry for entry in entries if entry[0] not in deleted]
+    if max_bytes >= 0:
+        total_bytes = sum(size for _path, _mtime, size in remaining)
+        for path, _mtime, size in sorted(
+            remaining,
+            key=lambda entry: (entry[1], str(entry[0])),
+        ):
+            if total_bytes <= max_bytes:
+                break
+            if _unlink_best_effort(path):
+                deleted.add(path)
+                total_bytes -= size
+
+    return len(deleted)
+
+
 def _quarantine(path: Path) -> None:
     bad_dir = path.parent / "bad"
     bad_dir.mkdir(parents=True, exist_ok=True)
@@ -134,3 +180,11 @@ def _quarantine(path: Path) -> None:
     if target.exists():
         target = bad_dir / f"{path.name}.{time.time_ns()}.bad"
     path.replace(target)
+
+
+def _unlink_best_effort(path: Path) -> bool:
+    try:
+        path.unlink()
+    except OSError:
+        return False
+    return True

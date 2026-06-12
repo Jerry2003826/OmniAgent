@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -484,6 +485,51 @@ def test_ack_ingest_queue_removes_only_successful_request_files(tmp_path: Path) 
 
     assert not first.exists()
     assert second.exists()
+
+
+def test_prune_processed_hook_records_removes_old_files(tmp_path: Path) -> None:
+    processed = tmp_path / ".omni" / "spool" / "processed"
+    processed.mkdir(parents=True)
+    old = processed / "hook-old.jsonl"
+    fresh = processed / "hook-fresh.jsonl"
+    old.write_text("{}\n", encoding="utf-8")
+    fresh.write_text("{}\n", encoding="utf-8")
+    os.utime(old, (100, 100))
+    os.utime(fresh, (990, 990))
+
+    deleted = spool.prune_processed_hook_records(
+        tmp_path,
+        max_age_seconds=100,
+        max_bytes=1_000,
+        now_ts=1_000,
+    )
+
+    assert deleted == 1
+    assert not old.exists()
+    assert fresh.exists()
+
+
+def test_prune_processed_hook_records_respects_byte_cap(tmp_path: Path) -> None:
+    processed = tmp_path / ".omni" / "spool" / "processed"
+    processed.mkdir(parents=True)
+    oldest = processed / "hook-a.jsonl"
+    middle = processed / "hook-b.jsonl"
+    newest = processed / "hook-c.jsonl"
+    for index, path in enumerate((oldest, middle, newest), start=1):
+        path.write_text("123456", encoding="utf-8")
+        os.utime(path, (index, index))
+
+    deleted = spool.prune_processed_hook_records(
+        tmp_path,
+        max_age_seconds=10_000,
+        max_bytes=10,
+        now_ts=100,
+    )
+
+    assert deleted == 2
+    assert not oldest.exists()
+    assert not middle.exists()
+    assert newest.exists()
 
 
 def test_iter_hook_records_quarantines_malformed_hook_file(tmp_path: Path) -> None:

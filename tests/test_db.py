@@ -542,6 +542,19 @@ def test_empty_queue_ingest_without_run_id_does_not_consume_live_hook_spool(
     assert conn.execute("SELECT COUNT(*) FROM events").fetchone()[0] == 0
 
 
+def test_ingest_prunes_old_processed_hook_records(tmp_path: Path) -> None:
+    processed = tmp_path / ".omni" / "spool" / "processed"
+    processed.mkdir(parents=True)
+    old = processed / "hook-old.jsonl"
+    old.write_text("{}\n", encoding="utf-8")
+    os.utime(old, (1, 1))
+
+    result = ingest.ingest(root=tmp_path)
+
+    assert result.events_inserted == 0
+    assert not old.exists()
+
+
 def test_explicit_hook_recovery_scopes_hook_events_to_run_id(tmp_path: Path) -> None:
     for session_id, tool_use_id in (("session_a", "toolu_a"), ("session_b", "toolu_b")):
         hook.capture_hook(

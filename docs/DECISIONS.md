@@ -96,6 +96,17 @@ developer calls an internal helper. Ingest is the durable maintenance boundary
 already allowed to write SQLite, so it is the narrowest place to close open runs
 whose transcript path is missing or stale.
 
+Decision: `omni ingest` prunes redacted hook files under
+`.omni/spool/processed/` after acknowledging consumed hook records. The default
+retention keeps processed hook files for up to 7 days or 128 MiB, whichever
+limit is hit first.
+
+Rationale: processed hook files are already-redacted recovery evidence, not the
+primary database. Real dogfood volume showed this tree can grow by tens of MiB
+per day under heavy use, so retaining about a week by age and volume keeps
+status/debug evidence useful without unbounded local growth. Live spool files,
+bad files, and error logs are not pruned by this maintenance path.
+
 Decision: manual `omni ingest --transcript` is transcript-only unless the user
 also supplies `--run-id`.
 

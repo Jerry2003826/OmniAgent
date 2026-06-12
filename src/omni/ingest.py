@@ -16,7 +16,14 @@ from omni.config import ensure_project_layout
 from omni.ids import project_id_for_path
 from omni.parse import NormalizedEvent, parse_transcript
 from omni.redact import redact
-from omni.spool import HookRecord, ack_hook_records, ack_ingest_queue, drain_ingest_queue, iter_hook_records
+from omni.spool import (
+    HookRecord,
+    ack_hook_records,
+    ack_ingest_queue,
+    drain_ingest_queue,
+    iter_hook_records,
+    prune_processed_hook_records,
+)
 from omni.store import REDACTION_VER, put_artifact
 
 
@@ -114,6 +121,7 @@ def ingest(
         if transcript is None and requests:
             ack_ingest_queue(requests)
         ack_hook_records(base, consumed_hook_paths)
+        prune_processed_hook_records(base)
         return IngestResult(
             run_ids=tuple(dict.fromkeys(run_ids)),
             events_inserted=total_inserted,
