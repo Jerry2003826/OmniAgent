@@ -30,6 +30,18 @@ is detectable, the active expected commands from `uses_test_command`,
 the observed shell commands, the first expected command position, rediscovery
 events before that position, and a `memory_effect` classification.
 
+Hard classification signals come from tool input fields such as `tool_input`,
+`input`, `parameters`, or `args` with command, path, or glob-pattern values.
+Tool output, response, and message-context fields are ignored for hard command
+and rediscovery detection so stdout or historical content does not look like an
+agent action.
+
+JSON output is bounded. The report includes the first 100 observed commands and
+the first 100 rediscovery events, plus `observed_commands_omitted` and
+`rediscovery_events_omitted` counts when longer runs exceed those limits. String
+values are redacted and truncated before the final JSON redaction pass so large
+runs keep the same eval-report shape instead of becoming a redaction wrapper.
+
 Current scope limitation: expected commands are project-level facts. The
 evaluator does not yet model task-specific expectations, package-specific
 workspaces, or per-subdirectory command scopes.
@@ -44,6 +56,11 @@ The `memory_effect` values are:
 - `failed_to_help`: `CLAUDE.md` or generated memory appears to have been read,
   but no expected verification command ran and rediscovery occurred.
 - `unknown`: there is not enough stored evidence to classify the run.
+
+When memory context is observed but no expected command runs and no rediscovery
+is detected, v0 stays conservative: `memory_effect` remains `unknown`, and the
+report sets `memory_context_seen_but_no_expected_command` because task intent is
+not yet modeled.
 
 Rediscovery events include reads or listings involving `README.md`,
 `package.json`, `pnpm-lock.yaml`, `package-lock.json`, `yarn.lock`, `DEPLOY.md`,

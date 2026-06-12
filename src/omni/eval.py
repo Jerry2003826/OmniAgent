@@ -26,8 +26,19 @@ REDISCOVERY_FILES = (
 )
 
 MEMORY_PATH = ".omni/generated/memory.md"
+MAX_OBSERVED_COMMANDS = 100
+MAX_REDISCOVERY_EVENTS = 100
+MAX_COMMAND_CHARS = 200
 MAX_DETAIL_CHARS = 200
 INPUT_KEYS = {"args", "input", "parameters", "tool_input"}
+INPUT_FIELD_KEYS = {
+    "cmd",
+    "command",
+    "filepath",
+    "file_path",
+    "path",
+    "pattern",
+}
 OUTPUT_KEYS = {
     "output",
     "result",
@@ -36,6 +47,11 @@ OUTPUT_KEYS = {
     "tool_response",
     "toolUseResult",
 }
+CONTEXT_KEYS = {"content", "message", "messages"}
+INPUT_KEY_LOOKUP = {key.lower() for key in INPUT_KEYS}
+INPUT_FIELD_KEY_LOOKUP = {key.lower() for key in INPUT_FIELD_KEYS}
+OUTPUT_KEY_LOOKUP = {key.lower() for key in OUTPUT_KEYS}
+CONTEXT_KEY_LOOKUP = {key.lower() for key in CONTEXT_KEYS}
 PACKAGE_MANAGERS = {"bun", "npm", "pnpm", "yarn"}
 
 
@@ -73,18 +89,30 @@ def evaluate_run(root: Path | str, run_id: str) -> dict[str, Any]:
     rediscovery = _rediscovery_before(events, first_expected_seq)
     claude_md_read = any(_mentions_path(event, "CLAUDE.md") for event in events)
     memory_md_read = any(_mentions_path(event, MEMORY_PATH) for event in events)
+    memory_context_seen_but_no_expected = (
+        (claude_md_read or memory_md_read) and first_expected is None
+    )
+    observed_report, observed_omitted = _limit_observed_commands(observed_commands)
+    rediscovery_report, rediscovery_omitted = _limit_report_items(
+        rediscovery, MAX_REDISCOVERY_EVENTS
+    )
 
     result = {
         "run_id": run_id,
         "claude_md_read": claude_md_read,
         "memory_md_read": memory_md_read,
         "active_expected_commands": expected_commands,
-        "observed_commands": observed_commands,
+        "observed_commands": observed_report,
+        "observed_commands_omitted": observed_omitted,
         "first_expected_command_position": first_expected_seq,
-        "first_expected_command": None if first_expected is None else first_expected["command"],
-        "rediscovery_events_before_first_expected_command": rediscovery,
+        "first_expected_command": (
+            None if first_expected is None else _safe_command(first_expected["command"])
+        ),
+        "rediscovery_events_before_first_expected_command": rediscovery_report,
+        "rediscovery_events_omitted": rediscovery_omitted,
         "rediscovery_count": len(rediscovery),
         "expected_verification_executed": first_expected is not None,
+        "memory_context_seen_but_no_expected_command": memory_context_seen_but_no_expected,
     }
     effect, reason = _classify(result, has_expected=bool(expected_norm), has_events=bool(events))
     result["memory_effect"] = effect
@@ -136,8 +164,12 @@ def evaluate_dogfood(
 
 
 def as_json(value: dict[str, Any]) -> str:
-    encoded = json.dumps(value, indent=2, sort_keys=True).encode("utf-8")
-    return redact(encoded).data.decode("utf-8", errors="replace") + "\n"
+    sanitized = _sanitize_for_json(value)
+    encoded = json.dumps(sanitized, indent=2, sort_keys=True).encode("utf-8")
+    defended = redact(encoded).data.decode("utf-8", errors="replace")
+    if _is_redaction_wrapper(defended):
+        return encoded.decode("utf-8", errors="replace") + "\n"
+    return defended + "\n"
 
 
 def _connect_readonly(db_path: Path) -> sqlite3.Connection:
@@ -193,7 +225,7 @@ def _events_for_run(conn: sqlite3.Connection, run_id: str) -> list[dict[str, Any
 def _observed_commands(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     observed: list[dict[str, Any]] = []
     for event in events:
-        command = _nested_command(event["meta"])
+        command = _nested_command(_input_metadata(event["meta"]))
         if command is None:
             continue
         observed.append(
@@ -237,9 +269,11 @@ def _rediscovery_for_event(event: dict[str, Any]) -> list[dict[str, Any]]:
 
     for filename in REDISCOVERY_FILES:
         if _contains_path(strings, filename):
-            found.append(_rediscovery_event(event, filename, _detail_for(event, filename)))
+            found.append(
+                _rediscovery_event(event, filename, _detail_for(event, filename, input_meta))
+            )
 
-    broad_detail = _broad_scan_detail(event, command, strings)
+    broad_detail = _broad_scan_detail(event, command, strings, input_meta)
     if broad_detail is not None:
         found.append(_rediscovery_event(event, "broad_scan", broad_detail))
 
@@ -274,13 +308,13 @@ def _path_in_text(value: str, target: str) -> bool:
 
 
 def _broad_scan_detail(
-    event: dict[str, Any], command: Any | None, strings: list[str]
+    event: dict[str, Any], command: Any | None, strings: list[str], input_meta: Any
 ) -> str | None:
     tool = str(event["tool"] or "").lower()
     if tool == "glob":
         return _first_with_glob(strings) or "Glob"
     if tool == "ls":
-        return _detail_for(event, "LS")
+        return _detail_for(event, "LS", input_meta)
 
     if command is None:
         return None
@@ -306,11 +340,11 @@ def _first_with_glob(values: list[str]) -> str | None:
     return None
 
 
-def _detail_for(event: dict[str, Any], target: str) -> str:
-    command = _nested_command(event["meta"])
+def _detail_for(event: dict[str, Any], target: str, input_meta: Any) -> str:
+    command = _nested_command(input_meta)
     if command is not None:
         return f"command: {_normalize_command(str(command))}"
-    for value in _nested_strings(event["meta"]):
+    for value in _nested_strings(input_meta):
         if target == "LS" or _path_in_text(value, target):
             return _target_detail(value, target)
     return str(event["tool"] or event["event_type"] or "")
@@ -345,6 +379,12 @@ def _classify(
             f"expected commands include {_expected_commands_summary(result)}; "
             "no expected verification command executed; "
             f"rediscovery occurred before expected command: {_rediscovery_kinds(result)}",
+        )
+    if result["memory_context_seen_but_no_expected_command"]:
+        return (
+            "unknown",
+            "memory context observed but no expected command and no rediscovery; "
+            "task intent unknown",
         )
     return ("unknown", "insufficient evidence")
 
@@ -381,27 +421,52 @@ def _nested_command(value: Any) -> Any:
 
 
 def _input_metadata(value: Any) -> Any:
+    return _input_metadata_from(value, in_input_container=False)
+
+
+def _input_metadata_from(value: Any, *, in_input_container: bool) -> Any:
     if isinstance(value, dict):
         collected = []
         for key, child in value.items():
-            if key in OUTPUT_KEYS:
+            if _is_output_key(key) or _is_context_key(key):
                 continue
-            if key in INPUT_KEYS:
-                collected.append(child)
+            if in_input_container and _is_input_field_key(key):
+                collected.append({key: child})
                 continue
-            nested = _input_metadata(child)
+            if _is_input_container_key(key):
+                nested = _input_metadata_from(child, in_input_container=True)
+                if _has_content(nested):
+                    collected.append(nested)
+                continue
+            nested = _input_metadata_from(child, in_input_container=False)
             if _has_content(nested):
                 collected.append(nested)
-        if collected:
-            return collected
-        return {key: child for key, child in value.items() if key not in OUTPUT_KEYS}
+        return collected
     if isinstance(value, list):
         return [
             nested
             for child in value
-            if _has_content(nested := _input_metadata(child))
+            if _has_content(
+                nested := _input_metadata_from(child, in_input_container=in_input_container)
+            )
         ]
-    return value
+    return {}
+
+
+def _is_input_container_key(key: str) -> bool:
+    return key.lower() in INPUT_KEY_LOOKUP
+
+
+def _is_input_field_key(key: str) -> bool:
+    return key.lower() in INPUT_FIELD_KEY_LOOKUP
+
+
+def _is_output_key(key: str) -> bool:
+    return key.lower() in OUTPUT_KEY_LOOKUP
+
+
+def _is_context_key(key: str) -> bool:
+    return key.lower() in CONTEXT_KEY_LOOKUP
 
 
 def _has_content(value: Any) -> bool:
@@ -482,6 +547,60 @@ def _safe_detail(detail: str) -> str:
     return normalized[: MAX_DETAIL_CHARS - 14].rstrip() + "...[truncated]"
 
 
+def _safe_command(command: str) -> str:
+    return _safe_string(_normalize_command(command), MAX_COMMAND_CHARS)
+
+
+def _safe_string(value: str, max_chars: int) -> str:
+    redacted = redact(value.encode("utf-8")).data.decode("utf-8", errors="replace")
+    if len(redacted) <= max_chars:
+        return redacted
+    return redacted[: max_chars - 14].rstrip() + "...[truncated]"
+
+
+def _sanitize_for_json(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _sanitize_for_json(child) for key, child in value.items()}
+    if isinstance(value, list):
+        return [_sanitize_for_json(child) for child in value]
+    if isinstance(value, str):
+        return _safe_string(value, MAX_DETAIL_CHARS)
+    return value
+
+
+def _is_redaction_wrapper(value: str) -> bool:
+    try:
+        decoded = json.loads(value)
+    except json.JSONDecodeError:
+        return True
+    return isinstance(decoded, dict) and decoded.get("error") in {
+        "payload_truncated",
+        "redaction_failed",
+    }
+
+
+def _limit_observed_commands(
+    commands: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], int]:
+    limited, omitted = _limit_report_items(commands, MAX_OBSERVED_COMMANDS)
+    return (
+        [
+            {
+                **command,
+                "command": _safe_command(str(command["command"])),
+            }
+            for command in limited
+        ],
+        omitted,
+    )
+
+
+def _limit_report_items(
+    items: list[dict[str, Any]], limit: int
+) -> tuple[list[dict[str, Any]], int]:
+    return (items[:limit], max(0, len(items) - limit))
+
+
 def _expected_commands_summary(result: dict[str, Any]) -> str:
     commands = [
         command
@@ -507,11 +626,14 @@ def _unknown_result(run_id: str, reason: str) -> dict[str, Any]:
         "memory_md_read": False,
         "active_expected_commands": {predicate: [] for predicate in EXPECTED_PREDICATES},
         "observed_commands": [],
+        "observed_commands_omitted": 0,
         "first_expected_command_position": None,
         "first_expected_command": None,
         "rediscovery_events_before_first_expected_command": [],
+        "rediscovery_events_omitted": 0,
         "rediscovery_count": 0,
         "expected_verification_executed": False,
+        "memory_context_seen_but_no_expected_command": False,
         "memory_effect": "unknown",
         "reason": reason,
     }

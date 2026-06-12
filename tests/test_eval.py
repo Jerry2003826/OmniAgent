@@ -9,6 +9,7 @@ import pytest
 from omni import cli
 from omni import db
 import omni.eval as eval_module
+import omni.redact as redact_module
 
 
 def test_eval_run_reports_helped_when_expected_command_precedes_rediscovery(
@@ -103,6 +104,44 @@ def test_eval_run_does_not_dump_raw_event_payload_in_json_output(tmp_path: Path)
     assert "rediscovery_events_before_first_expected_command" in encoded
 
 
+def test_eval_json_caps_large_observed_commands_without_payload_truncation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(redact_module, "_MAX_FULL_REDACTION_BYTES", 64 * 1024)
+    conn = _fixture_db(tmp_path)
+    _insert_fact(conn, "uses_test_command", "pnpm run test")
+    _insert_event(conn, "large_run", 1, tool="Read", meta={"tool_input": {"file_path": "CLAUDE.md"}})
+    for index in range(120):
+        _insert_event(
+            conn,
+            "large_run",
+            index + 2,
+            tool="Read",
+            meta={"tool_input": {"file_path": f"packages/pkg-{index}/package.json"}},
+        )
+    for index in range(5000):
+        command = f"echo command-{index} {'x' * 80}"
+        _insert_event(
+            conn,
+            "large_run",
+            index + 200,
+            tool="Bash",
+            meta={"tool_input": {"command": command}},
+        )
+    conn.commit()
+
+    encoded = eval_module.as_json(eval_module.evaluate_run(tmp_path, "large_run"))
+    if "payload_truncated" in encoded:
+        pytest.fail("eval JSON used payload_truncated wrapper")
+    parsed = json.loads(encoded)
+
+    assert len(parsed["observed_commands"]) == 100
+    assert parsed["observed_commands_omitted"] == 4900
+    assert len(parsed["rediscovery_events_before_first_expected_command"]) == 100
+    assert parsed["rediscovery_events_omitted"] == 20
+    assert all(len(command["command"]) <= 200 for command in parsed["observed_commands"])
+
+
 def test_eval_run_reports_neutral_when_expected_command_follows_rediscovery(
     tmp_path: Path,
 ) -> None:
@@ -192,6 +231,77 @@ def test_eval_run_ignores_rediscovery_mentions_from_tool_output_alone(
 
     assert result["rediscovery_events_before_first_expected_command"] == []
     assert result["memory_effect"] == "helped"
+
+
+def test_eval_run_ignores_commands_from_tool_output_alone(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_fact(conn, "uses_test_command", "pnpm run test")
+    _insert_event(conn, "output_command_run", 1, tool="Read", meta={"tool_input": {"file_path": "CLAUDE.md"}})
+    _insert_event(
+        conn,
+        "output_command_run",
+        2,
+        tool="Bash",
+        meta={"tool_response": {"command": "pnpm run test"}},
+    )
+    conn.commit()
+
+    result = eval_module.evaluate_run(tmp_path, "output_command_run")
+
+    assert result["observed_commands"] == []
+    assert result["expected_verification_executed"] is False
+    assert result["first_expected_command_position"] is None
+
+
+def test_eval_run_ignores_context_fields_for_hard_eval_signals(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_fact(conn, "uses_test_command", "pnpm run test")
+    _insert_event(
+        conn,
+        "context_run",
+        1,
+        tool="Bash",
+        meta={
+            "message": {
+                "content": [
+                    {"text": "README.md package.json DEPLOY.md"},
+                    {"command": "pnpm run test"},
+                ]
+            },
+            "toolUseResult": {
+                "command": "pnpm run test",
+                "stdout": "README.md\npackage.json\nDEPLOY.md",
+            },
+        },
+    )
+    conn.commit()
+
+    result = eval_module.evaluate_run(tmp_path, "context_run")
+
+    assert result["observed_commands"] == []
+    assert result["rediscovery_events_before_first_expected_command"] == []
+    assert result["expected_verification_executed"] is False
+
+
+def test_eval_run_marks_memory_seen_without_expected_command_when_intent_unknown(
+    tmp_path: Path,
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_fact(conn, "uses_test_command", "pnpm run test")
+    _insert_event(
+        conn,
+        "memory_only_run",
+        1,
+        tool="Read",
+        meta={"tool_input": {"file_path": "CLAUDE.md"}},
+    )
+    conn.commit()
+
+    result = eval_module.evaluate_run(tmp_path, "memory_only_run")
+
+    assert result["memory_context_seen_but_no_expected_command"] is True
+    assert result["memory_effect"] == "unknown"
+    assert "memory context observed but no expected command and no rediscovery" in result["reason"]
 
 
 def test_eval_run_reports_unknown_without_facts_or_events(tmp_path: Path) -> None:
