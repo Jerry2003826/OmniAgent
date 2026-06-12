@@ -18,7 +18,7 @@ NO multi-engine router.
 NO Computer Use.  
 NO automatic evolution.  
 NO answer cache.  
-No new tables beyond approved migrations for the current phase. Approved now: 001_init.sql, 002_outcomes.sql, and 003_experience_candidates.sql.
+No new tables beyond approved migrations for the current phase. Approved now: 001_init.sql, 002_outcomes.sql, 003_experience_candidates.sql, and 004_experience_notes.sql.
 
 Day-5B items are week-2 unless Day-5A acceptance passes early:
 - observed_command extractor

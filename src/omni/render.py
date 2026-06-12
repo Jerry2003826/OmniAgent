@@ -21,6 +21,7 @@ HEADER_RE = re.compile(
 )
 MAX_BODY_CHARS = 6000
 TRUNCATION_NOTICE = "- Additional facts omitted due to size limit."
+Dependency = tuple[str, str]
 
 
 @dataclass(frozen=True)
@@ -55,7 +56,8 @@ def render_project(
     base = Path(root).resolve()
     path = base / GENERATED_PATH
     facts = _active_facts(conn)
-    body, line_hashes = _render_body(facts)
+    notes = _active_experience_notes(conn)
+    body, line_hashes = _render_body(facts, notes)
     text = _with_header(body)
     rendered_diff = _diff(path, text)
 
@@ -95,9 +97,25 @@ def _active_facts(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     ).fetchall()
 
 
-def _render_body(facts: list[sqlite3.Row]) -> tuple[str, dict[str, str]]:
-    sections: dict[str, list[tuple[str, str]]] = {
+def _active_experience_notes(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    return conn.execute(
+        """
+        SELECT note_id, scope, task_type, kind, trigger, body, suggested_action
+        FROM experience_notes
+        WHERE status = 'active'
+        ORDER BY task_type, kind, suggested_action, body
+        """
+    ).fetchall()
+
+
+def _render_body(
+    facts: list[sqlite3.Row],
+    notes: list[sqlite3.Row],
+) -> tuple[str, dict[Dependency, str]]:
+    sections: dict[str, list[tuple[Dependency, str]]] = {
         "Commands": [],
+        "Fast Path": [],
+        "Experience Notes": [],
         "Boundaries": [],
         "Project": [],
     }
@@ -107,17 +125,25 @@ def _render_body(facts: list[sqlite3.Row]) -> tuple[str, dict[str, str]]:
         if rendered is None:
             continue
         section, line = rendered
-        sections[section].append((fact["fact_id"], line))
+        sections[section].append((("fact", fact["fact_id"]), line))
 
-    lines: list[tuple[str, str | None]] = [("# Project memory", None), ("", None)]
+    test_command = _first_test_command(facts)
+    for note in notes:
+        rendered = _render_experience_note_line(note, test_command)
+        if rendered is None:
+            continue
+        section, line = rendered
+        sections[section].append((("experience_note", note["note_id"]), line))
+
+    lines: list[tuple[str, Dependency | None]] = [("# Project memory", None), ("", None)]
     omitted = False
-    for section in ("Commands", "Boundaries", "Project"):
+    for section in ("Commands", "Fast Path", "Experience Notes", "Boundaries", "Project"):
         lines.append((f"## {section}", None))
-        for fact_id, line in sections[section]:
+        for dep, line in sections[section]:
             if _body_length(_line_texts(lines)) + len(line) + 1 > MAX_BODY_CHARS:
                 omitted = True
                 break
-            lines.append((line, fact_id))
+            lines.append((line, dep))
         lines.append(("", None))
     if omitted:
         lines = _with_truncation_notice(lines)
@@ -125,9 +151,9 @@ def _render_body(facts: list[sqlite3.Row]) -> tuple[str, dict[str, str]]:
     body = _redact_text("\n".join(rendered_lines).rstrip() + "\n")
     redacted_lines = body.rstrip("\n").split("\n")
     line_hashes = {
-        fact_id: _sha256(redacted_lines[index])
-        for index, (_line, fact_id) in enumerate(lines)
-        if fact_id is not None and index < len(redacted_lines)
+        dep: _sha256(redacted_lines[index])
+        for index, (_line, dep) in enumerate(lines)
+        if dep is not None and index < len(redacted_lines)
     }
     return body, line_hashes
 
@@ -152,6 +178,38 @@ def _render_fact_line(fact: sqlite3.Row) -> tuple[str, str] | None:
     return ("Project", f"- {qualifier} {label}: {object_norm}")
 
 
+def _render_experience_note_line(
+    note: sqlite3.Row, test_command: str | None
+) -> tuple[str, str] | None:
+    task_type = note["task_type"]
+    kind = note["kind"]
+
+    if task_type == "validation" and kind == "rediscovery_waste":
+        return (
+            "Fast Path",
+            "- For validation tasks, run "
+            f"{_verification_command_text(test_command)} before broad "
+            "README/package/deployment rediscovery.",
+        )
+    if task_type == "validation" and kind == "fast_path":
+        if test_command:
+            return (
+                "Fast Path",
+                f"- For validation tasks, prefer running {_inline_code(test_command)} early.",
+            )
+        return (
+            "Fast Path",
+            "- For validation tasks, prefer the known verification command early.",
+        )
+
+    action = str(note["suggested_action"] or "").strip()
+    if not action:
+        action = str(note["body"] or "").strip()
+    if not action:
+        return None
+    return ("Experience Notes", f"- {action}")
+
+
 def _with_header(body: str) -> str:
     return f"<!-- omni:generated render_ver={RENDER_VER} sha256={_sha256(body)} DO NOT EDIT -->\n{body}"
 
@@ -173,6 +231,23 @@ def _command_instruction(command_kind: str, qualifier: str, object_norm: str) ->
     if command_kind == "dev":
         return f"Use {object_norm} to start {label} development."
     return f"Use {object_norm} for {label} {command_kind}."
+
+
+def _first_test_command(facts: list[sqlite3.Row]) -> str | None:
+    for fact in facts:
+        if fact["predicate"] == "uses_test_command":
+            return str(fact["object_norm"])
+    return None
+
+
+def _verification_command_text(command: str | None) -> str:
+    if command:
+        return _inline_code(command)
+    return "the known verification command"
+
+
+def _inline_code(value: str) -> str:
+    return f"`{value.replace('`', '')}`"
 
 
 def _qualifier_label(qualifier: str) -> str:
@@ -203,12 +278,12 @@ def _manual_edit_detected(path: Path) -> bool:
 def _update_block_state(
     conn: sqlite3.Connection,
     body: str,
-    line_hashes: dict[str, str],
+    line_hashes: dict[Dependency, str],
 ) -> bool:
     previous = {
-        row["dep_id"]: row["dep_line_hash"]
+        (row["dep_kind"], row["dep_id"]): row["dep_line_hash"]
         for row in conn.execute(
-            "SELECT dep_id, dep_line_hash FROM block_deps WHERE block_id = ? AND dep_kind = 'fact'",
+            "SELECT dep_kind, dep_id, dep_line_hash FROM block_deps WHERE block_id = ?",
             (BLOCK_ID,),
         )
     }
@@ -236,7 +311,10 @@ def _update_block_state(
         INSERT INTO block_deps(block_id, dep_kind, dep_id, dep_line_hash)
         VALUES(?,?,?,?)
         """,
-        [(BLOCK_ID, "fact", fact_id, line_hash) for fact_id, line_hash in line_hashes.items()],
+        [
+            (BLOCK_ID, dep_kind, dep_id, line_hash)
+            for (dep_kind, dep_id), line_hash in line_hashes.items()
+        ],
     )
     return dirty
 
@@ -259,13 +337,13 @@ def _body_length(lines: list[str]) -> int:
     return len("\n".join(lines)) + 1
 
 
-def _line_texts(lines: list[tuple[str, str | None]]) -> list[str]:
+def _line_texts(lines: list[tuple[str, Dependency | None]]) -> list[str]:
     return [line for line, _fact_id in lines]
 
 
 def _with_truncation_notice(
-    lines: list[tuple[str, str | None]],
-) -> list[tuple[str, str | None]]:
+    lines: list[tuple[str, Dependency | None]],
+) -> list[tuple[str, Dependency | None]]:
     trimmed = list(lines)
     while trimmed and trimmed[-1][0] == "":
         trimmed.pop()

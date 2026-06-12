@@ -125,7 +125,38 @@ def show_candidate(conn: sqlite3.Connection, exp_cand_id: str) -> dict[str, Any]
 
 
 def approve_candidate(conn: sqlite3.Connection, exp_cand_id: str) -> dict[str, Any]:
-    return _set_candidate_state(conn, exp_cand_id, "approved")
+    candidate = conn.execute(
+        "SELECT * FROM experience_candidates WHERE exp_cand_id = ?",
+        (exp_cand_id,),
+    ).fetchone()
+    if candidate is None:
+        raise ValueError(f"unknown experience candidate: {exp_cand_id}")
+
+    note_id = _active_note_id_for_candidate(conn, exp_cand_id)
+    if candidate["state"] == "approved":
+        if note_id is None:
+            raise ValueError(f"approved candidate has no active note: {exp_cand_id}")
+        result = show_candidate(conn, exp_cand_id)
+        result["note_id"] = note_id
+        return result
+    if candidate["state"] == "rejected":
+        raise ValueError(f"rejected candidate cannot be approved in v0: {exp_cand_id}")
+
+    _validate_choice("state", candidate["state"], STATE_VALUES)
+    if note_id is None:
+        note_id = _create_experience_note(conn, candidate)
+    conn.execute(
+        """
+        UPDATE experience_candidates
+        SET state = 'approved', reviewed_at = ?, review_note = NULL
+        WHERE exp_cand_id = ?
+        """,
+        (_now(), exp_cand_id),
+    )
+    conn.commit()
+    result = show_candidate(conn, exp_cand_id)
+    result["note_id"] = note_id
+    return result
 
 
 def reject_candidate(conn: sqlite3.Connection, exp_cand_id: str) -> dict[str, Any]:
@@ -253,6 +284,62 @@ def _set_candidate_state(
     )
     conn.commit()
     return show_candidate(conn, exp_cand_id)
+
+
+def _active_note_id_for_candidate(conn: sqlite3.Connection, exp_cand_id: str) -> str | None:
+    row = conn.execute(
+        """
+        SELECT note_id
+        FROM experience_notes
+        WHERE source_cand_id = ? AND status = 'active'
+        """,
+        (exp_cand_id,),
+    ).fetchone()
+    return row["note_id"] if row is not None else None
+
+
+def _create_experience_note(conn: sqlite3.Connection, candidate: sqlite3.Row) -> str:
+    now = _now()
+    note_id = new_id("note")
+    conn.execute(
+        """
+        INSERT INTO experience_notes(
+          note_id, source_cand_id, scope, task_type, kind, trigger,
+          body, suggested_action, trust, status, evidence, created_seq,
+          retired_seq, superseded_by, created_at, updated_at
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            note_id,
+            candidate["exp_cand_id"],
+            "project",
+            candidate["task_type"],
+            candidate["kind"],
+            _redact_text(candidate["trigger"]),
+            _redact_text(candidate["claim"]),
+            _redact_text(candidate["suggested_action"]),
+            2,
+            "active",
+            _redact_json(_decode_json_object(candidate["evidence"])),
+            _next_commit_seq(conn),
+            None,
+            None,
+            now,
+            now,
+        ),
+    )
+    return note_id
+
+
+def _next_commit_seq(conn: sqlite3.Connection) -> int:
+    row = conn.execute("SELECT value FROM meta WHERE key = 'commit_seq'").fetchone()
+    current = int(row["value"]) if row else 0
+    next_value = current + 1
+    conn.execute(
+        "INSERT OR REPLACE INTO meta(key, value) VALUES('commit_seq', ?)",
+        (str(next_value),),
+    )
+    return next_value
 
 
 def _candidate_from_row(row: sqlite3.Row) -> dict[str, Any]:

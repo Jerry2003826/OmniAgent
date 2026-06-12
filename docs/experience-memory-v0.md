@@ -125,12 +125,41 @@ succeeded after using the known verification command early, or
 `rediscovery_waste` candidates when validation had memory available but
 rediscovered project structure and missed the known verification command.
 
-Candidates are reviewable only in this PR. `approve` and `reject` only update
-candidate state. In v0, approved candidates do not render into `.omni/generated` or
-`memory.md` yet, and OmniMemory does not write approved experience notes into
-memory in this phase.
+Candidates are reviewable only as candidate rows. In v0.2, `extract` proposes
+candidates and human review decides whether the candidate should become active
+experience memory.
 
 This is the bridge from eval/outcome evidence to future memory rendering:
 candidate rows preserve the run id, outcome id, eval summary, outcome summary,
-claim, and suggested action without raw event payloads. Future work can decide
-how approved candidates become rendered experience memory.
+claim, and suggested action without raw event payloads.
+
+## Experience Notes + Renderer v0
+
+Experience Notes + Renderer v0 turns approved candidates into active experience
+notes and renders active notes into `.omni/generated/memory.md`:
+
+```bash
+omni experience approve <exp_cand_id>
+omni render
+```
+
+All notes are review-gated. A pending candidate does not render. A rejected
+candidate does not render. In this v0, approving a pending candidate creates one
+active note with project scope, the candidate task type and kind, the candidate
+claim as note body, and the candidate suggested action as behavior guidance.
+Approving an already-approved candidate is idempotent when its active note
+already exists, and rejected candidates cannot be approved in v0.
+
+In practice, active notes can affect future agent behavior only through the
+generated memory file that existing Claude/agent context reads. The renderer
+keeps note evidence, run ids, candidate ids, note ids, timestamps, and
+confidence values out of `memory.md`; it renders concise guidance such as
+validation fast paths instead.
+When an active `uses_test_command` fact exists, validation fast-path notes may
+render the concrete command, for example `pnpm run test`; otherwise they use the
+generic known-verification-command wording.
+
+This is still not Soul runtime, failure memory, verify automation, automatic
+memory evolution, LLM extraction, MCP, vector search, dashboard work, or an
+adapter layer. Experience notes are a small reviewed bridge from eval/outcome
+evidence into deterministic rendered behavior guidance.

@@ -101,6 +101,110 @@ def test_extract_success_validation_creates_fast_path_candidate(
     assert candidate["evidence"]["outcome"]["tests_status"] == "passed"
 
 
+def test_approve_pending_rediscovery_waste_candidate_creates_active_note(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_outcome(
+        conn,
+        "run_note_failed",
+        status="failed",
+        tests_status="not_run",
+        memory_effect="failed_to_help",
+        task_type="validation",
+    )
+    _fake_eval(monkeypatch, memory_effect="failed_to_help", rediscovery_count=3)
+    [candidate] = experience.extract_candidates(conn, "run_note_failed")
+
+    approved = experience.approve_candidate(conn, candidate["exp_cand_id"])
+    note = _active_note_for_candidate(conn, candidate["exp_cand_id"])
+
+    assert approved["state"] == "approved"
+    assert approved["note_id"] == note["note_id"]
+    assert note["source_cand_id"] == candidate["exp_cand_id"]
+    assert note["scope"] == "project"
+    assert note["task_type"] == "validation"
+    assert note["kind"] == "rediscovery_waste"
+    assert note["body"] == candidate["claim"]
+    assert note["suggested_action"] == candidate["suggested_action"]
+    assert note["trust"] == 2
+    assert note["status"] == "active"
+    assert json.loads(note["evidence"]) == candidate["evidence"]
+    assert note["created_seq"] == 1
+    assert note["created_at"]
+    assert note["updated_at"]
+
+
+def test_approve_pending_fast_path_candidate_creates_active_note(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_outcome(
+        conn,
+        "run_note_fast",
+        status="success",
+        tests_status="passed",
+        memory_effect="helped",
+        task_type="validation",
+    )
+    _fake_eval(monkeypatch, memory_effect="helped", first_expected_command="pnpm run test")
+    [candidate] = experience.extract_candidates(conn, "run_note_fast")
+
+    approved = experience.approve_candidate(conn, candidate["exp_cand_id"])
+    note = _active_note_for_candidate(conn, candidate["exp_cand_id"])
+
+    assert approved["state"] == "approved"
+    assert approved["note_id"] == note["note_id"]
+    assert note["kind"] == "fast_path"
+    assert note["body"] == (
+        "For validation tasks, the known verification command worked before rediscovery."
+    )
+
+
+def test_approve_twice_is_idempotent_for_existing_active_note(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_outcome(
+        conn,
+        "run_note_idempotent",
+        status="success",
+        tests_status="passed",
+        memory_effect="helped",
+        task_type="validation",
+    )
+    _fake_eval(monkeypatch, memory_effect="helped")
+    [candidate] = experience.extract_candidates(conn, "run_note_idempotent")
+
+    first = experience.approve_candidate(conn, candidate["exp_cand_id"])
+    second = experience.approve_candidate(conn, candidate["exp_cand_id"])
+
+    assert second["state"] == "approved"
+    assert second["note_id"] == first["note_id"]
+    assert _active_note_count(conn, candidate["exp_cand_id"]) == 1
+
+
+def test_rejected_candidate_cannot_be_approved_in_v0(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_outcome(
+        conn,
+        "run_reject_then_approve",
+        status="success",
+        tests_status="passed",
+        memory_effect="helped",
+        task_type="validation",
+    )
+    _fake_eval(monkeypatch, memory_effect="helped")
+    [candidate] = experience.extract_candidates(conn, "run_reject_then_approve")
+    experience.reject_candidate(conn, candidate["exp_cand_id"])
+
+    with pytest.raises(ValueError, match="rejected candidate cannot be approved in v0"):
+        experience.approve_candidate(conn, candidate["exp_cand_id"])
+    assert _active_note_count(conn, candidate["exp_cand_id"]) == 0
+
+
 def test_extract_without_outcome_creates_no_candidate(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -199,12 +303,14 @@ def test_list_show_approve_and_reject_candidates(
     approved = experience.approve_candidate(conn, candidate["exp_cand_id"])
     approved_list = experience.list_candidates(conn, state="approved")
     rejected = experience.reject_candidate(conn, candidate["exp_cand_id"])
+    approved_candidate = {key: value for key, value in approved.items() if key != "note_id"}
 
     assert pending == [candidate]
     assert shown == candidate
     assert approved["state"] == "approved"
+    assert approved["note_id"]
     assert approved["reviewed_at"]
-    assert approved_list == [approved]
+    assert approved_list == [approved_candidate]
     assert rejected["state"] == "rejected"
 
 
@@ -244,6 +350,7 @@ def test_cli_extract_ls_show_approve_reject_work(
     assert shown["exp_cand_id"] == exp_cand_id
     assert approve_code == 0
     assert approved["state"] == "approved"
+    assert approved["note_id"]
     assert reject_code == 0
     assert rejected["state"] == "rejected"
 
@@ -373,3 +480,27 @@ def _fake_eval(
         }
 
     monkeypatch.setattr(experience.behavior_eval, "evaluate_run", fake_evaluate_run)
+
+
+def _active_note_for_candidate(conn: sqlite3.Connection, exp_cand_id: str) -> sqlite3.Row:
+    row = conn.execute(
+        """
+        SELECT *
+        FROM experience_notes
+        WHERE source_cand_id = ? AND status = 'active'
+        """,
+        (exp_cand_id,),
+    ).fetchone()
+    assert row is not None
+    return row
+
+
+def _active_note_count(conn: sqlite3.Connection, exp_cand_id: str) -> int:
+    return conn.execute(
+        """
+        SELECT COUNT(*)
+        FROM experience_notes
+        WHERE source_cand_id = ? AND status = 'active'
+        """,
+        (exp_cand_id,),
+    ).fetchone()[0]

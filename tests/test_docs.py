@@ -212,7 +212,11 @@ def test_experience_memory_v0_doc_covers_behavior_eval_v0() -> None:
         "omni experience approve <exp_cand_id>",
         "omni experience reject <exp_cand_id>",
         "reviewable only",
-        "approved candidates do not render",
+        "Experience Notes + Renderer v0",
+        "approved candidates into active experience",
+        "active notes can affect future agent behavior",
+        "not Soul runtime",
+        "review-gated",
         "bridge from eval/outcome evidence to future memory rendering",
     ):
         assert phrase in text

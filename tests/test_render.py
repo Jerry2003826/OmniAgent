@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -8,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from omni import db
+from omni import experience
 from omni import gate
 from omni import render
 
@@ -49,6 +51,46 @@ def add_fact(conn, *, predicate: str, qualifier: str, object_norm: str) -> None:
             sensitivity="low",
             origin="test@1",
             evidence={"files": [{"path": "package.json", "hash": "abc"}]},
+        ),
+    )
+    conn.commit()
+
+
+def add_experience_candidate(
+    conn,
+    *,
+    exp_cand_id: str,
+    run_id: str,
+    kind: str,
+    state: str = "pending",
+    claim: str = "For validation tasks, the known verification command worked before rediscovery.",
+    suggested_action: str = "Prefer the known verification command early in future validation tasks.",
+) -> None:
+    conn.execute(
+        "INSERT INTO runs(run_id, project_id, snapshot_seq, status) VALUES(?,?,?,?)",
+        (run_id, "project", 0, "closed"),
+    )
+    conn.execute(
+        """
+        INSERT INTO experience_candidates(
+          exp_cand_id, run_id, outcome_id, task_type, kind, trigger, claim,
+          suggested_action, evidence, state, created_at, reviewed_at, review_note
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            exp_cand_id,
+            run_id,
+            "outcome_render",
+            "validation",
+            kind,
+            "validation_render",
+            claim,
+            suggested_action,
+            json.dumps({"run_id": run_id, "candidate": exp_cand_id}, sort_keys=True),
+            state,
+            "2026-06-13T00:00:00+00:00",
+            None,
+            None,
         ),
     )
     conn.commit()
@@ -209,3 +251,135 @@ def test_render_redacts_fact_values_before_writing_generated_memory(tmp_path: Pa
     assert "REDACTED:github_token:" in text
     assert "REDACTED:secret_assignment:" not in text
     assert result.body == text
+
+
+def test_pending_experience_candidate_does_not_render(tmp_path: Path) -> None:
+    conn = connect(tmp_path)
+    add_experience_candidate(
+        conn,
+        exp_cand_id="exp_cand_pending_render",
+        run_id="run_pending_render",
+        kind="fast_path",
+        state="pending",
+    )
+
+    result = render.render_project(conn, tmp_path)
+    text = result.path.read_text(encoding="utf-8")
+
+    assert "prefer the known verification command early" not in text
+    assert "run_pending_render" not in text
+    assert "exp_cand_pending_render" not in text
+
+
+def test_rejected_experience_candidate_does_not_render(tmp_path: Path) -> None:
+    conn = connect(tmp_path)
+    add_experience_candidate(
+        conn,
+        exp_cand_id="exp_cand_rejected_render",
+        run_id="run_rejected_render",
+        kind="rediscovery_waste",
+        state="rejected",
+        claim="Memory context was available, but rediscovery happened.",
+        suggested_action=(
+            "For validation tasks, execute the known verification command before broad "
+            "README/package/deployment rediscovery."
+        ),
+    )
+
+    result = render.render_project(conn, tmp_path)
+    text = result.path.read_text(encoding="utf-8")
+
+    assert "before broad README/package/deployment rediscovery" not in text
+    assert "run_rejected_render" not in text
+    assert "exp_cand_rejected_render" not in text
+
+
+def test_approved_experience_note_renders_without_internal_metadata(tmp_path: Path) -> None:
+    conn = connect(tmp_path)
+    add_experience_candidate(
+        conn,
+        exp_cand_id="exp_cand_approved_render",
+        run_id="run_approved_render",
+        kind="fast_path",
+    )
+    approved = experience.approve_candidate(conn, "exp_cand_approved_render")
+
+    result = render.render_project(conn, tmp_path)
+    text = result.path.read_text(encoding="utf-8")
+
+    assert "## Fast Path" in text
+    assert "For validation tasks, prefer the known verification command early." in text
+    assert "run_approved_render" not in text
+    assert "exp_cand_approved_render" not in text
+    assert approved["note_id"] not in text
+    assert "evidence" not in text.lower()
+    assert "created_at" not in text.lower()
+    assert "updated_at" not in text.lower()
+    assert "confidence" not in text.lower()
+
+
+def test_approved_experience_note_render_is_byte_stable(tmp_path: Path) -> None:
+    conn = connect(tmp_path)
+    add_experience_candidate(
+        conn,
+        exp_cand_id="exp_cand_stable_render",
+        run_id="run_stable_render",
+        kind="fast_path",
+    )
+    experience.approve_candidate(conn, "exp_cand_stable_render")
+
+    first = render.render_project(conn, tmp_path).path.read_text(encoding="utf-8")
+    second = render.render_project(conn, tmp_path).path.read_text(encoding="utf-8")
+
+    assert first == second
+
+
+def test_fast_path_uses_test_command_when_fact_exists(tmp_path: Path) -> None:
+    conn = connect(tmp_path)
+    add_fact(conn, predicate="uses_test_command", qualifier="node", object_norm="pnpm run test")
+    add_experience_candidate(
+        conn,
+        exp_cand_id="exp_cand_command_render",
+        run_id="run_command_render",
+        kind="rediscovery_waste",
+        claim="Memory context was available, but rediscovery happened.",
+        suggested_action=(
+            "For validation tasks, execute the known verification command before broad "
+            "README/package/deployment rediscovery."
+        ),
+    )
+    experience.approve_candidate(conn, "exp_cand_command_render")
+
+    result = render.render_project(conn, tmp_path)
+    text = result.path.read_text(encoding="utf-8")
+
+    assert (
+        "For validation tasks, run `pnpm run test` before broad "
+        "README/package/deployment rediscovery."
+    ) in text
+
+
+def test_fast_path_uses_generic_known_verification_command_without_fact(
+    tmp_path: Path,
+) -> None:
+    conn = connect(tmp_path)
+    add_experience_candidate(
+        conn,
+        exp_cand_id="exp_cand_generic_render",
+        run_id="run_generic_render",
+        kind="rediscovery_waste",
+        claim="Memory context was available, but rediscovery happened.",
+        suggested_action=(
+            "For validation tasks, execute the known verification command before broad "
+            "README/package/deployment rediscovery."
+        ),
+    )
+    experience.approve_candidate(conn, "exp_cand_generic_render")
+
+    result = render.render_project(conn, tmp_path)
+    text = result.path.read_text(encoding="utf-8")
+
+    assert (
+        "For validation tasks, run the known verification command before broad "
+        "README/package/deployment rediscovery."
+    ) in text
