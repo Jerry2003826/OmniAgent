@@ -174,3 +174,18 @@ def test_week2_go_no_go_doc_defines_gates_and_dogfood_entry() -> None:
         "no uncontrolled modification outside the CLAUDE.md managed region",
     ):
         assert phrase in text
+
+
+def test_minimal_linux_ci_workflow_runs_pytest_on_311_and_312() -> None:
+    workflow = REPO_ROOT / ".github" / "workflows" / "ci.yml"
+
+    text = workflow.read_text(encoding="utf-8")
+
+    for phrase in (
+        "ubuntu-latest",
+        "3.11",
+        "3.12",
+        'pip install -e ".[dev]"',
+        "pytest -q",
+    ):
+        assert phrase in text
