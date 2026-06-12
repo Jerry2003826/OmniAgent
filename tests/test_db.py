@@ -904,6 +904,27 @@ def test_watchdog_closes_open_runs_with_missing_transcripts(tmp_path: Path) -> N
     assert dict(row) == {"status": "closed", "end_reason": "watchdog"}
 
 
+def test_ingest_runs_watchdog_for_stale_open_runs(tmp_path: Path) -> None:
+    conn = db.connect(tmp_path / ".omni" / "omni.sqlite3")
+    db.migrate(conn)
+    missing = tmp_path / "missing-transcript.jsonl"
+    conn.execute(
+        "INSERT INTO runs(run_id, project_id, snapshot_seq, transcript_path, status) VALUES(?,?,?,?,?)",
+        ("missing_run", "project", 0, str(missing), "open"),
+    )
+    conn.commit()
+    conn.close()
+
+    result = ingest.ingest(root=tmp_path)
+
+    conn = db.connect(tmp_path / ".omni" / "omni.sqlite3")
+    row = conn.execute(
+        "SELECT status, end_reason FROM runs WHERE run_id = 'missing_run'"
+    ).fetchone()
+    assert result.events_inserted == 0
+    assert dict(row) == {"status": "closed", "end_reason": "watchdog"}
+
+
 def test_queued_ingest_keeps_request_file_when_transaction_fails(
     tmp_path: Path, monkeypatch
 ) -> None:

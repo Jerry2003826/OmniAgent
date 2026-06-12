@@ -109,6 +109,7 @@ def ingest(
                     run_ids.append(run_id)
 
         gate.extract_static_facts(base, conn, commit=False)
+        close_stale_runs(conn, commit=False)
         conn.commit()
         if transcript is None and requests:
             ack_ingest_queue(requests)
@@ -123,7 +124,11 @@ def ingest(
 
 
 def close_stale_runs(
-    conn: sqlite3.Connection, *, older_than_seconds: int = 600, now_ts: float | None = None
+    conn: sqlite3.Connection,
+    *,
+    older_than_seconds: int = 600,
+    now_ts: float | None = None,
+    commit: bool = True,
 ) -> int:
     now = datetime.now(timezone.utc).timestamp() if now_ts is None else now_ts
     rows = conn.execute(
@@ -143,7 +148,8 @@ def close_stale_runs(
             ("watchdog", _iso_from_timestamp(now), row["run_id"]),
         )
         closed += 1
-    conn.commit()
+    if commit:
+        conn.commit()
     return closed
 
 

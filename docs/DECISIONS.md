@@ -88,6 +88,14 @@ Rationale: this is acceptable for short sandbox runs. Future versions should
 summarize on ingest or archive processed spool files so status does not scan an
 ever-growing spool tree.
 
+Decision: `omni ingest` runs the stale-run watchdog after ingesting queued or
+manual events and before committing the SQLite transaction.
+
+Rationale: `runs.status` should not be dead state that only changes when a
+developer calls an internal helper. Ingest is the durable maintenance boundary
+already allowed to write SQLite, so it is the narrowest place to close open runs
+whose transcript path is missing or stale.
+
 Decision: manual `omni ingest --transcript` is transcript-only unless the user
 also supplies `--run-id`.
 
