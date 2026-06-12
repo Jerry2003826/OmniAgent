@@ -28,7 +28,7 @@ def build_parser() -> argparse.ArgumentParser:
     subcommands = parser.add_subparsers(
         dest="command",
         required=True,
-        metavar="{init,status,render,inject,eval,outcome}",
+        metavar="{init,status,render,inject,eval,outcome,experience}",
     )
     init_parser = subcommands.add_parser("init", help="Create a project-local .omni layout")
     init_parser.add_argument("--install-claude-hooks", action="store_true")
@@ -132,6 +132,25 @@ def build_parser() -> argparse.ArgumentParser:
     outcome_mark_parser.add_argument("--note")
     outcome_show_parser = outcome_subcommands.add_parser("show")
     outcome_show_parser.add_argument("run_id")
+    experience_parser = subcommands.add_parser("experience")
+    experience_subcommands = experience_parser.add_subparsers(
+        dest="experience_command",
+        required=True,
+        metavar="{extract,ls,show,approve,reject}",
+    )
+    experience_extract_parser = experience_subcommands.add_parser("extract")
+    experience_extract_parser.add_argument("run_id")
+    experience_ls_parser = experience_subcommands.add_parser("ls")
+    experience_ls_parser.add_argument(
+        "--state",
+        choices=("pending", "approved", "rejected", "all"),
+        default="pending",
+    )
+    experience_show_parser = experience_subcommands.add_parser("show")
+    experience_show_parser.add_argument("exp_cand_id")
+    for command in ("approve", "reject"):
+        experience_review_parser = experience_subcommands.add_parser(command)
+        experience_review_parser.add_argument("exp_cand_id")
 
     _hide_subcommands(
         subcommands,
@@ -334,6 +353,38 @@ def main(argv: list[str] | None = None) -> int:
         finally:
             conn.close()
         _print_diff(outcome.as_json(result))
+        return 0
+
+    if args.command == "experience":
+        from omni import experience
+
+        try:
+            conn = experience.connect_project(project_root())
+        except FileNotFoundError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        try:
+            try:
+                if args.experience_command == "extract":
+                    candidates = experience.extract_candidates(conn, args.run_id)
+                    result = {"created": len(candidates), "candidates": candidates}
+                elif args.experience_command == "ls":
+                    result = {"candidates": experience.list_candidates(conn, args.state)}
+                elif args.experience_command == "show":
+                    result = experience.show_candidate(conn, args.exp_cand_id)
+                elif args.experience_command == "approve":
+                    result = experience.approve_candidate(conn, args.exp_cand_id)
+                elif args.experience_command == "reject":
+                    result = experience.reject_candidate(conn, args.exp_cand_id)
+                else:
+                    parser.error(f"unknown experience command: {args.experience_command}")
+                    return 2
+            except ValueError as exc:
+                print(str(exc), file=sys.stderr)
+                return 2
+        finally:
+            conn.close()
+        _print_diff(experience.as_json(result))
         return 0
 
     parser.error(f"unknown command: {args.command}")

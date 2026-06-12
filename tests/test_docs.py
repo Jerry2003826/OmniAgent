@@ -205,7 +205,15 @@ def test_experience_memory_v0_doc_covers_behavior_eval_v0() -> None:
         "user-marked",
         "does not infer task",
         "anchor for future experience and failure memory",
-        "does not create experience candidates",
+        "Experience Candidate v0",
+        "omni experience extract <run_id>",
+        "omni experience ls",
+        "omni experience show <exp_cand_id>",
+        "omni experience approve <exp_cand_id>",
+        "omni experience reject <exp_cand_id>",
+        "reviewable only",
+        "approved candidates do not render",
+        "bridge from eval/outcome evidence to future memory rendering",
     ):
         assert phrase in text
 

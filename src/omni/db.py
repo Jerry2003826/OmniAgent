@@ -9,6 +9,7 @@ MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
 MIGRATIONS = (
     ("1", "001_init.sql"),
     ("2", "002_outcomes.sql"),
+    ("3", "003_experience_candidates.sql"),
 )
 LATEST_SCHEMA_VERSION = MIGRATIONS[-1][0]
 

@@ -19,6 +19,7 @@ EXPECTED_TABLES = {
     "block_deps",
     "blocks",
     "events",
+    "experience_candidates",
     "fact_candidates",
     "facts",
     "meta",
@@ -50,7 +51,7 @@ def test_migration_creates_schema_and_seed_meta(tmp_path: Path) -> None:
 
     assert table_names(conn) == EXPECTED_TABLES
     assert dict(conn.execute("SELECT key, value FROM meta")) == {
-        "schema_version": "2",
+        "schema_version": "3",
         "commit_seq": "0",
         "redaction_ver": "1",
     }
@@ -84,9 +85,31 @@ def test_migration_002_adds_outcomes_to_existing_schema_1_database(tmp_path: Pat
     db.migrate(conn)
 
     assert "outcomes" in table_names(conn)
-    assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == "2"
+    assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == "3"
     indexes = conn.execute("PRAGMA index_list(outcomes)").fetchall()
     assert any(index["name"] == "uq_outcomes_run_id" and index["unique"] for index in indexes)
+    assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+def test_migration_003_adds_experience_candidates_to_existing_schema_2_database(
+    tmp_path: Path,
+) -> None:
+    conn = db.connect(tmp_path / ".omni" / "omni.sqlite3")
+    conn.executescript(db.migration_sql("001_init.sql"))
+    conn.executescript(db.migration_sql("002_outcomes.sql"))
+    conn.commit()
+
+    db.migrate(conn)
+
+    assert "experience_candidates" in table_names(conn)
+    assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == "3"
+    indexes = conn.execute("PRAGMA index_list(experience_candidates)").fetchall()
+    index_names = {index["name"] for index in indexes}
+    assert {
+        "idx_experience_candidates_state",
+        "idx_experience_candidates_run_id",
+        "idx_experience_candidates_kind",
+    }.issubset(index_names)
     assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
 
 

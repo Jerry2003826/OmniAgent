@@ -103,5 +103,34 @@ Behavior Eval v0 when the local evidence is available, but it falls back to
 
 Outcome records are an anchor for future experience and failure memory work:
 they connect a run id, the observed memory effect, and a user-marked outcome.
-Outcome Log v0 does not create experience candidates, failure memory, automatic
-verify logic, or any runtime memory behavior.
+Outcome Log v0 does not create failure memory, automatic verify logic, or any
+runtime memory behavior.
+
+## Experience Candidate v0
+
+Experience Candidate v0 turns Behavior Eval and Outcome Log evidence into
+reviewable candidate records only:
+
+```bash
+omni experience extract <run_id>
+omni experience ls
+omni experience show <exp_cand_id>
+omni experience approve <exp_cand_id>
+omni experience reject <exp_cand_id>
+```
+
+`omni experience extract <run_id>` reads the run's Behavior Eval result and its
+user-marked outcome. It can create `fast_path` candidates when validation
+succeeded after using the known verification command early, or
+`rediscovery_waste` candidates when validation had memory available but
+rediscovered project structure and missed the known verification command.
+
+Candidates are reviewable only in this PR. `approve` and `reject` only update
+candidate state. In v0, approved candidates do not render into `.omni/generated` or
+`memory.md` yet, and OmniMemory does not write approved experience notes into
+memory in this phase.
+
+This is the bridge from eval/outcome evidence to future memory rendering:
+candidate rows preserve the run id, outcome id, eval summary, outcome summary,
+claim, and suggested action without raw event payloads. Future work can decide
+how approved candidates become rendered experience memory.

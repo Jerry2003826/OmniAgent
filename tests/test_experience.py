@@ -1,0 +1,338 @@
+from __future__ import annotations
+
+import json
+import sqlite3
+from pathlib import Path
+
+import pytest
+
+from omni import cli
+from omni import db
+from omni import experience
+from omni import outcome
+
+
+def test_extract_failed_validation_creates_rediscovery_waste_candidate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    conn = _fixture_db(tmp_path)
+    outcome_row = _insert_outcome(
+        conn,
+        "run_failed_help",
+        status="failed",
+        tests_status="not_run",
+        memory_effect="failed_to_help",
+        task_type="validation",
+    )
+    _fake_eval(
+        monkeypatch,
+        memory_effect="failed_to_help",
+        reason="rediscovery before command",
+        rediscovery_count=4,
+        first_expected_command=None,
+    )
+
+    candidates = experience.extract_candidates(conn, "run_failed_help")
+
+    assert len(candidates) == 1
+    candidate = candidates[0]
+    assert candidate["run_id"] == "run_failed_help"
+    assert candidate["outcome_id"] == outcome_row["outcome_id"]
+    assert candidate["kind"] == "rediscovery_waste"
+    assert candidate["state"] == "pending"
+    assert candidate["task_type"] == "validation"
+    assert candidate["claim"] == (
+        "Memory context was available, but the run performed rediscovery and did not "
+        "execute the known verification command."
+    )
+    assert candidate["suggested_action"] == (
+        "For validation tasks, execute the known verification command before broad "
+        "README/package/deployment rediscovery."
+    )
+    assert candidate["evidence"] == {
+        "run_id": "run_failed_help",
+        "outcome_id": outcome_row["outcome_id"],
+        "eval": {
+            "memory_effect": "failed_to_help",
+            "reason": "rediscovery before command",
+            "rediscovery_count": 4,
+            "first_expected_command": None,
+        },
+        "outcome": {
+            "status": "failed",
+            "tests_status": "not_run",
+            "task_type": "validation",
+        },
+    }
+
+
+def test_extract_success_validation_creates_fast_path_candidate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_outcome(
+        conn,
+        "run_fast_path",
+        status="success",
+        tests_status="passed",
+        memory_effect="helped",
+        task_type="validation",
+    )
+    _fake_eval(
+        monkeypatch,
+        memory_effect="helped",
+        reason="expected command executed before rediscovery: pnpm run test",
+        rediscovery_count=0,
+        first_expected_command="pnpm run test",
+    )
+
+    candidates = experience.extract_candidates(conn, "run_fast_path")
+
+    assert len(candidates) == 1
+    candidate = candidates[0]
+    assert candidate["kind"] == "fast_path"
+    assert candidate["claim"] == (
+        "For validation tasks, the known verification command worked before rediscovery."
+    )
+    assert candidate["suggested_action"] == (
+        "Prefer the known verification command early in future validation tasks."
+    )
+    assert candidate["evidence"]["eval"]["first_expected_command"] == "pnpm run test"
+    assert candidate["evidence"]["outcome"]["tests_status"] == "passed"
+
+
+def test_extract_without_outcome_creates_no_candidate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_run(conn, "run_no_outcome")
+    _fake_eval(monkeypatch, memory_effect="helped")
+
+    assert experience.extract_candidates(conn, "run_no_outcome") == []
+    assert experience.list_candidates(conn, state="all") == []
+
+
+def test_extract_unknown_eval_creates_no_candidate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_outcome(
+        conn,
+        "run_unknown_eval",
+        status="success",
+        tests_status="passed",
+        memory_effect="helped",
+        task_type="validation",
+    )
+    _fake_eval(monkeypatch, memory_effect="unknown", reason="insufficient evidence")
+
+    assert experience.extract_candidates(conn, "run_unknown_eval") == []
+
+
+def test_extract_does_not_duplicate_existing_candidate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_outcome(
+        conn,
+        "run_dedupe",
+        status="success",
+        tests_status="unknown",
+        memory_effect="helped",
+        task_type="validation",
+    )
+    _fake_eval(monkeypatch, memory_effect="helped", first_expected_command="pnpm run test")
+
+    first = experience.extract_candidates(conn, "run_dedupe")
+    second = experience.extract_candidates(conn, "run_dedupe")
+
+    assert len(first) == 1
+    assert second == []
+    assert len(experience.list_candidates(conn, state="all")) == 1
+
+
+def test_reject_prevents_recreation_in_v0(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_outcome(
+        conn,
+        "run_rejected",
+        status="failed",
+        tests_status="unknown",
+        memory_effect="failed_to_help",
+        task_type="validation",
+    )
+    _fake_eval(monkeypatch, memory_effect="failed_to_help", rediscovery_count=2)
+    [candidate] = experience.extract_candidates(conn, "run_rejected")
+
+    rejected = experience.reject_candidate(conn, candidate["exp_cand_id"])
+    recreated = experience.extract_candidates(conn, "run_rejected")
+
+    assert rejected["state"] == "rejected"
+    assert recreated == []
+    assert len(experience.list_candidates(conn, state="all")) == 1
+
+
+def test_list_show_approve_and_reject_candidates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_outcome(
+        conn,
+        "run_review",
+        status="success",
+        tests_status="passed",
+        memory_effect="helped",
+        task_type="validation",
+    )
+    _fake_eval(monkeypatch, memory_effect="helped")
+    [candidate] = experience.extract_candidates(conn, "run_review")
+
+    pending = experience.list_candidates(conn)
+    shown = experience.show_candidate(conn, candidate["exp_cand_id"])
+    approved = experience.approve_candidate(conn, candidate["exp_cand_id"])
+    approved_list = experience.list_candidates(conn, state="approved")
+    rejected = experience.reject_candidate(conn, candidate["exp_cand_id"])
+
+    assert pending == [candidate]
+    assert shown == candidate
+    assert approved["state"] == "approved"
+    assert approved["reviewed_at"]
+    assert approved_list == [approved]
+    assert rejected["state"] == "rejected"
+
+
+def test_cli_extract_ls_show_approve_reject_work(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_outcome(
+        conn,
+        "run_cli_exp",
+        status="success",
+        tests_status="passed",
+        memory_effect="helped",
+        task_type="validation",
+    )
+    conn.close()
+    _fake_eval(monkeypatch, memory_effect="helped", first_expected_command="pnpm run test")
+    monkeypatch.chdir(tmp_path)
+
+    extract_code = cli.main(["experience", "extract", "run_cli_exp"])
+    extracted = json.loads(capsys.readouterr().out)
+    exp_cand_id = extracted["candidates"][0]["exp_cand_id"]
+    ls_code = cli.main(["experience", "ls"])
+    listed = json.loads(capsys.readouterr().out)
+    show_code = cli.main(["experience", "show", exp_cand_id])
+    shown = json.loads(capsys.readouterr().out)
+    approve_code = cli.main(["experience", "approve", exp_cand_id])
+    approved = json.loads(capsys.readouterr().out)
+    reject_code = cli.main(["experience", "reject", exp_cand_id])
+    rejected = json.loads(capsys.readouterr().out)
+
+    assert extract_code == 0
+    assert extracted["created"] == 1
+    assert ls_code == 0
+    assert listed["candidates"][0]["exp_cand_id"] == exp_cand_id
+    assert show_code == 0
+    assert shown["exp_cand_id"] == exp_cand_id
+    assert approve_code == 0
+    assert approved["state"] == "approved"
+    assert reject_code == 0
+    assert rejected["state"] == "rejected"
+
+
+def test_evidence_contains_eval_and_outcome_summary_without_raw_secrets(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    secret = "candidate-secret-value-123"
+    monkeypatch.setenv("OMNI_EXPERIENCE_SECRET", secret)
+    conn = _fixture_db(tmp_path)
+    _insert_outcome(
+        conn,
+        "run_secret_candidate",
+        status="failed",
+        tests_status="failed",
+        memory_effect="failed_to_help",
+        task_type="validation",
+    )
+    _fake_eval(
+        monkeypatch,
+        memory_effect="failed_to_help",
+        reason=f"rediscovery leaked {secret}",
+        rediscovery_count=3,
+    )
+
+    [candidate] = experience.extract_candidates(conn, "run_secret_candidate")
+    row = conn.execute(
+        """
+        SELECT claim, suggested_action, evidence
+        FROM experience_candidates
+        WHERE exp_cand_id = ?
+        """,
+        (candidate["exp_cand_id"],),
+    ).fetchone()
+    encoded = experience.as_json(candidate)
+
+    assert secret not in row["claim"]
+    assert secret not in row["suggested_action"]
+    assert secret not in row["evidence"]
+    assert secret not in encoded
+    assert "REDACTED:" in encoded
+    assert candidate["evidence"]["eval"]["memory_effect"] == "failed_to_help"
+    assert candidate["evidence"]["outcome"]["status"] == "failed"
+
+
+def _fixture_db(root: Path) -> sqlite3.Connection:
+    (root / ".omni").mkdir()
+    conn = db.connect(root / ".omni" / "omni.sqlite3")
+    db.migrate(conn)
+    return conn
+
+
+def _insert_run(conn: sqlite3.Connection, run_id: str) -> None:
+    conn.execute(
+        "INSERT INTO runs(run_id, project_id, snapshot_seq, status) VALUES(?,?,?,?)",
+        (run_id, "project", 0, "closed"),
+    )
+    conn.commit()
+
+
+def _insert_outcome(
+    conn: sqlite3.Connection,
+    run_id: str,
+    *,
+    status: str,
+    tests_status: str,
+    memory_effect: str,
+    task_type: str,
+) -> dict[str, object]:
+    _insert_run(conn, run_id)
+    return outcome.mark_outcome(
+        conn,
+        run_id,
+        status=status,
+        tests_status=tests_status,
+        memory_effect=memory_effect,
+        task_type=task_type,
+    )
+
+
+def _fake_eval(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    memory_effect: str,
+    reason: str = "eval reason",
+    rediscovery_count: int = 0,
+    first_expected_command: str | None = "pnpm run test",
+) -> None:
+    def fake_evaluate_run(root: Path | str, run_id: str) -> dict[str, object]:
+        return {
+            "run_id": run_id,
+            "memory_effect": memory_effect,
+            "reason": reason,
+            "rediscovery_count": rediscovery_count,
+            "first_expected_command": first_expected_command,
+        }
+
+    monkeypatch.setattr(experience.behavior_eval, "evaluate_run", fake_evaluate_run)
