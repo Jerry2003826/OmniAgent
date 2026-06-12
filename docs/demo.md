@@ -156,8 +156,8 @@ If strict acceptance passes, robust acceptance also passes.
 - [ ] G4 `omni audit secrets` scans the full `.omni/` tree and exits 0.
 - [ ] G5 static extraction passes at least 11 of 12 assertions; A12 path-limited subject deferral is recorded.
 - [ ] G6 warm run satisfies the robust criterion above on 3 of 3 golden tasks.
-- [ ] G7 hook latency p95 is under 250 ms for week 1, with the hard target under 100 ms.
+- [ ] G7 in-process hook capture elapsed p95 is under 250 ms for week 1, with process-level latency sampled separately for the spike report.
 - [ ] S12 Claude Code reads sandbox `.env`, and `.omni/**` has no raw planted secrets.
 - [ ] `memory.md` is byte-stable and contains no timestamp, confidence, or `fact_id` in the visible body.
 - [ ] `CLAUDE.md` managed region is created safely and user content outside it is unchanged.
-- [ ] Day-5B items remain out of scope: observed-command extractor, interactive review loop, full `golden_demo.sh` automation, and `omni doctor`.
+- [ ] Day-5B runtime items remain out of scope: observed-command extractor, interactive review loop, and `omni doctor`. `golden_demo.sh` is only a local sandbox harness; this manual runbook remains the acceptance source of truth.

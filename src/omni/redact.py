@@ -38,6 +38,8 @@ _MAX_FULL_REDACTION_BYTES = 1024 * 1024
 _TRUNCATED_EDGE_BYTES = 256 * 1024
 _TRUNCATED_BOUNDARY_GUARD_BYTES = 4 * 1024
 _SECRET_ENV_KEY_HINTS = ("AUTH", "CREDENTIAL", "KEY", "PASSWORD", "SECRET", "TOKEN")
+_PRIVATE_KEY_BEGIN_RE = re.compile(rb"-----BEGIN [A-Z ]*PRIVATE KEY-----")
+_PRIVATE_KEY_END_RE = re.compile(rb"-----END [A-Z ]*PRIVATE KEY-----")
 _COMMON_LOW_ENTROPY_ENV_VALUES = {
     "admin",
     "administrator",
@@ -250,7 +252,7 @@ def _should_redact_secret(secret: bytes, detector: str, allow_values: set[bytes]
         return False
     if detector == "high_entropy":
         return True
-    return not _looks_like_false_positive(secret)
+    return True
 
 
 def _looks_like_function_call(secret: bytes) -> bool:
@@ -269,16 +271,6 @@ def _shannon_entropy(secret: bytes) -> float:
     counts = {byte: secret.count(byte) for byte in set(secret)}
     total = len(secret)
     return -sum((count / total) * math.log2(count / total) for count in counts.values())
-
-
-def _looks_like_false_positive(secret: bytes) -> bool:
-    if re.fullmatch(rb"[0-9a-fA-F]{40}", secret):
-        return True
-    if re.fullmatch(rb"[0-9a-fA-F]{64}", secret):
-        return True
-    if secret.startswith((b"sha256-", b"sha384-", b"sha512-")):
-        return True
-    return False
 
 
 def _looks_like_redaction_placeholder(secret: bytes) -> bool:
@@ -322,8 +314,21 @@ def _redact_truncated(payload: bytes, allow_values: set[bytes]) -> RedactionResu
     findings: list[Finding] = []
     prefix = payload[:_TRUNCATED_EDGE_BYTES]
     suffix = payload[-_TRUNCATED_EDGE_BYTES:]
-    redacted_prefix = _line_safe_prefix(_redact_chunk(prefix, findings, allow_values))
-    redacted_suffix = _line_safe_suffix(_redact_chunk(suffix, findings, allow_values))
+    private_key_ranges = _private_key_ranges(payload)
+    redacted_prefix = _withhold_partial_private_key_sample(
+        _line_safe_prefix(_redact_chunk(prefix, findings, allow_values)),
+        findings,
+        private_key_ranges,
+        0,
+        len(prefix),
+    )
+    redacted_suffix = _withhold_partial_private_key_sample(
+        _line_safe_suffix(_redact_chunk(suffix, findings, allow_values)),
+        findings,
+        private_key_ranges,
+        len(payload) - len(suffix),
+        len(payload),
+    )
     body = {
         "error": "payload_truncated",
         "byte_len": len(payload),
@@ -350,6 +355,61 @@ def _line_safe_suffix(suffix: bytes) -> bytes:
     if newline == -1:
         return suffix[_TRUNCATED_BOUNDARY_GUARD_BYTES:]
     return suffix[newline + 1 :]
+
+
+def _withhold_partial_private_key_sample(
+    sample: bytes,
+    findings: list[Finding],
+    private_key_ranges: list[tuple[int, int]],
+    sample_start: int,
+    sample_end: int,
+) -> bytes:
+    if not sample:
+        return sample
+    has_begin = _PRIVATE_KEY_BEGIN_RE.search(sample) is not None
+    has_end = _PRIVATE_KEY_END_RE.search(sample) is not None
+    boundary_overlap = any(
+        key_start < sample_end
+        and sample_start < key_end
+        and (key_start < sample_start or key_end > sample_end)
+        for key_start, key_end in private_key_ranges
+    )
+    if has_begin == has_end and not boundary_overlap:
+        return sample
+    findings.append(Finding("pem_private_key", b"partial_private_key"))
+    return _stub_for_truncated_private_key_sample(sample)
+
+
+def _private_key_ranges(payload: bytes) -> list[tuple[int, int]]:
+    ranges: list[tuple[int, int]] = []
+    first_begin = _PRIVATE_KEY_BEGIN_RE.search(payload)
+    first_end = _PRIVATE_KEY_END_RE.search(payload)
+    if first_end is not None and (
+        first_begin is None or first_end.start() < first_begin.start()
+    ):
+        ranges.append((0, first_end.end()))
+
+    index = 0
+    while True:
+        begin = _PRIVATE_KEY_BEGIN_RE.search(payload, index)
+        if begin is None:
+            break
+        end = _PRIVATE_KEY_END_RE.search(payload, begin.end())
+        if end is None:
+            ranges.append((begin.start(), len(payload)))
+            break
+        ranges.append((begin.start(), end.end()))
+        index = end.end()
+    return ranges
+
+
+def _stub_for_truncated_private_key_sample(sample: bytes) -> bytes:
+    stub = {
+        "error": "truncated_private_key_withheld",
+        "sample_sha256": hashlib.sha256(sample).hexdigest(),
+        "byte_len": len(sample),
+    }
+    return json.dumps(stub, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
 def _allow_bytes(values: Iterable[str | bytes] | None) -> set[bytes]:

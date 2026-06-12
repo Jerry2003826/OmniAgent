@@ -34,7 +34,11 @@ def _hook_elapsed_summary(root: Path) -> dict[str, int]:
 
     hook_paths = [*spool.glob("hook-*.jsonl"), *(spool / "processed").glob("hook-*.jsonl")]
     for path in sorted(hook_paths):
-        for line in path.read_text(encoding="utf-8").splitlines():
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        for line in lines:
             try:
                 record = json.loads(line)
             except json.JSONDecodeError:

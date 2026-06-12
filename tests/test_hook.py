@@ -162,6 +162,71 @@ def test_capture_hook_withholds_payload_when_skiplisted_path_is_referenced(
     assert payload["tool_response"]["content"]["error"] == "skiplisted_path_withheld"
 
 
+def test_capture_hook_withholds_oversized_payload_when_skiplisted_path_is_referenced(
+    tmp_path: Path, monkeypatch
+) -> None:
+    raw_secret = "DB_PASS=lowercaseplainword"
+
+    def fail_raw_parse(_payload: bytes) -> dict[str, object]:
+        raise AssertionError("oversized skiplist payload should not be parsed as full JSON")
+
+    monkeypatch.setattr(hook, "_event_from_payload", fail_raw_parse)
+    result = hook.capture_hook(
+        (
+            b'{"hook_event_name":"PostToolUse","tool":"Read",'
+            b'"tool_input":{"file_path":".env"},"tool_response":{"content":"'
+            + raw_secret.encode("utf-8")
+            + b'","padding":"'
+            + b"x" * hook.MAX_HOOK_EVENT_PARSE_BYTES
+            + b'"}}'
+        ),
+        root=tmp_path,
+    )
+
+    assert result.ok is True
+    assert result.spool_path is not None
+    written = result.spool_path.read_text(encoding="utf-8")
+    assert raw_secret not in written
+    record = json.loads(written)
+    payload = json.loads(record["payload"])
+    assert record["meta"]["redaction_status"] == "withheld"
+    assert record["meta"]["detectors"] == ["skiplist"]
+    assert payload["error"] == "skiplisted_path_withheld"
+    assert payload["byte_len"] > hook.MAX_HOOK_EVENT_PARSE_BYTES
+
+
+def test_capture_hook_withholds_oversized_payload_when_skiplisted_path_is_late(
+    tmp_path: Path, monkeypatch
+) -> None:
+    raw_secret = "DB_PASS=lowercaseplainword"
+
+    def fail_raw_parse(_payload: bytes) -> dict[str, object]:
+        raise AssertionError("oversized skiplist payload should not be parsed as full JSON")
+
+    monkeypatch.setattr(hook, "_event_from_payload", fail_raw_parse)
+    result = hook.capture_hook(
+        (
+            b'{"hook_event_name":"PostToolUse","tool":"Read",'
+            b'"tool_response":{"content":"'
+            + raw_secret.encode("utf-8")
+            + b'","padding":"'
+            + b"x" * hook.MAX_HOOK_EVENT_PARSE_BYTES
+            + b'"},"tool_input":{"file_path":".env"}}'
+        ),
+        root=tmp_path,
+    )
+
+    assert result.ok is True
+    assert result.spool_path is not None
+    written = result.spool_path.read_text(encoding="utf-8")
+    assert raw_secret not in written
+    record = json.loads(written)
+    payload = json.loads(record["payload"])
+    assert record["meta"]["redaction_status"] == "withheld"
+    assert record["meta"]["detectors"] == ["skiplist"]
+    assert payload["error"] == "skiplisted_path_withheld"
+
+
 def test_capture_hook_withholds_skiplisted_write_input_content(
     tmp_path: Path,
 ) -> None:

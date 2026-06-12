@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from omni import db
+from omni.redact import redact
 
 RENDER_VER = 1
 BLOCK_ID = "project_memory"
@@ -55,6 +56,7 @@ def render_project(
     path = base / GENERATED_PATH
     facts = _active_facts(conn)
     body, line_hashes = _render_body(facts)
+    body = _redact_text(body)
     text = _with_header(body)
     rendered_diff = _diff(path, text)
 
@@ -106,7 +108,7 @@ def _render_body(facts: list[sqlite3.Row]) -> tuple[str, dict[str, str]]:
         if rendered is None:
             continue
         section, line = rendered
-        sections[section].append((fact["fact_id"], line))
+        sections[section].append((fact["fact_id"], _redact_text(line)))
 
     lines: list[tuple[str, str | None]] = [("# Project memory", None), ("", None)]
     omitted = False
@@ -151,6 +153,10 @@ def _render_fact_line(fact: sqlite3.Row) -> tuple[str, str] | None:
 
 def _with_header(body: str) -> str:
     return f"<!-- omni:generated render_ver={RENDER_VER} sha256={_sha256(body)} DO NOT EDIT -->\n{body}"
+
+
+def _redact_text(value: str) -> str:
+    return redact(value.encode("utf-8")).data.decode("utf-8", errors="replace")
 
 
 def _command_instruction(command_kind: str, qualifier: str, object_norm: str) -> str:

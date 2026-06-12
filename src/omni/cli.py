@@ -6,18 +6,13 @@ import argparse
 import sys
 
 from omni import __version__
-from omni.audit import run_audit_cli
-from omni.config import ensure_project_layout
-from omni.hook import install_claude_hooks, run_from_stdin
-from omni.ingest import ingest as ingest_project
-from omni.ingest import run_show
-from omni.parse import events_as_jsonl, parse_transcript
-from omni import inject
-from omni import render
-from omni import review
-from omni import gate
-from omni.redact import redact
-from omni.status import status_json
+from omni.config import ensure_project_layout, project_root
+
+
+def run_from_stdin():
+    from omni.hook import run_from_stdin as hook_run_from_stdin
+
+    return hook_run_from_stdin()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -40,6 +35,7 @@ def build_parser() -> argparse.ArgumentParser:
     parse_parser.add_argument("transcript")
     ingest_parser = subcommands.add_parser("ingest", help=argparse.SUPPRESS)
     ingest_parser.add_argument("run_id", nargs="?")
+    ingest_parser.add_argument("--run-id", dest="run_id_option")
     ingest_parser.add_argument("--transcript")
     run_parser = subcommands.add_parser("run", help=argparse.SUPPRESS)
     run_subcommands = run_parser.add_subparsers(dest="run_command", required=True)
@@ -86,6 +82,9 @@ def main(argv: list[str] | None = None) -> int:
         if result.gitignore_updated:
             print(f"Updated {result.root / '.gitignore'}")
         if args.install_claude_hooks:
+            from omni.hook import install_claude_hooks
+            from omni.redact import redact
+
             installed = install_claude_hooks(result.root, yes=args.yes)
             if not installed.ok:
                 print(installed.message, file=sys.stderr)
@@ -104,19 +103,26 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "status":
-        _print_diff(status_json("."))
+        from omni.status import status_json
+
+        _print_diff(status_json(project_root()))
         return 0
 
     if args.command == "doctor":
         return _experimental_disabled()
 
     if args.command == "parse":
+        from omni.parse import events_as_jsonl, parse_transcript
+
         result = parse_transcript(args.transcript)
         _print_diff(events_as_jsonl(result.events))
         return 0
 
     if args.command == "ingest":
-        result = ingest_project(run_id=args.run_id, transcript=args.transcript)
+        from omni.ingest import ingest as ingest_project
+
+        run_id = args.run_id_option or args.run_id
+        result = ingest_project(project_root(), run_id=run_id, transcript=args.transcript)
         _print_diff(
             f"run_ids={','.join(result.run_ids)} events_inserted={result.events_inserted} "
             f"queue_drained={result.queue_drained}\n"
@@ -124,18 +130,25 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "run" and args.run_command == "show":
-        _print_diff(run_show(None, args.run_id, seq=args.seq))
+        from omni.ingest import run_show
+
+        _print_diff(run_show(project_root(), args.run_id, seq=args.seq))
         return 0
 
     if args.command == "audit" and args.audit_command == "secrets":
-        code, body = run_audit_cli(".")
+        from omni.audit import run_audit_cli
+
+        code, body = run_audit_cli(project_root())
         _print_diff(body)
         return code
 
     if args.command == "review":
+        from omni import gate
+        from omni import review
+
         if args.review_command == "interactive":
             return _experimental_disabled()
-        conn = review.connect_project(".")
+        conn = review.connect_project(project_root())
         try:
             if args.review_command == "approve":
                 try:
@@ -143,8 +156,15 @@ def main(argv: list[str] | None = None) -> int:
                 except gate.ConflictRequiresSupersede as exc:
                     print(str(exc), file=sys.stderr)
                     return 2
+                except (KeyError, ValueError) as exc:
+                    print(str(exc), file=sys.stderr)
+                    return 2
             elif args.review_command == "reject":
-                result = review.reject(conn, args.cand_id)
+                try:
+                    result = review.reject(conn, args.cand_id)
+                except (KeyError, ValueError) as exc:
+                    print(str(exc), file=sys.stderr)
+                    return 2
             else:
                 result = review.interactive(conn)
         finally:
@@ -153,10 +173,13 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "render":
-        conn = render.connect_project(".")
+        from omni import render
+
+        root = project_root()
+        conn = render.connect_project(root)
         try:
             try:
-                result = render.render_project(conn, ".", diff=args.diff, force=args.force)
+                result = render.render_project(conn, root, diff=args.diff, force=args.force)
             except render.ManualEditError as exc:
                 _print_diff(exc.diff)
                 print(str(exc), file=sys.stderr)
@@ -170,8 +193,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "inject" and args.inject_command == "claude":
+        from omni import inject
+
         try:
-            result = inject.inject_claude(".", mode=args.mode)
+            result = inject.inject_claude(project_root(), mode=args.mode)
         except inject.ManagedRegionEditedError as exc:
             _print_diff(exc.diff)
             print(str(exc), file=sys.stderr)

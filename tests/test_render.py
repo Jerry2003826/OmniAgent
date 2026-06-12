@@ -190,3 +190,21 @@ def test_render_marks_omitted_facts_when_body_limit_is_reached(
     assert result.body == text
     assert "Additional facts omitted due to size limit." in text
     assert len(result.body.split("\n", 1)[1]) <= render.MAX_BODY_CHARS
+
+
+def test_render_redacts_fact_values_before_writing_generated_memory(tmp_path: Path) -> None:
+    conn = connect(tmp_path)
+    raw_secret = "ghp_abcdefghijklmnopqrstuvwxyz1234567890"
+    add_fact(
+        conn,
+        predicate="boundary_rule",
+        qualifier="default",
+        object_norm=f"never print {raw_secret}",
+    )
+
+    result = render.render_project(conn, tmp_path)
+    text = result.path.read_text(encoding="utf-8")
+
+    assert raw_secret not in text
+    assert "REDACTED:github_token:" in text
+    assert result.body == text

@@ -522,6 +522,26 @@ def test_successful_ingest_moves_consumed_hook_spool_files_to_processed(
     assert conn.execute("SELECT COUNT(*) FROM events").fetchone()[0] == 1
 
 
+def test_empty_queue_ingest_without_run_id_does_not_consume_live_hook_spool(
+    tmp_path: Path,
+) -> None:
+    hook.capture_hook(
+        b'{"hook_event_name":"PostToolUse","timestamp":"2026-06-11T00:00:00Z",'
+        b'"session_id":"s-live","tool_use_id":"toolu_live","tool":"Bash"}',
+        root=tmp_path,
+    )
+    hook_file = next((tmp_path / ".omni" / "spool").glob("hook-*.jsonl"))
+
+    result = ingest.ingest(root=tmp_path)
+    conn = db.connect(tmp_path / ".omni" / "omni.sqlite3")
+
+    assert result.run_ids == ()
+    assert result.events_inserted == 0
+    assert hook_file.exists()
+    assert not list((tmp_path / ".omni" / "spool" / "processed").glob("hook-*.jsonl"))
+    assert conn.execute("SELECT COUNT(*) FROM events").fetchone()[0] == 0
+
+
 def test_manual_transcript_ingest_does_not_consume_unrelated_queued_hook_spool(
     tmp_path: Path,
 ) -> None:

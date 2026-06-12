@@ -75,3 +75,31 @@ Rationale: unscoped hook reconciliation can attach unrelated live-session hook
 spool to a manually ingested transcript. When `--run-id` is provided, Week-1
 treats it as the Claude session id and only reconciles hook records carrying
 that same `session_id`.
+
+Decision: empty-queue `omni ingest` without a run id does not consume live
+`hook-*.jsonl` files into a synthetic run.
+
+Rationale: live hook records are only authoritative after a Stop/SessionEnd
+ingest request scopes them to a session. A manual fallback can still be run with
+an explicit run id, but the default path should not steal hooks before the real
+session request arrives.
+
+Decision: installed Claude hooks use the portable command `omni hook` by
+default. `OMNI_HOOK_COMMAND` remains the explicit escape hatch for local
+environments that need a fully qualified command.
+
+Rationale: project `.claude/settings.json` may be shared or inspected. A local
+absolute Python path leaks workstation details and breaks on other machines.
+
+Decision: `.omni/redaction-allow.txt` is an audit-only exact-value allowlist.
+
+Rationale: it exists only to suppress known audit false positives during local
+validation. It does not change runtime hook, parse, ingest, or render redaction.
+It must not be used to approve real secrets.
+
+Decision: `omni status` hook elapsed percentiles are in-process capture metrics,
+not end-to-end process startup latency.
+
+Rationale: the value is written by the hook while handling a payload. Week-1
+demo notes that process-level latency should be sampled separately when judging
+Claude Code UX.

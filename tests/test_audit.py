@@ -151,3 +151,57 @@ def test_audit_cli_scans_omni_tree_and_reports_json(tmp_path: Path) -> None:
     assert code == 0
     assert report["ok"] is True
     assert report["omni_leaks"] == []
+
+
+def test_audit_fails_when_fixture_corpus_is_missing(tmp_path: Path) -> None:
+    code, body = audit.run_audit_cli(tmp_path, fixtures_root=tmp_path / "missing")
+    report = json.loads(body)
+
+    assert code == 1
+    assert report["ok"] is False
+    assert report["fixtures_missing"] is True
+    assert not (tmp_path / ".omni" / "audit" / "secrets.passed").exists()
+
+
+def test_audit_fails_when_positive_or_negative_fixture_corpus_is_empty(
+    tmp_path: Path,
+) -> None:
+    fixtures = tmp_path / "fixtures"
+    (fixtures / "positives").mkdir(parents=True)
+    (fixtures / "negatives").mkdir()
+
+    code, body = audit.run_audit_cli(tmp_path, fixtures_root=fixtures)
+    report = json.loads(body)
+
+    assert code == 1
+    assert report["ok"] is False
+    assert report["fixtures_missing"] is True
+
+    (fixtures / "positives" / "token.txt").write_text(
+        "token=ghp_abcdefghijklmnopqrstuvwxyz1234567890\n",
+        encoding="utf-8",
+    )
+    code, body = audit.run_audit_cli(tmp_path, fixtures_root=fixtures)
+    report = json.loads(body)
+
+    assert code == 1
+    assert report["ok"] is False
+    assert report["fixtures_missing"] is True
+
+
+def test_audit_fails_when_fixture_corpus_contains_only_empty_files(
+    tmp_path: Path,
+) -> None:
+    fixtures = tmp_path / "fixtures"
+    (fixtures / "positives").mkdir(parents=True)
+    (fixtures / "negatives").mkdir()
+    (fixtures / "positives" / "empty.txt").write_text("", encoding="utf-8")
+    (fixtures / "negatives" / "empty.txt").write_text("", encoding="utf-8")
+
+    code, body = audit.run_audit_cli(tmp_path, fixtures_root=fixtures)
+    report = json.loads(body)
+
+    assert code == 1
+    assert report["ok"] is False
+    assert report["fixtures_missing"] is True
+    assert not (tmp_path / ".omni" / "audit" / "secrets.passed").exists()

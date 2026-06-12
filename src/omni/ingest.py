@@ -95,11 +95,11 @@ def ingest(
                     consumed_hook_paths.update(hook_paths)
                     run_ids.append(rid)
             else:
-                rid = run_id or "hook_run"
-                inserted, hook_paths = _ingest_one(conn, base, rid, None, include_hooks=True)
-                total_inserted += inserted
-                consumed_hook_paths.update(hook_paths)
-                run_ids.append(rid)
+                if run_id is not None:
+                    inserted, hook_paths = _ingest_one(conn, base, run_id, None, include_hooks=True)
+                    total_inserted += inserted
+                    consumed_hook_paths.update(hook_paths)
+                    run_ids.append(run_id)
 
         gate.extract_static_facts(base, conn, commit=False)
         conn.commit()

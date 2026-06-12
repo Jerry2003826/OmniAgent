@@ -36,7 +36,11 @@ class InitResult:
 
 
 def project_root(cwd: Path | str | None = None) -> Path:
-    return Path(cwd or Path.cwd()).resolve()
+    start = Path(cwd or Path.cwd()).resolve()
+    for candidate in (start, *start.parents):
+        if (candidate / OMNI_DIRNAME).is_dir() or (candidate / ".git").exists():
+            return candidate
+    return start
 
 
 def ensure_project_layout(root: Path | str | None = None) -> InitResult:

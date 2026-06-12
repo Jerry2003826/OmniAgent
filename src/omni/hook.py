@@ -9,7 +9,6 @@ import os
 import re
 import shlex
 import shutil
-import subprocess
 import sys
 import time
 import uuid
@@ -307,6 +306,12 @@ def _discover_project_root(start: Path) -> Path:
 
 def _redact_skiplisted_payload(payload: bytes) -> RedactionResult | None:
     if len(payload) > MAX_HOOK_EVENT_PARSE_BYTES:
+        if _raw_payload_references_skiplisted_path(payload):
+            return RedactionResult(
+                data=_skiplisted_payload_stub(payload),
+                status="withheld",
+                detectors=("skiplist",),
+            )
         return None
     event = _event_from_payload(payload)
     if not event:
@@ -351,6 +356,23 @@ def _input_value_references_skiplisted_path(value: object) -> bool:
                 return True
     elif isinstance(value, list):
         return any(_input_value_references_skiplisted_path(item) for item in value)
+    return False
+
+
+def _raw_payload_references_skiplisted_path(payload: bytes) -> bool:
+    pattern = re.compile(
+        rb'"(file_path|filepath|path|filename|command|cmd)"\s*:\s*"((?:\\.|[^"\\])*)"'
+    )
+    for match in pattern.finditer(payload):
+        key = match.group(1).decode("ascii", errors="ignore").lower()
+        value = _decode_json_string(match.group(2))
+        if value is None:
+            continue
+        if key in COMMAND_KEYS:
+            if _command_references_skiplisted_path(value):
+                return True
+        elif _string_references_skiplisted_path(value):
+            return True
     return False
 
 
@@ -550,10 +572,7 @@ def _hook_command() -> str:
     override = os.environ.get(HOOK_COMMAND_ENV)
     if override:
         return override
-    parts = [sys.executable, "-m", "omni.cli", "hook"]
-    if os.name == "nt":
-        return subprocess.list2cmdline(parts)
-    return shlex.join(parts)
+    return LEGACY_HOOK_COMMAND
 
 
 def _hook_group(event_name: str, command: str) -> dict[str, object]:
@@ -590,7 +609,7 @@ def _upgrade_omni_hooks(groups: list[object], command: str) -> tuple[list[object
                 new_handlers.append(handler)
                 continue
             handler_command = handler.get("command")
-            if handler_command == LEGACY_HOOK_COMMAND:
+            if _is_omni_hook_command(handler_command, command):
                 if not found:
                     replacement = dict(handler)
                     replacement["command"] = command
@@ -611,3 +630,11 @@ def _upgrade_omni_hooks(groups: list[object], command: str) -> tuple[list[object
         if group_has_omni or new_handlers:
             upgraded.append(new_group)
     return upgraded, found
+
+
+def _is_omni_hook_command(value: object, command: str) -> bool:
+    if not isinstance(value, str):
+        return False
+    if value in {command, LEGACY_HOOK_COMMAND}:
+        return True
+    return re.search(r"(^|\s)-m\s+omni\.cli\s+hook(\s|$)", value) is not None

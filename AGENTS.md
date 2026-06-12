@@ -21,10 +21,11 @@ NO new tables beyond migration 001.
 Day-5B items are week-2 unless Day-5A acceptance passes early:
 - observed_command extractor
 - interactive review loop
-- golden_demo.sh full automation
 - omni doctor
 
 If a task seems to need any of these, STOP and leave a TODO comment instead.
+`scripts/golden_demo.sh` may exist as a local sandbox harness, but Week-1
+acceptance remains the manual runbook in `docs/demo.md`.
 
 ## Safety rules
 
@@ -206,4 +207,5 @@ When Claude Code hook or transcript behavior is UNKNOWN:
 - full `.omni/` tree scan passes
 - manual cold/warm demo passes per `docs/demo.md`
 - warm run satisfies G6 ROBUST criterion on 3/3 golden tasks
-- `golden_demo.sh` full automation is week-2
+- `golden_demo.sh` is optional harness coverage only; manual `docs/demo.md`
+  acceptance remains authoritative

@@ -13,6 +13,7 @@ import pytest
 from omni import cli
 from omni import hook
 from omni.ids import project_id_for_path
+from omni.status import status_json
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FAKE_GITHUB_TOKEN = "ghp_" + "abcdefghijklmnopqrstuvwxyz1234567890"
@@ -215,7 +216,7 @@ def test_init_install_claude_hooks_prints_diff_and_preserves_project_settings(
     assert result.returncode == 0, result.stderr
     assert "--- .claude/settings.json" in result.stdout
     assert "+++ .claude/settings.json (omni)" in result.stdout
-    assert "omni.cli hook" in result.stdout
+    assert "omni hook" in result.stdout
     assert diff_secret not in result.stdout
     assert not (claude_dir / "settings.json.omni-bak").exists()
     assert not (tmp_path / ".omni" / "backups").exists()
@@ -224,8 +225,7 @@ def test_init_install_claude_hooks_prints_diff_and_preserves_project_settings(
     updated = json.loads(settings.read_text(encoding="utf-8"))
     command = updated["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
     assert updated["permissions"] == {}
-    assert "omni.cli hook" in command
-    assert command != "omni hook"
+    assert command == "omni hook"
     user_commands = [
         handler["command"]
         for group in updated["hooks"]["Notification"]
@@ -235,6 +235,16 @@ def test_init_install_claude_hooks_prints_diff_and_preserves_project_settings(
     assert updated["hooks"]["PostToolUse"][0]["hooks"][0]["command"] == command
     assert updated["hooks"]["Stop"][0]["hooks"][0]["command"] == command
     assert updated["hooks"]["SessionEnd"][0]["hooks"][0]["command"] == command
+
+
+def test_install_claude_hooks_uses_portable_default_command(tmp_path: Path) -> None:
+    result = hook.install_claude_hooks(tmp_path, yes=True)
+    settings = json.loads((tmp_path / ".claude" / "settings.json").read_text(encoding="utf-8"))
+    command = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+
+    assert result.ok is True
+    assert command == "omni hook"
+    assert str(sys.executable) not in command
 
 
 def test_install_claude_hooks_does_not_write_raw_settings_backup_under_omni(
@@ -304,7 +314,7 @@ def test_install_claude_hooks_writes_settings_through_temp_file(
         errors: str | None = None,
         newline: str | None = None,
     ) -> int:
-        if self == settings and "omni.cli hook" in data:
+        if self == settings and "omni hook" in data:
             raise AssertionError("settings.json must be replaced from a temp file")
         return original_write_text(
             self, data, encoding=encoding, errors=errors, newline=newline
@@ -315,7 +325,7 @@ def test_install_claude_hooks_writes_settings_through_temp_file(
     result = hook.install_claude_hooks(tmp_path, yes=True)
 
     assert result.ok is True
-    assert "omni.cli hook" in settings.read_text(encoding="utf-8")
+    assert "omni hook" in settings.read_text(encoding="utf-8")
     assert not (claude_dir / "settings.json.omni-tmp").exists()
 
 
@@ -400,9 +410,49 @@ def test_install_claude_hooks_replaces_legacy_omni_hook_command(tmp_path: Path) 
     omni_commands = [command for command in commands if "omni" in command]
 
     assert result.ok is True
-    assert "omni hook" not in commands
+    assert "omni hook" in commands
     assert len(omni_commands) == 1
-    assert "omni.cli hook" in omni_commands[0]
+    assert omni_commands[0] == "omni hook"
+    assert "echo keep-user-hook" in commands
+
+
+def test_install_claude_hooks_replaces_old_python_module_hook_command(tmp_path: Path) -> None:
+    claude_dir = tmp_path / ".claude"
+    claude_dir.mkdir()
+    settings = claude_dir / "settings.json"
+    old_command = f'"{sys.executable}" -m omni.cli hook'
+    settings.write_text(
+        json.dumps(
+            {
+                "hooks": {
+                    "PreToolUse": [
+                        {
+                            "matcher": "*",
+                            "hooks": [
+                                {"type": "command", "command": old_command, "timeout": 5},
+                                {"type": "command", "command": "echo keep-user-hook"},
+                            ],
+                        }
+                    ]
+                }
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = hook.install_claude_hooks(tmp_path, yes=True)
+    updated = json.loads(settings.read_text(encoding="utf-8"))
+    commands = [
+        handler["command"]
+        for group in updated["hooks"]["PreToolUse"]
+        for handler in group["hooks"]
+    ]
+    omni_commands = [command for command in commands if "omni" in command]
+
+    assert result.ok is True
+    assert old_command not in commands
+    assert omni_commands == ["omni hook"]
     assert "echo keep-user-hook" in commands
 
 
@@ -454,6 +504,14 @@ def test_review_interactive_cli_is_disabled_for_week1(tmp_path: Path) -> None:
     assert not (tmp_path / ".omni").exists()
 
 
+def test_review_cli_reports_missing_candidate_without_traceback(tmp_path: Path) -> None:
+    result = run_omni(tmp_path, "review", "approve", "missing-candidate")
+
+    assert result.returncode == 2
+    assert "missing-candidate" in result.stderr
+    assert "Traceback" not in result.stderr
+
+
 def test_status_cli_reports_project_state_without_creating_layout(tmp_path: Path) -> None:
     empty_status = run_omni(tmp_path, "status")
 
@@ -479,6 +537,20 @@ def test_status_cli_reports_project_state_without_creating_layout(tmp_path: Path
     assert initialized["claude_link"] is False
 
 
+def test_status_cli_discovers_project_root_from_subdirectory(tmp_path: Path) -> None:
+    subdir = tmp_path / "src" / "pkg"
+    subdir.mkdir(parents=True)
+    init = run_omni(tmp_path, "init")
+
+    result = run_omni(subdir, "status")
+    body = json.loads(result.stdout)
+
+    assert init.returncode == 0, init.stderr
+    assert result.returncode == 0, result.stderr
+    assert body["omni_dir"] is True
+    assert not (subdir / ".omni").exists()
+
+
 def test_status_cli_reports_hook_elapsed_percentiles_when_available(tmp_path: Path) -> None:
     spool = tmp_path / ".omni" / "spool"
     spool.mkdir(parents=True)
@@ -500,6 +572,32 @@ def test_status_cli_reports_hook_elapsed_percentiles_when_available(tmp_path: Pa
     assert result.returncode == 0, result.stderr
     assert body["hook_elapsed_ms_p50"] == 20
     assert body["hook_elapsed_ms_p95"] == 40
+
+
+def test_status_skips_spool_files_that_disappear_during_scan(
+    tmp_path: Path, monkeypatch
+) -> None:
+    spool = tmp_path / ".omni" / "spool"
+    spool.mkdir(parents=True)
+    hook_file = spool / "hook-race.jsonl"
+    hook_file.write_text(
+        json.dumps({"meta": {"elapsed_ms": 10}, "payload": "{}"}) + "\n",
+        encoding="utf-8",
+    )
+    original_read_text = Path.read_text
+
+    def flaky_read_text(self: Path, *args, **kwargs):
+        if self == hook_file:
+            hook_file.unlink()
+            raise OSError("moved")
+        return original_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", flaky_read_text)
+
+    body = json.loads(status_json(tmp_path))
+
+    assert body["ok"] is True
+    assert "hook_elapsed_ms_p50" not in body
 
 
 def test_status_cli_reports_hook_elapsed_percentiles_after_ingest_processed_spool(
@@ -662,6 +760,29 @@ def test_ingest_and_run_show_cli(tmp_path: Path) -> None:
     assert expanded_result.returncode == 0, expanded_result.stderr
     assert '"tool_use_id": "toolu_cli"' in expanded_result.stdout
     assert '"source": "transcript"' in expanded_result.stdout
+
+
+def test_ingest_cli_accepts_run_id_option(tmp_path: Path) -> None:
+    transcript = tmp_path / "transcript.jsonl"
+    transcript.write_text(
+        '{"type":"tool_use","timestamp":"2026-06-11T00:00:00Z","id":"toolu_opt","name":"Bash"}\n',
+        encoding="utf-8",
+    )
+
+    ingest_result = run_omni(
+        tmp_path,
+        "ingest",
+        "--run-id",
+        "cli_option_run",
+        "--transcript",
+        str(transcript),
+    )
+    show_result = run_omni(tmp_path, "run", "show", "cli_option_run")
+
+    assert ingest_result.returncode == 0, ingest_result.stderr
+    assert "events_inserted=1" in ingest_result.stdout
+    assert show_result.returncode == 0, show_result.stderr
+    assert "tool_use" in show_result.stdout
 
 
 def test_run_show_summary_includes_bash_command_preview_for_g6_review(tmp_path: Path) -> None:
