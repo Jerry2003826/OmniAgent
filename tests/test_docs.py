@@ -107,3 +107,43 @@ def test_week2_sandbox_runbook_covers_required_scenarios() -> None:
         "withheld stub",
     ):
         assert phrase in text
+
+
+def test_week2_spike_report_contains_required_pending_sections() -> None:
+    report = REPO_ROOT / "docs" / "week2-spike-report.md"
+
+    text = report.read_text(encoding="utf-8")
+
+    for heading in (
+        "## 1. Environment",
+        "## 2. Hook capture matrix",
+        "## 3. Transcript parser matrix",
+        "## 4. Bash evidence",
+        "## 5. File operation evidence",
+        "## 6. Permission / denial behavior",
+        "## 7. Subagent behavior",
+        "## 8. Compact behavior",
+        "## 9. Resume behavior",
+        "## 10. Crash / missing SessionEnd behavior",
+        "## 11. S12 planted secret result",
+        "## 12. Hook latency",
+        "## 13. Cold / warm demo",
+        "## 14. Go / No-Go decision",
+    ):
+        assert heading in text
+
+    for phrase in (
+        "PENDING HUMAN EVIDENCE",
+        "KEYS ONLY",
+        "unknown line ratio",
+        "tool_use",
+        "raw FAKE_AWS value absent",
+        "raw OMNI_FAKE_SECRET absent",
+        "raw fake GitHub token absent",
+        "withheld stub envelope present",
+        "in-process capture p50 / p95 / sample count",
+        "process-level latency",
+        "G6 strict pass/fail",
+        "G6 robust pass/fail",
+    ):
+        assert phrase in text
