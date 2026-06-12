@@ -195,6 +195,10 @@ def test_experience_memory_v0_doc_covers_behavior_eval_v0() -> None:
         "package.json",
         "DEPLOY.md",
         "pnpm verification command",
+        "heuristic",
+        "not causal proof",
+        "cold/warm comparison",
+        "project-level facts",
     ):
         assert phrase in text
 

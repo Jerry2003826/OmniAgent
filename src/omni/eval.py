@@ -7,6 +7,8 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from omni.redact import redact
+
 EXPECTED_PREDICATES = (
     "uses_test_command",
     "uses_build_command",
@@ -25,6 +27,16 @@ REDISCOVERY_FILES = (
 
 MEMORY_PATH = ".omni/generated/memory.md"
 MAX_DETAIL_CHARS = 200
+INPUT_KEYS = {"args", "input", "parameters", "tool_input"}
+OUTPUT_KEYS = {
+    "output",
+    "result",
+    "stderr",
+    "stdout",
+    "tool_response",
+    "toolUseResult",
+}
+PACKAGE_MANAGERS = {"bun", "npm", "pnpm", "yarn"}
 
 
 def evaluate_run(root: Path | str, run_id: str) -> dict[str, Any]:
@@ -50,11 +62,11 @@ def evaluate_run(root: Path | str, run_id: str) -> dict[str, Any]:
     finally:
         conn.close()
 
-    expected_norm = {
+    expected_norm = [
         _normalize_command(command)
         for commands in expected_commands.values()
         for command in commands
-    }
+    ]
     observed_commands = _observed_commands(events)
     first_expected = _first_expected_command(observed_commands, expected_norm)
     first_expected_seq = None if first_expected is None else first_expected["seq"]
@@ -89,6 +101,7 @@ def evaluate_dogfood(
     warm = evaluate_run(root, warm_run_id)
     cold_position = cold["first_expected_command_position"]
     warm_position = warm["first_expected_command_position"]
+    command_adopted = cold_position is None and isinstance(warm_position, int)
     position_improved = (
         isinstance(cold_position, int)
         and isinstance(warm_position, int)
@@ -96,7 +109,10 @@ def evaluate_dogfood(
     )
     rediscovery_improved = warm["rediscovery_count"] < cold["rediscovery_count"]
     warm_executed_expected = bool(warm["expected_verification_executed"])
-    improvement = bool(warm_executed_expected and (rediscovery_improved or position_improved))
+    improvement = bool(
+        warm_executed_expected
+        and (command_adopted or rediscovery_improved or position_improved)
+    )
 
     return {
         "cold_run_id": cold_run_id,
@@ -105,12 +121,13 @@ def evaluate_dogfood(
         "warm_rediscovery_count": warm["rediscovery_count"],
         "cold_first_expected_command_position": cold_position,
         "warm_first_expected_command_position": warm_position,
+        "command_adopted": command_adopted,
         "improvement": improvement,
         "memory_effect_summary": {
             "cold": cold["memory_effect"],
             "warm": warm["memory_effect"],
             "summary": (
-                "warm reduced rediscovery or reached expected commands earlier"
+                "warm adopted expected command or reduced rediscovery"
                 if improvement
                 else "no measurable warm-run improvement"
             ),
@@ -119,7 +136,8 @@ def evaluate_dogfood(
 
 
 def as_json(value: dict[str, Any]) -> str:
-    return json.dumps(value, indent=2, sort_keys=True) + "\n"
+    encoded = json.dumps(value, indent=2, sort_keys=True).encode("utf-8")
+    return redact(encoded).data.decode("utf-8", errors="replace") + "\n"
 
 
 def _connect_readonly(db_path: Path) -> sqlite3.Connection:
@@ -189,12 +207,12 @@ def _observed_commands(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _first_expected_command(
-    observed_commands: list[dict[str, Any]], expected_norm: set[str]
+    observed_commands: list[dict[str, Any]], expected_norm: list[str]
 ) -> dict[str, Any] | None:
     if not expected_norm:
         return None
     for command in observed_commands:
-        if _normalize_command(command["command"]) in expected_norm:
+        if _matches_any_expected_command(command["command"], expected_norm):
             return command
     return None
 
@@ -213,8 +231,9 @@ def _rediscovery_before(
 
 def _rediscovery_for_event(event: dict[str, Any]) -> list[dict[str, Any]]:
     found: list[dict[str, Any]] = []
-    strings = list(_nested_strings(event["meta"]))
-    command = _nested_command(event["meta"])
+    input_meta = _input_metadata(event["meta"])
+    strings = list(_nested_strings(input_meta))
+    command = _nested_command(input_meta)
 
     for filename in REDISCOVERY_FILES:
         if _contains_path(strings, filename):
@@ -237,10 +256,11 @@ def _rediscovery_event(event: dict[str, Any], kind: str, detail: str) -> dict[st
 
 
 def _mentions_path(event: dict[str, Any], target: str) -> bool:
-    command = _nested_command(event["meta"])
+    input_meta = _input_metadata(event["meta"])
+    command = _nested_command(input_meta)
     if command is not None and _path_in_text(str(command), target):
         return True
-    return _contains_path(_nested_strings(event["meta"]), target)
+    return _contains_path(_nested_strings(input_meta), target)
 
 
 def _contains_path(values: Any, target: str) -> bool:
@@ -302,6 +322,11 @@ def _classify(
     if not has_expected or not has_events:
         return ("unknown", "insufficient evidence: no active expected facts or no events")
     if result["expected_verification_executed"] and result["rediscovery_count"] == 0:
+        if not (result["claude_md_read"] or result["memory_md_read"]):
+            return (
+                "neutral",
+                "expected command executed before rediscovery, but memory context not observed",
+            )
         return (
             "helped",
             f"expected command executed before rediscovery: {result['first_expected_command']}",
@@ -355,6 +380,38 @@ def _nested_command(value: Any) -> Any:
     return None
 
 
+def _input_metadata(value: Any) -> Any:
+    if isinstance(value, dict):
+        collected = []
+        for key, child in value.items():
+            if key in OUTPUT_KEYS:
+                continue
+            if key in INPUT_KEYS:
+                collected.append(child)
+                continue
+            nested = _input_metadata(child)
+            if _has_content(nested):
+                collected.append(nested)
+        if collected:
+            return collected
+        return {key: child for key, child in value.items() if key not in OUTPUT_KEYS}
+    if isinstance(value, list):
+        return [
+            nested
+            for child in value
+            if _has_content(nested := _input_metadata(child))
+        ]
+    return value
+
+
+def _has_content(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, (dict, list, tuple, set, str, bytes)):
+        return bool(value)
+    return True
+
+
 def _nested_strings(value: Any) -> list[str]:
     strings: list[str] = []
     if isinstance(value, dict):
@@ -370,6 +427,36 @@ def _nested_strings(value: Any) -> list[str]:
 
 def _normalize_command(command: str) -> str:
     return " ".join(command.strip().split())
+
+
+def _matches_any_expected_command(observed: str, expected_commands: list[str]) -> bool:
+    return any(_matches_expected_command(observed, expected) for expected in expected_commands)
+
+
+def _matches_expected_command(observed: str, expected: str) -> bool:
+    observed_norm = _normalize_command(observed)
+    expected_norm = _normalize_command(expected)
+    if _matches_command_prefix(observed_norm, expected_norm):
+        return True
+    observed_canonical = _canonical_pm_run_command(observed_norm)
+    expected_canonical = _canonical_pm_run_command(expected_norm)
+    return _matches_command_prefix(observed_canonical, expected_canonical)
+
+
+def _matches_command_prefix(observed: str, expected: str) -> bool:
+    return observed == expected or observed.startswith(f"{expected} ")
+
+
+def _canonical_pm_run_command(command: str) -> str:
+    tokens = command.split()
+    if len(tokens) < 2 or tokens[0] not in PACKAGE_MANAGERS:
+        return command
+    if len(tokens) >= 3 and tokens[1] == "run":
+        return command
+    script = tokens[1]
+    rest = " ".join(tokens[2:])
+    canonical = f"{tokens[0]} run {script}"
+    return f"{canonical} {rest}" if rest else canonical
 
 
 def _target_detail(value: str, target: str) -> str:

@@ -16,8 +16,9 @@ def test_eval_run_reports_helped_when_expected_command_precedes_rediscovery(
 ) -> None:
     conn = _fixture_db(tmp_path)
     _insert_fact(conn, "uses_test_command", "pnpm run test")
-    _insert_event(conn, "warm_run", 1, tool="Bash", meta={"tool_input": {"command": "pnpm run test"}})
-    _insert_event(conn, "warm_run", 2, tool="Read", meta={"tool_input": {"file_path": "README.md"}})
+    _insert_event(conn, "warm_run", 1, tool="Read", meta={"tool_input": {"file_path": "CLAUDE.md"}})
+    _insert_event(conn, "warm_run", 2, tool="Bash", meta={"tool_input": {"command": "pnpm run test"}})
+    _insert_event(conn, "warm_run", 3, tool="Read", meta={"tool_input": {"file_path": "README.md"}})
     conn.commit()
 
     result = eval_module.evaluate_run(tmp_path, "warm_run")
@@ -25,12 +26,28 @@ def test_eval_run_reports_helped_when_expected_command_precedes_rediscovery(
     assert result["run_id"] == "warm_run"
     assert result["active_expected_commands"]["uses_test_command"] == ["pnpm run test"]
     assert result["observed_commands"] == [
-        {"seq": 1, "tool": "Bash", "command": "pnpm run test"}
+        {"seq": 2, "tool": "Bash", "command": "pnpm run test"}
     ]
-    assert result["first_expected_command_position"] == 1
+    assert result["first_expected_command_position"] == 2
     assert result["expected_verification_executed"] is True
     assert result["rediscovery_events_before_first_expected_command"] == []
     assert result["memory_effect"] == "helped"
+
+
+def test_eval_run_keeps_memory_effect_neutral_without_memory_evidence(
+    tmp_path: Path,
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_fact(conn, "uses_test_command", "pnpm run test")
+    _insert_event(conn, "aligned_run", 1, tool="Bash", meta={"tool_input": {"command": "pnpm run test"}})
+    conn.commit()
+
+    result = eval_module.evaluate_run(tmp_path, "aligned_run")
+
+    assert result["first_expected_command_position"] == 1
+    assert result["rediscovery_events_before_first_expected_command"] == []
+    assert result["memory_effect"] == "neutral"
+    assert "memory context not observed" in result["reason"]
 
 
 def test_eval_run_reports_failed_to_help_for_unihack_style_negative_sample(
@@ -83,7 +100,7 @@ def test_eval_run_does_not_dump_raw_event_payload_in_json_output(tmp_path: Path)
     encoded = eval_module.as_json(eval_module.evaluate_run(tmp_path, "safe_output_run"))
 
     assert "private project narrative" not in encoded
-    assert "README.md" in encoded
+    assert "rediscovery_events_before_first_expected_command" in encoded
 
 
 def test_eval_run_reports_neutral_when_expected_command_follows_rediscovery(
@@ -100,6 +117,81 @@ def test_eval_run_reports_neutral_when_expected_command_follows_rediscovery(
     assert result["first_expected_command_position"] == 2
     assert result["rediscovery_events_before_first_expected_command"][0]["kind"] == "README.md"
     assert result["memory_effect"] == "neutral"
+
+
+@pytest.mark.parametrize(
+    ("observed", "matches"),
+    [
+        ("pnpm run test", True),
+        ("pnpm run test -- --watch=false", True),
+        ("pnpm test", True),
+        ("npm test", False),
+    ],
+)
+def test_eval_run_matches_expected_commands_conservatively(
+    tmp_path: Path, observed: str, matches: bool
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_fact(conn, "uses_test_command", "pnpm run test")
+    _insert_event(conn, "match_run", 1, tool="Read", meta={"tool_input": {"file_path": "CLAUDE.md"}})
+    _insert_event(conn, "match_run", 2, tool="Bash", meta={"tool_input": {"command": observed}})
+    conn.commit()
+
+    result = eval_module.evaluate_run(tmp_path, "match_run")
+
+    assert result["expected_verification_executed"] is matches
+    assert result["first_expected_command_position"] == (2 if matches else None)
+    assert result["memory_effect"] == ("helped" if matches else "unknown")
+
+
+@pytest.mark.parametrize(
+    ("tool", "meta", "expected_kind"),
+    [
+        ("Read", {"tool_input": {"file_path": "package.json"}}, "package.json"),
+        ("Read", {"tool_input": {"file_path": "README.md"}}, "README.md"),
+        ("Read", {"tool_input": {"file_path": "DEPLOY.md"}}, "DEPLOY.md"),
+        ("Glob", {"tool_input": {"pattern": "**/*.{json,md,ts,js}"}}, "broad_scan"),
+        ("Bash", {"tool_input": {"command": "ls"}}, "broad_scan"),
+        ("Bash", {"tool_input": {"command": "find . -maxdepth 2 -type f"}}, "broad_scan"),
+        ("Bash", {"tool_input": {"command": "tree -L 2"}}, "broad_scan"),
+        ("Bash", {"tool_input": {"command": "rg --files"}}, "broad_scan"),
+    ],
+)
+def test_eval_run_counts_rediscovery_from_tool_input(
+    tmp_path: Path, tool: str, meta: dict[str, object], expected_kind: str
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_fact(conn, "uses_test_command", "pnpm run test")
+    _insert_event(conn, "rediscovery_run", 1, tool=tool, meta=meta)
+    conn.commit()
+
+    result = eval_module.evaluate_run(tmp_path, "rediscovery_run")
+
+    assert [event["kind"] for event in result["rediscovery_events_before_first_expected_command"]] == [
+        expected_kind
+    ]
+
+
+def test_eval_run_ignores_rediscovery_mentions_from_tool_output_alone(
+    tmp_path: Path,
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_fact(conn, "uses_test_command", "pnpm run test")
+    _insert_event(conn, "output_run", 1, tool="Read", meta={"tool_input": {"file_path": "CLAUDE.md"}})
+    _insert_event(
+        conn,
+        "output_run",
+        2,
+        tool="Bash",
+        meta={"tool_response": {"stdout": "README.md\npackage.json\nDEPLOY.md"}},
+    )
+    _insert_event(conn, "output_run", 3, tool="Bash", meta={"tool_input": {"command": "pnpm run test"}})
+    conn.commit()
+
+    result = eval_module.evaluate_run(tmp_path, "output_run")
+
+    assert result["rediscovery_events_before_first_expected_command"] == []
+    assert result["memory_effect"] == "helped"
 
 
 def test_eval_run_reports_unknown_without_facts_or_events(tmp_path: Path) -> None:
@@ -158,8 +250,29 @@ def test_eval_dogfood_reports_improvement_when_warm_has_less_rediscovery(
     assert result["memory_effect_summary"] == {
         "cold": "neutral",
         "warm": "neutral",
-        "summary": "warm reduced rediscovery or reached expected commands earlier",
+        "summary": "warm adopted expected command or reduced rediscovery",
     }
+
+
+def test_eval_dogfood_reports_improvement_when_warm_adopts_command_after_cold_missed(
+    tmp_path: Path,
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_fact(conn, "uses_test_command", "pnpm run test")
+    _insert_event(conn, "cold_run", 1, tool="Read", meta={"tool_input": {"file_path": "CLAUDE.md"}})
+    _insert_event(conn, "cold_run", 2, tool="Read", meta={"tool_input": {"file_path": "README.md"}})
+    _insert_event(conn, "warm_run", 1, tool="Read", meta={"tool_input": {"file_path": "CLAUDE.md"}})
+    _insert_event(conn, "warm_run", 2, tool="Bash", meta={"tool_input": {"command": "pnpm run test"}})
+    conn.commit()
+
+    result = eval_module.evaluate_dogfood(tmp_path, cold_run_id="cold_run", warm_run_id="warm_run")
+
+    assert result["cold_first_expected_command_position"] is None
+    assert result["warm_first_expected_command_position"] == 2
+    assert result["improvement"] is True
+    assert result["memory_effect_summary"]["summary"] == (
+        "warm adopted expected command or reduced rediscovery"
+    )
 
 
 def test_eval_dogfood_reports_no_improvement_when_warm_fails_to_run_expected_command(
@@ -187,7 +300,8 @@ def test_eval_dogfood_reports_no_improvement_when_warm_fails_to_run_expected_com
 def test_eval_run_cli_outputs_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
     conn = _fixture_db(tmp_path)
     _insert_fact(conn, "uses_test_command", "pnpm run test")
-    _insert_event(conn, "cli_run", 1, tool="Bash", meta={"tool_input": {"command": "pnpm run test"}})
+    _insert_event(conn, "cli_run", 1, tool="Read", meta={"tool_input": {"file_path": "CLAUDE.md"}})
+    _insert_event(conn, "cli_run", 2, tool="Bash", meta={"tool_input": {"command": "pnpm run test"}})
     conn.commit()
     monkeypatch.chdir(tmp_path)
 
@@ -196,6 +310,25 @@ def test_eval_run_cli_outputs_json(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
     assert output["run_id"] == "cli_run"
     assert output["memory_effect"] == "helped"
+
+
+def test_eval_json_redacts_final_output(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    secret = "sk-" + "a" * 48
+    _insert_fact(conn, "uses_test_command", "pnpm run test")
+    _insert_event(
+        conn,
+        "secret_run",
+        1,
+        tool="Bash",
+        meta={"tool_input": {"command": f"curl -H 'Authorization: Bearer {secret}' /health"}},
+    )
+    conn.commit()
+
+    encoded = eval_module.as_json(eval_module.evaluate_run(tmp_path, "secret_run"))
+
+    assert secret not in encoded
+    assert "REDACTED:" in encoded
 
 
 def _fixture_db(root: Path) -> sqlite3.Connection:
