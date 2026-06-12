@@ -97,10 +97,10 @@ per row type with KEYS ONLY; all values must be replaced/redacted.
 
 | Field | Evidence |
 | --- | --- |
-| Same session_id resumed yes/no | yes: requested and returned `d04acbc6-3ea6-429c-b274-cc6046279b23` |
-| Canonical update, not duplicates | no: original S1 hook events appeared again after resume ingest |
-| Re-ingest events_inserted=0 | yes: S9 first ingest inserted 20 new events, immediate second ingest inserted 0 |
-| Notes | S9 is the main remaining targeted fix: resume transcript/hook reconciliation duplicated earlier canonical hook events for same session/tool_use_id |
+| Same session_id resumed yes/no | yes. Original failing run requested/returned `d04acbc6-3ea6-429c-b274-cc6046279b23`; post-fix rerun requested/returned `52ae0fe5-0a72-4153-8d48-efbab35eef30` |
+| Canonical update, not duplicates | yes after fix. S9-only rerun event count moved from 29 to 44 with 23 transcript uuids and 23 unique transcript uuids; duplicate uuid counts were `{}` |
+| Re-ingest events_inserted=0 | yes. Post-fix baseline second ingest inserted 0; resume first ingest inserted 15 new events; immediate second ingest inserted 0 |
+| Notes | Fixed by using stable top-level transcript `uuid` as transcript event identity when present, while leaving no-uuid rows on the existing fallback. Original pre-fix failure is retained in the scenario ledger for traceability. |
 
 ## 10. Crash / missing SessionEnd behavior
 
@@ -145,11 +145,11 @@ per row type with KEYS ONLY; all values must be replaced/redacted.
 
 | Field | Evidence |
 | --- | --- |
-| Sandbox pass/fail | Partial pass. S1-S8, S10-S12 passed or were not-feasible per runbook fallbacks; S9 resume exposed duplicate canonical hook events. Every scenario's immediate second ingest was 0, audit passed after the redaction fix, render was byte-stable, and final spool hook/ingest/bad/errors were empty. |
+| Sandbox pass/fail | PASS after S9-only rerun. S1-S8 and S10-S12 passed or were not-feasible per runbook fallbacks; S9 originally failed, then passed after the transcript uuid identity fix. Every scenario's immediate second ingest was 0, audit passed, render was byte-stable, and final spool hook/ingest/bad/errors were empty. |
 | Dogfood pass/fail | Demo pass for G6: cold render/inject succeeded and warm robust passed 3/3 |
-| Blockers | S9 duplicate semantic events on resume prevents full sandbox PASS |
-| Targeted fixes required | Fixed during run: redaction placeholder re-scan caused audit false positive after reading `fake_config.py`. Remaining: deduplicate resumed canonical hook events already ingested for the same session/tool_use_id/event_type. |
-| Decision | No-Go for declaring Week-2 sandbox acceptance complete until S9 duplicate fix is implemented and rerun; G6 robust is green |
+| Blockers | none remaining for Week-2 sandbox entry criteria |
+| Targeted fixes required | Completed: redaction placeholder re-scan false positive fixed; transcript `uuid` identity prevents resume duplicate old rows; redaction fixture corpus idempotency test added. |
+| Decision | Go for dogfood entry on a small real project. |
 
 ## 15. Scenario ledger
 
@@ -168,7 +168,8 @@ All rows below also had `omni audit secrets` ok, `omni status` ok, final
 | S7 manual compact | `95aa96a9-6bc9-47f0-991f-178a5fc152cb` | first `events_inserted=33 queue_drained=2`; second `events_inserted=0 queue_drained=0` | PASS with fallback; `/compact` not available in print mode |
 | S8 auto compact | `f3774526-df2f-47cf-891d-c0e093b47c3b` | first `events_inserted=10 queue_drained=2`; second `events_inserted=0 queue_drained=0` | PASS with fallback; bounded automation did not trigger auto compact |
 | S8 invalid timeout attempt | `c06fe359-de20-4f1f-8731-843b72092785` | plain ingest twice no-op; scoped ingest inserted 37 then 0 | Diagnostic only; revealed redaction placeholder re-scan audit false positive, fixed in this branch |
-| S9 resume | `d04acbc6-3ea6-429c-b274-cc6046279b23` | first `events_inserted=20 queue_drained=2`; second `events_inserted=0 queue_drained=0` | FAIL; same session id resumed, but original S1 hook events were duplicated in canonical run show |
+| S9 resume pre-fix | `d04acbc6-3ea6-429c-b274-cc6046279b23` | first `events_inserted=20 queue_drained=2`; second `events_inserted=0 queue_drained=0` | FAIL; same session id resumed, but original S1 transcript-backed rows were duplicated in canonical run show |
+| S9 resume post-fix rerun | `52ae0fe5-0a72-4153-8d48-efbab35eef30` | baseline first `events_inserted=29 queue_drained=2`; baseline second `events_inserted=0`; resume first `events_inserted=15 queue_drained=2`; resume second `events_inserted=0` | PASS; same session id resumed, run show had no old transcript uuid duplicates, duplicate uuid counts `{}`, audit/status/checklist passed |
 | S10 interrupt Bash | `d7b75e44-56b1-4d15-8b2b-aabb35fac2fa` | first `events_inserted=37 queue_drained=1`; second `events_inserted=0 queue_drained=0` | PASS; timeout/TaskStop behavior captured without leftover partial hook files |
 | S11 crash / missing SessionEnd | `0b05e349-b46a-42a2-a520-62a13d4b25fe` | plain ingest twice no-op; scoped ingest inserted 3 then 0 | PASS; no ingest request existed after forced kill, scoped recovery consumed matching session hooks |
 | S12 read `.env` | `f917c86f-3169-4567-a2fa-e3ac82e8a260` | first `events_inserted=15 queue_drained=2`; second `events_inserted=0 queue_drained=0` | PASS; withheld stub envelope present and planted literal scan under `.omni/**` was empty |
