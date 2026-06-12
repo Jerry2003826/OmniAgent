@@ -90,6 +90,13 @@ omni run show <run_id> --seq <seq>
 
 Use the `command` column in `omni run show <run_id>` to identify the first Bash test command and any rediscovery reads before it. Record the first matching test command and any rediscovery events in `docs/spike-report-template.md`.
 
+Troubleshooting spool inspection on Windows: spool payloads are UTF-8 and may
+contain non-ASCII redaction markers such as U+27E8/U+27E9
+(`⟨REDACTED:...⟩`). Windows PowerShell 5.1 `Get-Content` /
+`ConvertFrom-Json` can mangle those bytes with its default encoding. Inspect
+payloads with pwsh 7+, `Get-Content -Encoding utf8`, or
+`python -c "import json,sys; [print(json.loads(line)) for line in open(sys.argv[1], encoding='utf-8')]" .omni/spool/<file>`.
+
 ## S12 Planted Secret Check
 
 The sandbox intentionally contains fake planted secrets in `.env` and

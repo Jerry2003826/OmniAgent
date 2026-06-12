@@ -79,6 +79,13 @@ Standing inspection list:
 - ingest-*.json appeared on Stop/SessionEnd and is gone after ingest
 - `.omni/generated/memory.md` is byte-identical across two renders when facts did not change
 
+Troubleshooting UTF-8 spool inspection:
+
+- spool payloads are UTF-8 and may contain non-ASCII redaction markers such as U+27E8/U+27E9 (`⟨REDACTED:...⟩`)
+- Windows PowerShell 5.1 `Get-Content` / `ConvertFrom-Json` can mangle those bytes if it uses the default non-UTF-8 encoding
+- inspect payloads with pwsh 7+, `Get-Content -Encoding utf8`, or `python -c "import json,sys; [print(json.loads(line)) for line in open(sys.argv[1], encoding='utf-8')]" .omni/spool/<file>`
+- daily-check scripts should not parse full payloads with Windows PowerShell 5.1
+
 Record for every scenario:
 
 - the prompt typed into Claude Code
