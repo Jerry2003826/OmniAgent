@@ -90,6 +90,19 @@ def test_placeholders_are_stable_for_same_secret() -> None:
     assert secret not in rendered
 
 
+def test_redacted_github_token_placeholder_is_clean_on_second_scan() -> None:
+    first = redact_mod.redact(
+        b'{"payload":"GITHUB_TOKEN = \\"ghp_abcdefghijklmnopqrstuvwxyz1234567890\\""}'
+    )
+
+    second = redact_mod.redact(first.data)
+
+    assert first.status == "redacted"
+    assert "github_token" in first.detectors
+    assert second.status == "clean"
+    assert second.detectors == ()
+
+
 def test_redact_minimal_uses_same_redactor() -> None:
     payload = b"api_key=secret-api-key-value-123456"
 

@@ -40,6 +40,12 @@ _TRUNCATED_BOUNDARY_GUARD_BYTES = 4 * 1024
 _SECRET_ENV_KEY_HINTS = ("AUTH", "CREDENTIAL", "KEY", "PASSWORD", "SECRET", "TOKEN")
 _PRIVATE_KEY_BEGIN_RE = re.compile(rb"-----BEGIN [A-Z ]*PRIVATE KEY-----")
 _PRIVATE_KEY_END_RE = re.compile(rb"-----END [A-Z ]*PRIVATE KEY-----")
+_REDACTION_PLACEHOLDER_RE = re.compile(
+    rb"\xe2\x9f\xa8REDACTED:[A-Za-z0-9_:-]+\xe2\x9f\xa9"
+)
+_ESCAPED_REDACTION_PLACEHOLDER_RE = re.compile(
+    rb"\\u27e8REDACTED:[A-Za-z0-9_:-]+\\u27e9"
+)
 _COMMON_LOW_ENTROPY_ENV_VALUES = {
     "admin",
     "administrator",
@@ -191,8 +197,12 @@ def _apply_regex_pack(
     data: bytes, findings: list[Finding], allow_values: set[bytes] | None = None
 ) -> bytes:
     regex_findings: list[Finding] = []
+    placeholder_spans = _redaction_placeholder_spans(data)
     for detector in _REGEX_PACK:
         for match in detector.pattern.finditer(data):
+            secret_start, secret_end = match.span(detector.secret_group)
+            if _span_inside_ranges(secret_start, secret_end, placeholder_spans):
+                continue
             secret = match.group(detector.secret_group)
             if secret and _should_redact_secret(secret, detector.name, allow_values or set()):
                 regex_findings.append(Finding(detector.name, secret))
@@ -274,9 +284,23 @@ def _shannon_entropy(secret: bytes) -> float:
 
 
 def _looks_like_redaction_placeholder(secret: bytes) -> bool:
-    raw = rb"\xe2\x9f\xa8REDACTED:[A-Za-z0-9_:-]+\xe2\x9f\xa9"
-    escaped = rb"\\u27e8REDACTED:[A-Za-z0-9_:-]+\\u27e9"
-    return re.fullmatch(rb"(?:" + raw + rb"|" + escaped + rb")", secret) is not None
+    return (
+        _REDACTION_PLACEHOLDER_RE.fullmatch(secret) is not None
+        or _ESCAPED_REDACTION_PLACEHOLDER_RE.fullmatch(secret) is not None
+    )
+
+
+def _redaction_placeholder_spans(data: bytes) -> list[tuple[int, int]]:
+    spans = [
+        match.span()
+        for pattern in (_REDACTION_PLACEHOLDER_RE, _ESCAPED_REDACTION_PLACEHOLDER_RE)
+        for match in pattern.finditer(data)
+    ]
+    return sorted(spans)
+
+
+def _span_inside_ranges(start: int, end: int, ranges: list[tuple[int, int]]) -> bool:
+    return any(range_start <= start and end <= range_end for range_start, range_end in ranges)
 
 
 def _replace_findings(data: bytes, findings: list[Finding]) -> bytes:
