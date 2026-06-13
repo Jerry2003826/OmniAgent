@@ -183,7 +183,8 @@ evidence into deterministic rendered behavior guidance.
 ## Failure Memory v0 Pointer
 
 Failure Memory v0 starts after the real unihack experience loop reached behavior
-pass after renderer tuning. Phase 1 is candidate extraction only:
-`omni failure extract`, `omni failure ls`, `omni failure show`, and
-`omni failure reject`. It creates reviewable failure candidates from redacted
-events and metadata; approved failure-pattern rendering comes later.
+pass after renderer tuning. It now includes reviewable candidate extraction and
+human approval into active failure patterns:
+`omni failure extract`, `omni failure ls`, `omni failure show`,
+`omni failure approve`, and `omni failure reject`. Active failure patterns do
+not render into `memory.md` yet; Known Failures Renderer v0 comes later.

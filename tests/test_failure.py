@@ -11,7 +11,7 @@ from omni import db
 from omni import failure
 
 
-def test_migration_005_creates_failure_candidates_and_sets_schema_version(
+def test_migration_006_creates_failure_patterns_and_sets_schema_version(
     tmp_path: Path,
 ) -> None:
     conn = _fixture_db(tmp_path)
@@ -30,16 +30,25 @@ def test_migration_005_creates_failure_candidates_and_sets_schema_version(
     }
 
     assert "failure_candidates" in tables
-    assert db.schema_version(conn) == "5"
+    assert "failure_patterns" in tables
+    assert db.schema_version(conn) == "6"
+    failure_candidate_columns = {
+        row["name"] for row in conn.execute("PRAGMA table_info(failure_candidates)")
+    }
+    assert "pattern_id" in failure_candidate_columns
     assert {
         "idx_failure_candidates_state",
         "idx_failure_candidates_run",
         "idx_failure_candidates_signature",
         "uq_failure_candidate_run_signature",
+        "idx_failure_patterns_scope",
+        "idx_failure_patterns_signature",
+        "uq_failure_patterns_active_source",
+        "uq_failure_patterns_active_signature",
     }.issubset(indexes)
 
 
-def test_migration_001_to_005_path_works(tmp_path: Path) -> None:
+def test_migration_001_to_006_path_works(tmp_path: Path) -> None:
     (tmp_path / ".omni").mkdir()
     conn = db.connect(tmp_path / ".omni" / "omni.sqlite3")
     conn.executescript(db.migration_sql("001_init.sql"))
@@ -47,9 +56,12 @@ def test_migration_001_to_005_path_works(tmp_path: Path) -> None:
 
     db.migrate(conn)
 
-    assert db.schema_version(conn) == "5"
+    assert db.schema_version(conn) == "6"
     assert conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'failure_candidates'"
+    ).fetchone()
+    assert conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'failure_patterns'"
     ).fetchone()
 
 
@@ -326,6 +338,194 @@ def test_list_show_and_reject_candidates(tmp_path: Path) -> None:
     assert failure.list_candidates(conn, state="all") == [rejected]
 
 
+def test_approve_pending_candidate_creates_active_failure_pattern(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    candidate = _create_failure_candidate(conn, run_id="run_approve")
+
+    approved = failure.approve_candidate(
+        conn,
+        candidate["failure_cand_id"],
+        summary="Build failed because dependency resolution failed.",
+        suggested_action="Inspect the package manager and lockfile before changing installs.",
+    )
+
+    pattern = conn.execute(
+        "SELECT * FROM failure_patterns WHERE pattern_id = ?",
+        (approved["pattern_id"],),
+    ).fetchone()
+    evidence = json.loads(pattern["evidence"])
+
+    assert approved["state"] == "approved"
+    assert approved["pattern_id"]
+    assert approved["reviewed_at"]
+    assert pattern["source_failure_cand_id"] == candidate["failure_cand_id"]
+    assert pattern["scope"] == "project"
+    assert pattern["command_norm"] == "pnpm run build"
+    assert pattern["failure_kind"] == "command_failed"
+    assert pattern["error_signature"] == "Build failed"
+    assert pattern["error_signature_hash"] == candidate["error_signature_hash"]
+    assert pattern["summary"] == "Build failed because dependency resolution failed."
+    assert pattern["suggested_action"] == (
+        "Inspect the package manager and lockfile before changing installs."
+    )
+    assert pattern["trust"] == 2
+    assert pattern["status"] == "active"
+    assert pattern["created_seq"] == 1
+    assert evidence["source_failure_cand_id"] == candidate["failure_cand_id"]
+    assert evidence["run_id"] == "run_approve"
+    assert evidence["event_id"] == candidate["event_id"]
+    assert evidence["tool_use_id"] == candidate["tool_use_id"]
+    assert evidence["command_norm"] == "pnpm run build"
+    assert evidence["exit_code"] == 1
+    assert evidence["failure_kind"] == "command_failed"
+    assert evidence["error_signature_hash"] == candidate["error_signature_hash"]
+    assert evidence["candidate_evidence"] == candidate["evidence"]
+    assert "stderr" not in json.dumps(evidence).lower()
+
+
+def test_approve_same_candidate_twice_is_idempotent(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    candidate = _create_failure_candidate(conn, run_id="run_idempotent")
+
+    first = failure.approve_candidate(
+        conn,
+        candidate["failure_cand_id"],
+        summary="First summary.",
+        suggested_action="First action.",
+    )
+    second = failure.approve_candidate(
+        conn,
+        candidate["failure_cand_id"],
+        summary="Different summary ignored for idempotent approve.",
+        suggested_action="Different action ignored for idempotent approve.",
+    )
+
+    assert second == first
+    assert conn.execute("SELECT COUNT(*) FROM failure_patterns").fetchone()[0] == 1
+
+
+def test_approve_second_candidate_reuses_active_signature_pattern(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    first_candidate = _create_failure_candidate(conn, run_id="run_first_same")
+    second_candidate = _create_failure_candidate(conn, run_id="run_second_same")
+
+    first = failure.approve_candidate(
+        conn,
+        first_candidate["failure_cand_id"],
+        summary="Shared failure.",
+        suggested_action="Use the existing remediation.",
+    )
+    second = failure.approve_candidate(
+        conn,
+        second_candidate["failure_cand_id"],
+        summary="Would duplicate.",
+        suggested_action="Would duplicate.",
+    )
+
+    assert second["pattern_id"] == first["pattern_id"]
+    assert conn.execute("SELECT COUNT(*) FROM failure_patterns").fetchone()[0] == 1
+    assert conn.execute(
+        "SELECT source_failure_cand_id FROM failure_patterns WHERE pattern_id = ?",
+        (first["pattern_id"],),
+    ).fetchone()["source_failure_cand_id"] == first_candidate["failure_cand_id"]
+
+
+def test_failure_candidate_state_machine_for_approve_and_reject(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    approved_candidate = _create_failure_candidate(conn, run_id="run_state_approved")
+    rejected_candidate = _create_failure_candidate(
+        conn,
+        run_id="run_state_rejected",
+        stderr="Different failure",
+    )
+    pending_reject_candidate = _create_failure_candidate(
+        conn,
+        run_id="run_state_pending_reject",
+        stderr="Third failure",
+    )
+
+    approved = failure.approve_candidate(
+        conn,
+        approved_candidate["failure_cand_id"],
+        summary="Known build failure.",
+        suggested_action="Use the known remediation.",
+    )
+    rejected = failure.reject_candidate(conn, rejected_candidate["failure_cand_id"])
+    rejected_again = failure.reject_candidate(conn, rejected_candidate["failure_cand_id"])
+    pending_rejected = failure.reject_candidate(conn, pending_reject_candidate["failure_cand_id"])
+
+    with pytest.raises(
+        ValueError,
+        match=f"approved failure candidate cannot be rejected in v0: {approved_candidate['failure_cand_id']}",
+    ):
+        failure.reject_candidate(conn, approved_candidate["failure_cand_id"])
+    with pytest.raises(
+        ValueError,
+        match=f"rejected failure candidate cannot be approved in v0: {rejected_candidate['failure_cand_id']}",
+    ):
+        failure.approve_candidate(
+            conn,
+            rejected_candidate["failure_cand_id"],
+            summary="No",
+            suggested_action="No",
+        )
+
+    assert approved["state"] == "approved"
+    assert rejected["state"] == "rejected"
+    assert rejected_again == rejected
+    assert pending_rejected["state"] == "rejected"
+    assert pending_rejected["pattern_id"] is None
+    assert failure.list_candidates(conn, state="approved") == [approved]
+
+
+def test_approve_requires_summary_and_suggested_action(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    candidate = _create_failure_candidate(conn, run_id="run_required")
+
+    with pytest.raises(ValueError, match="summary is required"):
+        failure.approve_candidate(
+            conn,
+            candidate["failure_cand_id"],
+            summary=" ",
+            suggested_action="Do something.",
+        )
+    with pytest.raises(ValueError, match="suggested_action is required"):
+        failure.approve_candidate(
+            conn,
+            candidate["failure_cand_id"],
+            summary="Known failure.",
+            suggested_action=" ",
+        )
+
+
+def test_secret_in_approval_text_is_redacted_in_db_and_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    secret = "-".join(("failure", "pattern", "secret", "123"))
+    monkeypatch.setenv("OMNI_FAILURE_PATTERN_SECRET", secret)
+    conn = _fixture_db(tmp_path)
+    candidate = _create_failure_candidate(conn, run_id="run_pattern_secret")
+
+    approved = failure.approve_candidate(
+        conn,
+        candidate["failure_cand_id"],
+        summary=f"Summary mentions {secret}",
+        suggested_action=f"Action mentions {secret}",
+    )
+    pattern = conn.execute(
+        "SELECT summary, suggested_action, evidence FROM failure_patterns WHERE pattern_id = ?",
+        (approved["pattern_id"],),
+    ).fetchone()
+    encoded = failure.as_json(approved)
+
+    assert secret not in pattern["summary"]
+    assert secret not in pattern["suggested_action"]
+    assert secret not in pattern["evidence"]
+    assert secret not in encoded
+    assert "REDACTED:" in pattern["summary"]
+    assert "REDACTED:" in pattern["suggested_action"]
+
+
 def test_show_unknown_candidate_raises_clear_error(tmp_path: Path) -> None:
     conn = _fixture_db(tmp_path)
 
@@ -380,6 +580,129 @@ def test_cli_extract_ls_show_reject_work(
     assert rejected_ls["candidates"][0]["failure_cand_id"] == failure_cand_id
 
 
+def test_cli_failure_approve_works(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    conn = _fixture_db(tmp_path)
+    candidate = _create_failure_candidate(conn, run_id="run_cli_approve")
+    conn.close()
+    monkeypatch.chdir(tmp_path)
+
+    approve_code = cli.main(
+        [
+            "failure",
+            "approve",
+            candidate["failure_cand_id"],
+            "--summary",
+            "Tests failed because dependency resolution failed.",
+            "--suggested-action",
+            "Inspect the lockfile before changing package managers.",
+        ]
+    )
+    approved = json.loads(capsys.readouterr().out)
+    ls_code = cli.main(["failure", "ls", "--state", "approved"])
+    listed = json.loads(capsys.readouterr().out)
+
+    assert approve_code == 0
+    assert approved["state"] == "approved"
+    assert approved["pattern_id"]
+    assert ls_code == 0
+    assert listed["candidates"][0]["failure_cand_id"] == candidate["failure_cand_id"]
+    assert listed["candidates"][0]["pattern_id"] == approved["pattern_id"]
+
+
+def test_cli_failure_approve_requires_summary_and_suggested_action(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    conn = _fixture_db(tmp_path)
+    candidate = _create_failure_candidate(conn, run_id="run_cli_required")
+    conn.close()
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(SystemExit) as missing_summary:
+        cli.main(
+            [
+                "failure",
+                "approve",
+                candidate["failure_cand_id"],
+                "--suggested-action",
+                "Do something.",
+            ]
+        )
+    summary_captured = capsys.readouterr()
+    with pytest.raises(SystemExit) as missing_action:
+        cli.main(
+            [
+                "failure",
+                "approve",
+                candidate["failure_cand_id"],
+                "--summary",
+                "Known failure.",
+            ]
+        )
+    action_captured = capsys.readouterr()
+
+    assert missing_summary.value.code == 2
+    assert "the following arguments are required: --summary" in summary_captured.err
+    assert missing_action.value.code == 2
+    assert "the following arguments are required: --suggested-action" in action_captured.err
+
+
+def test_cli_failure_approve_error_paths_exit_2(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    conn = _fixture_db(tmp_path)
+    rejected_candidate = _create_failure_candidate(conn, run_id="run_cli_rejected")
+    approved_candidate = _create_failure_candidate(
+        conn,
+        run_id="run_cli_approved",
+        stderr="approved failure",
+    )
+    failure.reject_candidate(conn, rejected_candidate["failure_cand_id"])
+    failure.approve_candidate(
+        conn,
+        approved_candidate["failure_cand_id"],
+        summary="Known failure.",
+        suggested_action="Known action.",
+    )
+    conn.close()
+    monkeypatch.chdir(tmp_path)
+
+    unknown_code = cli.main(
+        [
+            "failure",
+            "approve",
+            "missing_candidate",
+            "--summary",
+            "Missing.",
+            "--suggested-action",
+            "Missing.",
+        ]
+    )
+    unknown = capsys.readouterr()
+    rejected_code = cli.main(
+        [
+            "failure",
+            "approve",
+            rejected_candidate["failure_cand_id"],
+            "--summary",
+            "Rejected.",
+            "--suggested-action",
+            "Rejected.",
+        ]
+    )
+    rejected = capsys.readouterr()
+    approved_reject_code = cli.main(["failure", "reject", approved_candidate["failure_cand_id"]])
+    approved_reject = capsys.readouterr()
+
+    assert unknown_code == 2
+    assert "unknown failure candidate: missing_candidate" in unknown.err
+    assert rejected_code == 2
+    assert "rejected failure candidate cannot be approved in v0" in rejected.err
+    assert approved_reject_code == 2
+    assert "approved failure candidate cannot be rejected in v0" in approved_reject.err
+
+
 def test_cli_unknown_run_and_candidate_exit_2(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -398,6 +721,31 @@ def test_cli_unknown_run_and_candidate_exit_2(
     assert show_code == 2
     assert "unknown failure candidate: missing_candidate" in show_captured.err
     assert show_captured.out == ""
+
+
+def _create_failure_candidate(
+    conn: sqlite3.Connection,
+    *,
+    run_id: str,
+    stderr: str = "Build failed",
+    command: str = "pnpm run build",
+    exit_code: int = 1,
+) -> dict[str, object]:
+    _insert_run(conn, run_id)
+    _insert_event(
+        conn,
+        run_id,
+        1,
+        tool="Bash",
+        tool_use_id=f"toolu_{run_id}",
+        exit_code=exit_code,
+        meta={
+            "tool_input": {"command": command},
+            "tool_response": {"stderr": stderr},
+        },
+    )
+    [candidate] = failure.extract_candidates(conn, run_id)
+    return candidate
 
 
 def _fixture_db(root: Path) -> sqlite3.Connection:

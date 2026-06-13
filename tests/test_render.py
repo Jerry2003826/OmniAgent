@@ -127,6 +127,49 @@ def test_render_generates_byte_stable_memory_without_internal_metadata(tmp_path:
     assert "created_at" not in first_text.lower()
 
 
+def test_active_failure_patterns_do_not_render_yet(tmp_path: Path) -> None:
+    conn = connect(tmp_path)
+    conn.execute(
+        """
+        INSERT INTO failure_patterns(
+          pattern_id, source_failure_cand_id, scope, command_norm, failure_kind,
+          error_signature, error_signature_hash, summary, suggested_action, trust,
+          status, evidence, created_seq, retired_seq, superseded_by, created_at,
+          updated_at
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            "failure_pattern_hidden",
+            "failure_cand_hidden",
+            "project",
+            "pnpm run build",
+            "command_failed",
+            "Dependency resolution failed",
+            "hash_hidden",
+            "Tests failed because dependency resolution failed.",
+            "Inspect the lockfile before changing package managers.",
+            2,
+            "active",
+            json.dumps({"source_failure_cand_id": "failure_cand_hidden"}, sort_keys=True),
+            1,
+            None,
+            None,
+            "2026-06-13T00:00:00+00:00",
+            "2026-06-13T00:00:00+00:00",
+        ),
+    )
+    conn.commit()
+
+    result = render.render_project(conn, tmp_path)
+    text = result.path.read_text(encoding="utf-8")
+
+    assert "Known Failures" not in text
+    assert "Dependency resolution failed" not in text
+    assert "Inspect the lockfile" not in text
+    assert "failure_pattern_hidden" not in text
+    assert "failure_cand_hidden" not in text
+
+
 def test_render_dirty_changes_only_when_visible_line_hash_changes(tmp_path: Path) -> None:
     conn = connect(tmp_path)
     add_fact(conn, predicate="uses_test_command", qualifier="node", object_norm="pnpm run test")

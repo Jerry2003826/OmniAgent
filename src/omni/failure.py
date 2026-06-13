@@ -16,7 +16,7 @@ from omni import eval as behavior_eval
 from omni.ids import new_id
 from omni.redact import redact
 
-STATE_VALUES = {"pending", "rejected"}
+STATE_VALUES = {"pending", "approved", "rejected"}
 LIST_STATE_VALUES = STATE_VALUES | {"all"}
 MAX_ERROR_CHARS = 300
 MAX_EXCERPT_CHARS = 300
@@ -101,6 +101,64 @@ def show_candidate(conn: sqlite3.Connection, failure_cand_id: str) -> dict[str, 
     return _candidate_from_row(row)
 
 
+def approve_candidate(
+    conn: sqlite3.Connection,
+    failure_cand_id: str,
+    *,
+    summary: str,
+    suggested_action: str,
+) -> dict[str, Any]:
+    summary = _required_redacted_text("summary", summary)
+    suggested_action = _required_redacted_text("suggested_action", suggested_action)
+    try:
+        conn.execute("BEGIN")
+        candidate = _candidate_row(conn, failure_cand_id)
+        state = candidate["state"]
+        _validate_choice("state", state, STATE_VALUES)
+        if state == "rejected":
+            raise ValueError(
+                f"rejected failure candidate cannot be approved in v0: {failure_cand_id}"
+            )
+        if state == "approved":
+            pattern_id = candidate["pattern_id"]
+            if pattern_id and _active_pattern_exists(conn, pattern_id):
+                conn.commit()
+                return show_candidate(conn, failure_cand_id)
+            raise ValueError(
+                f"approved failure candidate has no active pattern in v0: {failure_cand_id}"
+            )
+
+        pattern_id = _active_pattern_id_for_signature(
+            conn,
+            scope="project",
+            error_signature_hash=candidate["error_signature_hash"],
+        )
+        if pattern_id is None:
+            pattern_id = _create_failure_pattern(
+                conn,
+                candidate,
+                summary=summary,
+                suggested_action=suggested_action,
+            )
+        updated = conn.execute(
+            """
+            UPDATE failure_candidates
+            SET state = 'approved', reviewed_at = ?, review_note = NULL,
+                pattern_id = ?
+            WHERE failure_cand_id = ? AND state = 'pending'
+            """,
+            (_now(), pattern_id, failure_cand_id),
+        )
+        if updated.rowcount != 1:
+            raise ValueError(f"failure candidate could not be approved: {failure_cand_id}")
+        conn.commit()
+        return show_candidate(conn, failure_cand_id)
+    except Exception:
+        if conn.in_transaction:
+            conn.rollback()
+        raise
+
+
 def reject_candidate(conn: sqlite3.Connection, failure_cand_id: str) -> dict[str, Any]:
     row = conn.execute(
         "SELECT state FROM failure_candidates WHERE failure_cand_id = ?",
@@ -110,6 +168,10 @@ def reject_candidate(conn: sqlite3.Connection, failure_cand_id: str) -> dict[str
         raise ValueError(f"unknown failure candidate: {failure_cand_id}")
     if row["state"] == "rejected":
         return show_candidate(conn, failure_cand_id)
+    if row["state"] == "approved":
+        raise ValueError(
+            f"approved failure candidate cannot be rejected in v0: {failure_cand_id}"
+        )
     _validate_choice("state", row["state"], STATE_VALUES)
     conn.execute(
         """
@@ -290,6 +352,99 @@ def _insert_candidate(
     if inserted.rowcount == 0:
         return None
     return show_candidate(conn, failure_cand_id)
+
+
+def _candidate_row(conn: sqlite3.Connection, failure_cand_id: str) -> sqlite3.Row:
+    row = conn.execute(
+        "SELECT * FROM failure_candidates WHERE failure_cand_id = ?",
+        (failure_cand_id,),
+    ).fetchone()
+    if row is None:
+        raise ValueError(f"unknown failure candidate: {failure_cand_id}")
+    return row
+
+
+def _active_pattern_exists(conn: sqlite3.Connection, pattern_id: str) -> bool:
+    row = conn.execute(
+        """
+        SELECT 1
+        FROM failure_patterns
+        WHERE pattern_id = ? AND status = 'active'
+        """,
+        (pattern_id,),
+    ).fetchone()
+    return row is not None
+
+
+def _active_pattern_id_for_signature(
+    conn: sqlite3.Connection, *, scope: str, error_signature_hash: str
+) -> str | None:
+    row = conn.execute(
+        """
+        SELECT pattern_id
+        FROM failure_patterns
+        WHERE scope = ? AND error_signature_hash = ? AND status = 'active'
+        ORDER BY created_seq, pattern_id
+        LIMIT 1
+        """,
+        (scope, error_signature_hash),
+    ).fetchone()
+    return None if row is None else row["pattern_id"]
+
+
+def _create_failure_pattern(
+    conn: sqlite3.Connection,
+    candidate: sqlite3.Row,
+    *,
+    summary: str,
+    suggested_action: str,
+) -> str:
+    pattern_id = new_id("failure_pattern")
+    now = _now()
+    conn.execute(
+        """
+        INSERT INTO failure_patterns(
+          pattern_id, source_failure_cand_id, scope, command_norm, failure_kind,
+          error_signature, error_signature_hash, summary, suggested_action, trust,
+          status, evidence, created_seq, retired_seq, superseded_by, created_at,
+          updated_at
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            pattern_id,
+            candidate["failure_cand_id"],
+            "project",
+            candidate["command_norm"],
+            candidate["failure_kind"],
+            candidate["error_signature"],
+            candidate["error_signature_hash"],
+            summary,
+            suggested_action,
+            2,
+            "active",
+            _redact_json(_pattern_evidence(candidate)),
+            _next_commit_seq(conn),
+            None,
+            None,
+            now,
+            now,
+        ),
+    )
+    return pattern_id
+
+
+def _pattern_evidence(candidate: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "source_failure_cand_id": candidate["failure_cand_id"],
+        "run_id": candidate["run_id"],
+        "event_id": candidate["event_id"],
+        "tool_use_id": candidate["tool_use_id"],
+        "command_norm": candidate["command_norm"],
+        "exit_code": candidate["exit_code"],
+        "failure_kind": candidate["failure_kind"],
+        "error_signature_hash": candidate["error_signature_hash"],
+        "candidate_evidence": _decode_json_object(candidate["evidence"]),
+    }
 
 
 def _candidate_spec(event: sqlite3.Row) -> dict[str, Any] | None:
@@ -621,6 +776,12 @@ def _redact_text(value: str | None) -> str | None:
     return redact(value.encode("utf-8")).data.decode("utf-8", errors="replace")
 
 
+def _required_redacted_text(name: str, value: str | None) -> str:
+    if value is None or not value.strip():
+        raise ValueError(f"{name} is required")
+    return _redact_text(value.strip()) or ""
+
+
 def _redact_json(value: dict[str, Any]) -> str:
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return redact(encoded).data.decode("utf-8", errors="replace")
@@ -643,6 +804,18 @@ def _validate_choice(name: str, value: str, allowed: set[str]) -> None:
     if value not in allowed:
         allowed_text = ", ".join(sorted(allowed))
         raise ValueError(f"invalid {name}: {value}; expected one of: {allowed_text}")
+
+
+def _next_commit_seq(conn: sqlite3.Connection) -> int:
+    # Increment in place so the read and write happen under one write lock.
+    updated = conn.execute(
+        "UPDATE meta SET value = CAST(value AS INTEGER) + 1 WHERE key = 'commit_seq'"
+    )
+    if updated.rowcount == 0:
+        conn.execute("INSERT INTO meta(key, value) VALUES('commit_seq', '1')")
+        return 1
+    row = conn.execute("SELECT value FROM meta WHERE key = 'commit_seq'").fetchone()
+    return int(row["value"])
 
 
 def _now() -> str:

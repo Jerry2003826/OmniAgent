@@ -155,18 +155,22 @@ def build_parser() -> argparse.ArgumentParser:
     failure_subcommands = failure_parser.add_subparsers(
         dest="failure_command",
         required=True,
-        metavar="{extract,ls,show,reject}",
+        metavar="{extract,ls,show,approve,reject}",
     )
     failure_extract_parser = failure_subcommands.add_parser("extract")
     failure_extract_parser.add_argument("run_id")
     failure_ls_parser = failure_subcommands.add_parser("ls")
     failure_ls_parser.add_argument(
         "--state",
-        choices=("pending", "rejected", "all"),
+        choices=("pending", "approved", "rejected", "all"),
         default="pending",
     )
     failure_show_parser = failure_subcommands.add_parser("show")
     failure_show_parser.add_argument("failure_cand_id")
+    failure_approve_parser = failure_subcommands.add_parser("approve")
+    failure_approve_parser.add_argument("failure_cand_id")
+    failure_approve_parser.add_argument("--summary", required=True)
+    failure_approve_parser.add_argument("--suggested-action", required=True)
     failure_reject_parser = failure_subcommands.add_parser("reject")
     failure_reject_parser.add_argument("failure_cand_id")
 
@@ -431,6 +435,13 @@ def main(argv: list[str] | None = None) -> int:
                     result = {"candidates": failure.list_candidates(conn, args.state)}
                 elif args.failure_command == "show":
                     result = failure.show_candidate(conn, args.failure_cand_id)
+                elif args.failure_command == "approve":
+                    result = failure.approve_candidate(
+                        conn,
+                        args.failure_cand_id,
+                        summary=args.summary,
+                        suggested_action=args.suggested_action,
+                    )
                 elif args.failure_command == "reject":
                     result = failure.reject_candidate(conn, args.failure_cand_id)
                 else:

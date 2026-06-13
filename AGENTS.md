@@ -18,7 +18,7 @@ NO multi-engine router.
 NO Computer Use.  
 NO automatic evolution.  
 NO answer cache.  
-No new tables beyond approved migrations for the current phase. Approved now: 001_init.sql, 002_outcomes.sql, 003_experience_candidates.sql, 004_experience_notes.sql, and 005_failure_candidates.sql.
+No new tables beyond approved migrations for the current phase. Approved now: 001_init.sql, 002_outcomes.sql, 003_experience_candidates.sql, 004_experience_notes.sql, 005_failure_candidates.sql, and 006_failure_patterns.sql.
 
 Day-5B items are week-2 unless Day-5A acceptance passes early:
 - observed_command extractor
@@ -66,6 +66,7 @@ Violations require reverting the commit.
    - `omni experience approve`
    - `omni experience reject`
    - `omni failure extract`
+   - `omni failure approve`
    - `omni failure reject`
 
    These commands are read-only:
