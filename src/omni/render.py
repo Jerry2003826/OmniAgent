@@ -318,7 +318,7 @@ def _rediscovery_waste_fast_path_line(command: str | None) -> str:
     if command:
         return (
             f"- For validation tasks, the first shell command must be {_inline_code(command)}. "
-            f"Do not run `pnpm run build` or `pnpm run lint` before {_inline_code(command)}. "
+            f"{_build_lint_before_command_clause(command)}"
             "Do not run broad file scans such as `Glob **`, `ls`, `find`, `tree`, or "
             "`rg --files` before this command. Do not inspect package scripts, README, "
             "deployment docs, or environment files first unless the command fails or the "
@@ -333,6 +333,12 @@ def _rediscovery_waste_fast_path_line(command: str | None) -> str:
         "the user explicitly asks for configuration-first exploration. After tests pass, "
         "run build and lint if broader validation is needed."
     )
+
+
+def _build_lint_before_command_clause(command: str) -> str:
+    if _collapse_whitespace(command).startswith("pnpm "):
+        return f"Do not run `pnpm run build` or `pnpm run lint` before {_inline_code(command)}. "
+    return "Do not run build or lint before this command. "
 
 
 def _inline_code(value: str) -> str:

@@ -785,6 +785,33 @@ def test_rediscovery_waste_fast_path_requires_test_before_build_or_lint(
     assert "After tests pass, run build and lint if broader validation is needed." in text
 
 
+def test_rediscovery_waste_fast_path_uses_generic_build_lint_for_non_pnpm_command(
+    tmp_path: Path,
+) -> None:
+    conn = connect(tmp_path)
+    add_fact(conn, predicate="uses_test_command", qualifier="python", object_norm="pytest -q")
+    add_experience_candidate(
+        conn,
+        exp_cand_id="exp_cand_python_test_first",
+        run_id="run_python_test_first",
+        kind="rediscovery_waste",
+        claim="Memory context was available, but rediscovery happened.",
+        suggested_action=(
+            "For validation tasks, execute the known verification command before broad "
+            "README/package/deployment rediscovery."
+        ),
+    )
+    experience.approve_candidate(conn, "exp_cand_python_test_first")
+
+    result = render.render_project(conn, tmp_path)
+    text = result.path.read_text(encoding="utf-8")
+
+    assert "For validation tasks, the first shell command must be `pytest -q`." in text
+    assert "Do not run build or lint before this command." in text
+    assert "`pnpm run build`" not in text
+    assert "`pnpm run lint`" not in text
+
+
 def test_same_kind_notes_from_multiple_runs_render_one_guidance_line(
     tmp_path: Path,
 ) -> None:
