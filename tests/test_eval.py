@@ -385,6 +385,41 @@ def test_eval_dogfood_reports_improvement_when_warm_adopts_command_after_cold_mi
     )
 
 
+def test_eval_dogfood_does_not_improve_when_cold_run_is_missing(
+    tmp_path: Path,
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_fact(conn, "uses_test_command", "pnpm run test")
+    _insert_event(conn, "warm_run", 1, tool="Read", meta={"tool_input": {"file_path": "CLAUDE.md"}})
+    _insert_event(conn, "warm_run", 2, tool="Bash", meta={"tool_input": {"command": "pnpm run test"}})
+    conn.commit()
+
+    result = eval_module.evaluate_dogfood(tmp_path, cold_run_id="missing_run", warm_run_id="warm_run")
+
+    assert result["cold_comparable"] is False
+    assert result["command_adopted"] is False
+    assert result["improvement"] is False
+    assert result["memory_effect_summary"]["summary"] == "cold run not comparable"
+
+
+def test_eval_dogfood_does_not_improve_when_cold_run_has_no_events(
+    tmp_path: Path,
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_fact(conn, "uses_test_command", "pnpm run test")
+    _insert_run(conn, "cold_run")
+    _insert_event(conn, "warm_run", 1, tool="Read", meta={"tool_input": {"file_path": "CLAUDE.md"}})
+    _insert_event(conn, "warm_run", 2, tool="Bash", meta={"tool_input": {"command": "pnpm run test"}})
+    conn.commit()
+
+    result = eval_module.evaluate_dogfood(tmp_path, cold_run_id="cold_run", warm_run_id="warm_run")
+
+    assert result["cold_comparable"] is False
+    assert result["command_adopted"] is False
+    assert result["improvement"] is False
+    assert result["memory_effect_summary"]["summary"] == "cold run not comparable"
+
+
 def test_eval_dogfood_reports_no_improvement_when_warm_fails_to_run_expected_command(
     tmp_path: Path,
 ) -> None:

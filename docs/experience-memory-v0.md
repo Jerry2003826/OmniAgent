@@ -69,7 +69,9 @@ and broad glob or directory scan behavior.
 `omni eval dogfood --cold <run_id> --warm <run_id>` compares cold and warm runs
 by rediscovery count, first expected command position, command adoption, and an
 improvement flag. Improvement requires the warm run to execute an expected
-command.
+command and a comparable cold run with recorded events. A missing cold run, or
+a cold run with no events, reports `cold_comparable=false` and does not count as
+improvement.
 
 The unihack negative sample should be represented as `failed_to_help`: Claude
 read `CLAUDE.md`, then rediscovered `README.md`, `package.json`, `DEPLOY.md`,
