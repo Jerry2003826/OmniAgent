@@ -62,6 +62,7 @@ Violations require reverting the commit.
    - `omni review`
    - `omni render`
    - `omni outcome mark`
+   - `omni outcome mark-from-verify`
    - `omni experience extract`
    - `omni experience approve`
    - `omni experience reject`

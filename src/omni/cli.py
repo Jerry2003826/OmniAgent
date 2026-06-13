@@ -87,7 +87,7 @@ def build_parser() -> argparse.ArgumentParser:
     outcome_subcommands = outcome_parser.add_subparsers(
         dest="outcome_command",
         required=True,
-        metavar="{mark,show}",
+        metavar="{mark,mark-from-verify,show}",
     )
     outcome_mark_parser = outcome_subcommands.add_parser("mark")
     outcome_mark_parser.add_argument("run_id")
@@ -132,6 +132,39 @@ def build_parser() -> argparse.ArgumentParser:
     outcome_mark_parser.add_argument("--summary", dest="task_summary")
     outcome_mark_parser.add_argument("--final-command")
     outcome_mark_parser.add_argument("--note")
+    outcome_mark_from_verify_parser = outcome_subcommands.add_parser("mark-from-verify")
+    outcome_mark_from_verify_parser.add_argument("run_id")
+    verify_status_group = outcome_mark_from_verify_parser.add_mutually_exclusive_group()
+    verify_status_group.add_argument(
+        "--success",
+        dest="outcome_status",
+        action="store_const",
+        const="success",
+    )
+    verify_status_group.add_argument(
+        "--failed",
+        dest="outcome_status",
+        action="store_const",
+        const="failed",
+    )
+    verify_status_group.add_argument(
+        "--unknown",
+        dest="outcome_status",
+        action="store_const",
+        const="unknown",
+    )
+    outcome_mark_from_verify_parser.add_argument(
+        "--memory-effect",
+        choices=("helped", "neutral", "failed_to_help", "unknown"),
+    )
+    outcome_mark_from_verify_parser.add_argument(
+        "--task-type",
+        choices=("validation", "bugfix", "docs", "refactor", "exploration", "unknown"),
+        default="unknown",
+    )
+    outcome_mark_from_verify_parser.add_argument("--summary", dest="task_summary")
+    outcome_mark_from_verify_parser.add_argument("--note")
+    outcome_mark_from_verify_parser.add_argument("--timeout-seconds", type=int, default=120)
     outcome_show_parser = outcome_subcommands.add_parser("show")
     outcome_show_parser.add_argument("run_id")
     experience_parser = subcommands.add_parser("experience")
@@ -391,11 +424,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "outcome":
         from omni import outcome
 
+        root = project_root()
         try:
             if args.outcome_command == "show":
-                conn = outcome.connect_project_readonly(project_root())
+                conn = outcome.connect_project_readonly(root)
             else:
-                conn = outcome.connect_project(project_root())
+                conn = outcome.connect_project(root)
         except (FileNotFoundError, ValueError) as exc:
             print(str(exc), file=sys.stderr)
             return 2
@@ -412,6 +446,18 @@ def main(argv: list[str] | None = None) -> int:
                         task_summary=args.task_summary,
                         final_command=args.final_command,
                         note=args.note,
+                    )
+                elif args.outcome_command == "mark-from-verify":
+                    result = outcome.mark_outcome_from_verify(
+                        conn,
+                        args.run_id,
+                        root,
+                        status=args.outcome_status or "unknown",
+                        memory_effect=args.memory_effect,
+                        task_type=args.task_type,
+                        task_summary=args.task_summary,
+                        note=args.note,
+                        timeout_seconds=args.timeout_seconds,
                     )
                 elif args.outcome_command == "show":
                     result = outcome.show_outcome(conn, args.run_id)

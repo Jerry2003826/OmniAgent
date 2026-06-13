@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
@@ -149,6 +150,29 @@ def test_mark_outcome_redacts_free_text_before_db_and_output(
     assert "REDACTED:" in encoded
 
 
+def test_mark_outcome_redacts_serialized_evidence_before_db_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    canary = "outcome-evidence-sentinel-123456"
+    monkeypatch.setenv("OMNI_OUTCOME_EVIDENCE_SECRET", canary)
+    conn = _fixture_db(tmp_path)
+    _insert_run(conn, "run_evidence_key")
+
+    result = outcome.mark_outcome(
+        conn,
+        "run_evidence_key",
+        evidence={"source": "user", "run_id": "run_evidence_key", canary: "key"},
+    )
+    row = conn.execute(
+        "SELECT evidence FROM outcomes WHERE run_id = 'run_evidence_key'"
+    ).fetchone()
+    encoded = outcome.as_json(result)
+
+    assert canary not in row["evidence"]
+    assert canary not in encoded
+    assert "REDACTED:" in row["evidence"]
+
+
 def test_cli_mark_and_show_outputs_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
     conn = _fixture_db(tmp_path)
     _insert_run(conn, "run_cli")
@@ -247,6 +271,275 @@ def test_memory_effect_omitted_defaults_unknown_when_eval_not_feasible(
     result = outcome.mark_outcome(conn, "run_eval_error")
 
     assert result["memory_effect"] == "unknown"
+
+
+def test_mark_outcome_from_verify_passed_records_tests_without_success_inference(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_run(conn, "run_verify_passed")
+
+    def fake_run_preflight(
+        verify_conn: sqlite3.Connection,
+        root: Path | str,
+        *,
+        timeout_seconds: int,
+    ) -> dict[str, object]:
+        assert verify_conn is conn
+        assert Path(root) == tmp_path
+        assert timeout_seconds == 120
+        return {
+            "status": "passed",
+            "command": "pytest -q",
+            "exit_code": 0,
+            "timed_out": False,
+            "reason": "verification command passed",
+            "duration_ms": 12,
+            "timeout_seconds": 120,
+            "predicate": "uses_test_command",
+            "qualifier": "python",
+            "stdout_excerpt": "should not be stored",
+            "stderr_excerpt": "should not be stored",
+        }
+
+    monkeypatch.setattr(
+        outcome,
+        "verify",
+        SimpleNamespace(run_preflight=fake_run_preflight),
+        raising=False,
+    )
+
+    result = outcome.mark_outcome_from_verify(conn, "run_verify_passed", tmp_path)
+
+    assert result["run_id"] == "run_verify_passed"
+    assert result["status"] == "unknown"
+    assert result["tests_status"] == "passed"
+    assert result["memory_effect"] == "unknown"
+    assert result["final_command"] == "pytest -q"
+    assert result["evidence"] == {
+        "source": "verify",
+        "run_id": "run_verify_passed",
+        "verify": {
+            "status": "passed",
+            "command": "pytest -q",
+            "exit_code": 0,
+            "timed_out": False,
+            "reason": "verification command passed",
+            "duration_ms": 12,
+            "timeout_seconds": 120,
+            "predicate": "uses_test_command",
+            "qualifier": "python",
+        },
+    }
+
+
+def test_mark_outcome_from_verify_failed_marks_tests_failed_and_keeps_user_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_run(conn, "run_verify_failed")
+
+    def fake_run_preflight(
+        verify_conn: sqlite3.Connection,
+        root: Path | str,
+        *,
+        timeout_seconds: int,
+    ) -> dict[str, object]:
+        return {
+            "status": "failed",
+            "command": "pytest -q",
+            "exit_code": 1,
+            "timed_out": False,
+            "reason": "verification command failed with exit code 1",
+        }
+
+    monkeypatch.setattr(
+        outcome,
+        "verify",
+        SimpleNamespace(run_preflight=fake_run_preflight),
+        raising=False,
+    )
+
+    result = outcome.mark_outcome_from_verify(
+        conn,
+        "run_verify_failed",
+        tmp_path,
+        status="failed",
+        memory_effect="neutral",
+        task_type="validation",
+        timeout_seconds=30,
+    )
+
+    assert result["status"] == "failed"
+    assert result["tests_status"] == "failed"
+    assert result["memory_effect"] == "neutral"
+    assert result["task_type"] == "validation"
+    assert result["final_command"] == "pytest -q"
+    assert result["evidence"]["source"] == "verify"
+    assert result["evidence"]["verify"]["exit_code"] == 1
+
+
+def test_mark_outcome_from_verify_startup_failure_keeps_tests_unknown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_run(conn, "run_verify_startup_failed")
+
+    def fake_run_preflight(
+        verify_conn: sqlite3.Connection,
+        root: Path | str,
+        *,
+        timeout_seconds: int,
+    ) -> dict[str, object]:
+        return {
+            "status": "failed",
+            "command": "missing-test-runner",
+            "exit_code": None,
+            "timed_out": False,
+            "reason": "verification command could not be started",
+        }
+
+    monkeypatch.setattr(
+        outcome,
+        "verify",
+        SimpleNamespace(run_preflight=fake_run_preflight),
+        raising=False,
+    )
+
+    result = outcome.mark_outcome_from_verify(
+        conn,
+        "run_verify_startup_failed",
+        tmp_path,
+    )
+
+    assert result["tests_status"] == "unknown"
+    assert result["evidence"]["verify"]["exit_code"] is None
+
+
+def test_mark_outcome_from_verify_unknown_run_does_not_execute_verify(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    conn = _fixture_db(tmp_path)
+
+    def fail_run_preflight(
+        verify_conn: sqlite3.Connection,
+        root: Path | str,
+        *,
+        timeout_seconds: int,
+    ) -> dict[str, object]:
+        raise AssertionError("verify should not run for an unknown run")
+
+    monkeypatch.setattr(
+        outcome,
+        "verify",
+        SimpleNamespace(run_preflight=fail_run_preflight),
+        raising=False,
+    )
+
+    with pytest.raises(ValueError, match="unknown run: missing_run"):
+        outcome.mark_outcome_from_verify(conn, "missing_run", tmp_path)
+
+
+def test_mark_outcome_from_verify_redacts_evidence_and_omits_output_excerpts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    canary = "verify-outcome-sentinel-123456"
+    monkeypatch.setenv("OMNI_OUTCOME_VERIFY_SECRET", canary)
+    conn = _fixture_db(tmp_path)
+    _insert_run(conn, "run_verify_secret")
+
+    def fake_run_preflight(
+        verify_conn: sqlite3.Connection,
+        root: Path | str,
+        *,
+        timeout_seconds: int,
+    ) -> dict[str, object]:
+        return {
+            "status": "failed",
+            "command": f"curl -H 'X-Canary: {canary}'",
+            "exit_code": 22,
+            "timed_out": False,
+            "reason": f"failed with {canary}",
+            "stdout_excerpt": f"stdout {canary}",
+            "stderr_excerpt": f"stderr {canary}",
+        }
+
+    monkeypatch.setattr(
+        outcome,
+        "verify",
+        SimpleNamespace(run_preflight=fake_run_preflight),
+        raising=False,
+    )
+
+    result = outcome.mark_outcome_from_verify(conn, "run_verify_secret", tmp_path)
+    row = conn.execute(
+        "SELECT final_command, evidence FROM outcomes WHERE run_id = 'run_verify_secret'"
+    ).fetchone()
+    evidence = json.loads(row["evidence"])
+    encoded = outcome.as_json(result)
+
+    assert canary not in row["final_command"]
+    assert canary not in row["evidence"]
+    assert canary not in encoded
+    assert "REDACTED:" in row["final_command"]
+    assert "REDACTED:" in row["evidence"]
+    assert "stdout_excerpt" not in evidence["verify"]
+    assert "stderr_excerpt" not in evidence["verify"]
+
+
+def test_cli_outcome_mark_from_verify_writes_json(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_run(conn, "run_cli_verify")
+    conn.close()
+    monkeypatch.chdir(tmp_path)
+
+    def fake_run_preflight(
+        verify_conn: sqlite3.Connection,
+        root: Path | str,
+        *,
+        timeout_seconds: int,
+    ) -> dict[str, object]:
+        return {
+            "status": "passed",
+            "command": "pytest -q",
+            "exit_code": 0,
+            "timed_out": False,
+            "reason": "verification command passed",
+        }
+
+    monkeypatch.setattr(
+        outcome,
+        "verify",
+        SimpleNamespace(run_preflight=fake_run_preflight),
+        raising=False,
+    )
+
+    code = cli.main(
+        [
+            "outcome",
+            "mark-from-verify",
+            "run_cli_verify",
+            "--success",
+            "--memory-effect",
+            "helped",
+            "--task-type",
+            "validation",
+        ]
+    )
+    marked = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert marked["run_id"] == "run_cli_verify"
+    assert marked["status"] == "success"
+    assert marked["tests_status"] == "passed"
+    assert marked["memory_effect"] == "helped"
+    assert marked["task_type"] == "validation"
+    assert marked["final_command"] == "pytest -q"
+    assert marked["evidence"]["source"] == "verify"
 
 
 def test_cli_outcome_show_on_outdated_schema_is_read_only_and_exits_clearly(

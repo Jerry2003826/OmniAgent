@@ -81,6 +81,7 @@ Outcome Log v0 adds a small user-marked record for an ingested run:
 
 ```bash
 omni outcome mark <run_id>
+omni outcome mark-from-verify <run_id>
 omni outcome show <run_id>
 ```
 
@@ -100,6 +101,20 @@ The logged fields are:
 If the caller does not provide `memory_effect`, the outcome command may reuse
 Behavior Eval v0 when the local evidence is available, but it falls back to
 `unknown` and never blocks the mark operation on eval uncertainty.
+
+Verify-to-Outcome helper v0 adds `omni outcome mark-from-verify <run_id>` as a
+small bridge from the manual verify preflight into the user-marked outcome log.
+It runs the same project-level verification command selected by `omni verify`,
+then writes an outcome record with `tests_status` set from the verify result:
+`passed` for a passing command, `failed` for a failing command, and `unknown`
+when verify cannot select or run a command clearly. It records the selected
+verification command as `final_command` and stores a bounded verify summary in
+outcome evidence. The evidence does not store stdout or stderr excerpts.
+
+This helper still does not infer task success. Outcome `status` defaults to
+`unknown` unless the user explicitly passes `--success`, `--failed`, or
+`--unknown`. It does not extract failure candidates, create experience
+candidates, render memory, or add any new database tables.
 
 Outcome records are an anchor for future experience and failure memory work:
 they connect a run id, the observed memory effect, and a user-marked outcome.
@@ -213,6 +228,10 @@ outcomes, extract failure candidates, create experience candidates, render
 memory, or write any OmniMemory state. A failed preflight exits non-zero so a
 human or script can stop, inspect the JSON evidence, and decide whether to mark
 an outcome or extract a failure candidate.
+
+`omni outcome mark-from-verify <run_id>` is the approved write-side helper for
+recording a verify result in the Outcome Log. It is separate from `omni verify`
+so the preflight command itself remains SQLite read-only.
 
 Current scope limitation: Verify v0 only uses project-level
 `uses_test_command` facts. If several active test commands disagree and there is

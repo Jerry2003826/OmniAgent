@@ -10,6 +10,7 @@ from typing import Any
 
 from omni import db
 from omni import eval as behavior_eval
+from omni import verify
 from omni.ids import new_id
 from omni.redact import redact
 
@@ -57,6 +58,7 @@ def mark_outcome(
     task_summary: str | None = None,
     final_command: str | None = None,
     note: str | None = None,
+    evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     _ensure_run_exists(conn, run_id)
     _validate_choice("status", status, STATUS_VALUES)
@@ -71,11 +73,7 @@ def mark_outcome(
         (run_id,),
     ).fetchone()
     now = _now()
-    evidence = json.dumps(
-        {"source": "user", "run_id": run_id},
-        sort_keys=True,
-        separators=(",", ":"),
-    )
+    evidence_json = _evidence_json(evidence or {"source": "user", "run_id": run_id})
     values = {
         "run_id": run_id,
         "task_type": task_type,
@@ -85,7 +83,7 @@ def mark_outcome(
         "task_summary": _redact_text(task_summary),
         "final_command": _redact_text(final_command),
         "note": _redact_text(note),
-        "evidence": evidence,
+        "evidence": evidence_json,
         "updated_at": now,
     }
 
@@ -145,6 +143,47 @@ def mark_outcome(
     return show_outcome(conn, run_id)
 
 
+def mark_outcome_from_verify(
+    conn: sqlite3.Connection,
+    run_id: str,
+    root: Path | str,
+    *,
+    status: str = "unknown",
+    memory_effect: str | None = None,
+    task_type: str = "unknown",
+    task_summary: str | None = None,
+    note: str | None = None,
+    timeout_seconds: int = verify.DEFAULT_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
+    _ensure_run_exists(conn, run_id)
+    _validate_choice("status", status, STATUS_VALUES)
+    _validate_choice("task_type", task_type, TASK_TYPE_VALUES)
+    if memory_effect is not None:
+        _validate_choice("memory_effect", memory_effect, MEMORY_EFFECT_VALUES)
+
+    verify_result = verify.run_preflight(
+        conn,
+        root,
+        timeout_seconds=timeout_seconds,
+    )
+    return mark_outcome(
+        conn,
+        run_id,
+        status=status,
+        tests_status=_tests_status_from_verify(verify_result),
+        memory_effect=memory_effect,
+        task_type=task_type,
+        task_summary=task_summary,
+        final_command=_verify_command(verify_result),
+        note=note,
+        evidence={
+            "source": "verify",
+            "run_id": run_id,
+            "verify": _verify_evidence(verify_result),
+        },
+    )
+
+
 def show_outcome(conn: sqlite3.Connection, run_id: str) -> dict[str, Any]:
     row = conn.execute(
         """
@@ -185,6 +224,27 @@ def _redact_text(value: str | None) -> str | None:
     return redact(value.encode("utf-8")).data.decode("utf-8", errors="replace")
 
 
+def _redact_json(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {str(key): _redact_json(child) for key, child in value.items()}
+    if isinstance(value, list):
+        return [_redact_json(child) for child in value]
+    if isinstance(value, str):
+        return _redact_text(value)
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    return _redact_text(str(value))
+
+
+def _evidence_json(value: dict[str, Any]) -> str:
+    encoded = json.dumps(
+        _redact_json(value),
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return redact(encoded).data.decode("utf-8", errors="replace")
+
+
 def _decode_evidence(value: str) -> dict[str, Any]:
     try:
         decoded = json.loads(value)
@@ -218,3 +278,34 @@ def _root_from_connection(conn: sqlite3.Connection) -> Path | None:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _tests_status_from_verify(verify_result: dict[str, Any]) -> str:
+    status = verify_result.get("status")
+    if status == "passed":
+        return "passed"
+    if status == "failed":
+        if isinstance(verify_result.get("exit_code"), int) or verify_result.get("timed_out") is True:
+            return "failed"
+        return "unknown"
+    return "unknown"
+
+
+def _verify_command(verify_result: dict[str, Any]) -> str | None:
+    command = verify_result.get("command")
+    return command if isinstance(command, str) and command else None
+
+
+def _verify_evidence(verify_result: dict[str, Any]) -> dict[str, Any]:
+    keys = (
+        "status",
+        "command",
+        "exit_code",
+        "timed_out",
+        "reason",
+        "duration_ms",
+        "timeout_seconds",
+        "predicate",
+        "qualifier",
+    )
+    return {key: verify_result[key] for key in keys if key in verify_result}
