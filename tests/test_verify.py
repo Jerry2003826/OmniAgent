@@ -159,6 +159,19 @@ def test_verify_preflight_bounds_large_output_while_running(tmp_path: Path) -> N
     assert result["stdout_excerpt"].endswith("...[truncated]")
 
 
+def test_verify_command_args_resolves_path_executable(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_which(executable: str) -> str | None:
+        return "C:\\Tools\\pnpm.CMD" if executable == "pnpm" else None
+
+    monkeypatch.setattr(verify.shutil, "which", fake_which)
+
+    assert verify._command_args("pnpm run test") == [
+        "C:\\Tools\\pnpm.CMD",
+        "run",
+        "test",
+    ]
+
+
 def test_verify_json_redacts_stdout_and_stderr(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     canary = "verify-redaction-canary-123456"
     monkeypatch.setenv("OMNI_VERIFY_TOKEN", canary)
