@@ -15,6 +15,7 @@ CREATE TABLE failure_candidates(
   failure_kind TEXT NOT NULL,
   error_signature TEXT NOT NULL,
   error_signature_hash TEXT NOT NULL,
+  -- Legacy column name: stores a redacted normalized signature, not raw stderr.
   stderr_excerpt TEXT,
   artifact_ref TEXT,
   evidence JSON NOT NULL,

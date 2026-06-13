@@ -538,6 +538,35 @@ def test_list_show_and_retire_failure_pattern(tmp_path: Path) -> None:
     assert failure.show_candidate(conn, candidate["failure_cand_id"])["pattern_id"] == pattern_id
 
 
+def test_approved_candidate_with_retired_pattern_reports_reactivation_boundary(
+    tmp_path: Path,
+) -> None:
+    conn = _fixture_db(tmp_path)
+    candidate = _create_failure_candidate(conn, run_id="run_retired_reapprove")
+    approved = failure.approve_candidate(
+        conn,
+        candidate["failure_cand_id"],
+        summary="Known failure.",
+        suggested_action="Known action.",
+    )
+
+    failure.retire_pattern(conn, approved["pattern_id"])
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            f"failure pattern for {candidate['failure_cand_id']} was retired; "
+            "v0 does not reactivate retired patterns"
+        ),
+    ):
+        failure.approve_candidate(
+            conn,
+            candidate["failure_cand_id"],
+            summary="Known failure.",
+            suggested_action="Known action.",
+        )
+
+
 def test_retired_failure_pattern_no_longer_renders(tmp_path: Path) -> None:
     conn = _fixture_db(tmp_path)
     candidate = _create_failure_candidate(conn, run_id="run_retire_render")
@@ -790,6 +819,42 @@ def test_cli_failure_pattern_ls_show_retire_work(
     assert active == {"patterns": []}
     assert retired_ls_code == 0
     assert retired_ls["patterns"][0]["pattern_id"] == approved["pattern_id"]
+
+
+def test_cli_failure_approve_retired_pattern_exits_2_with_clear_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    conn = _fixture_db(tmp_path)
+    candidate = _create_failure_candidate(conn, run_id="run_cli_retired_reapprove")
+    approved = failure.approve_candidate(
+        conn,
+        candidate["failure_cand_id"],
+        summary="Known failure.",
+        suggested_action="Known action.",
+    )
+    failure.retire_pattern(conn, approved["pattern_id"])
+    conn.close()
+    monkeypatch.chdir(tmp_path)
+
+    code = cli.main(
+        [
+            "failure",
+            "approve",
+            candidate["failure_cand_id"],
+            "--summary",
+            "Known failure.",
+            "--suggested-action",
+            "Known action.",
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert code == 2
+    assert (
+        f"failure pattern for {candidate['failure_cand_id']} was retired; "
+        "v0 does not reactivate retired patterns"
+    ) in captured.err
+    assert captured.out == ""
 
 
 def test_cli_failure_approve_requires_summary_and_suggested_action(

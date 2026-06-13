@@ -179,12 +179,8 @@ def approve_candidate(
                 f"rejected failure candidate cannot be approved in v0: {failure_cand_id}"
             )
         if state == "approved":
-            pattern_id = candidate["pattern_id"]
-            if pattern_id and _active_pattern_exists(conn, pattern_id):
-                conn.commit()
-                return show_candidate(conn, failure_cand_id)
-            raise ValueError(
-                f"approved failure candidate has no active pattern in v0: {failure_cand_id}"
+            return _approved_candidate_result(
+                conn, failure_cand_id, candidate["pattern_id"]
             )
 
         pattern_id = _active_pattern_id_for_signature(
@@ -433,16 +429,25 @@ def _pattern_row(conn: sqlite3.Connection, pattern_id: str) -> sqlite3.Row:
     return row
 
 
-def _active_pattern_exists(conn: sqlite3.Connection, pattern_id: str) -> bool:
-    row = conn.execute(
-        """
-        SELECT 1
-        FROM failure_patterns
-        WHERE pattern_id = ? AND status = 'active'
-        """,
-        (pattern_id,),
-    ).fetchone()
-    return row is not None
+def _approved_candidate_result(
+    conn: sqlite3.Connection, failure_cand_id: str, pattern_id: str | None
+) -> dict[str, Any]:
+    if pattern_id:
+        pattern = conn.execute(
+            "SELECT status FROM failure_patterns WHERE pattern_id = ?",
+            (pattern_id,),
+        ).fetchone()
+        if pattern is not None and pattern["status"] == "active":
+            conn.commit()
+            return show_candidate(conn, failure_cand_id)
+        if pattern is not None and pattern["status"] == "retired":
+            raise ValueError(
+                f"failure pattern for {failure_cand_id} was retired; "
+                "v0 does not reactivate retired patterns"
+            )
+    raise ValueError(
+        f"approved failure candidate has no active pattern in v0: {failure_cand_id}"
+    )
 
 
 def _active_pattern_id_for_signature(
@@ -528,6 +533,7 @@ def _candidate_spec(event: sqlite3.Row) -> dict[str, Any] | None:
         error_line = "unknown failure"
         failure_kind = "unknown_failure"
     error_signature = _normalize_error_line(error_line)
+    # Legacy column name: this stores a redacted signature, not raw stderr.
     stderr_excerpt = _safe_text(_redact_text(error_signature), MAX_EXCERPT_CHARS)
     signature_hash = _signature_hash(command_norm, exit_code, error_signature)
     evidence = {
