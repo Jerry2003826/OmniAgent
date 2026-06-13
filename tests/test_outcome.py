@@ -379,6 +379,43 @@ def test_mark_outcome_from_verify_failed_marks_tests_failed_and_keeps_user_statu
     assert result["evidence"]["verify"]["exit_code"] == 1
 
 
+def test_mark_outcome_from_verify_startup_failure_keeps_tests_unknown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_run(conn, "run_verify_startup_failed")
+
+    def fake_run_preflight(
+        verify_conn: sqlite3.Connection,
+        root: Path | str,
+        *,
+        timeout_seconds: int,
+    ) -> dict[str, object]:
+        return {
+            "status": "failed",
+            "command": "missing-test-runner",
+            "exit_code": None,
+            "timed_out": False,
+            "reason": "verification command could not be started",
+        }
+
+    monkeypatch.setattr(
+        outcome,
+        "verify",
+        SimpleNamespace(run_preflight=fake_run_preflight),
+        raising=False,
+    )
+
+    result = outcome.mark_outcome_from_verify(
+        conn,
+        "run_verify_startup_failed",
+        tmp_path,
+    )
+
+    assert result["tests_status"] == "unknown"
+    assert result["evidence"]["verify"]["exit_code"] is None
+
+
 def test_mark_outcome_from_verify_unknown_run_does_not_execute_verify(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

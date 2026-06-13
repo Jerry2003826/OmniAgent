@@ -285,7 +285,9 @@ def _tests_status_from_verify(verify_result: dict[str, Any]) -> str:
     if status == "passed":
         return "passed"
     if status == "failed":
-        return "failed"
+        if isinstance(verify_result.get("exit_code"), int) or verify_result.get("timed_out") is True:
+            return "failed"
+        return "unknown"
     return "unknown"
 
 
