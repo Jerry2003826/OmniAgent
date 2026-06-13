@@ -841,9 +841,41 @@ def test_rediscovery_waste_fast_path_uses_single_post_test_fact_in_followup(
     result = render.render_project(conn, tmp_path)
     text = result.path.read_text(encoding="utf-8")
 
-    assert "Do not run `pnpm run build:ci` before `pnpm test`." in text
+    assert (
+        "Do not run `pnpm run build:ci` or any other build/lint command "
+        "before `pnpm test`."
+    ) in text
     assert "After tests pass, run `pnpm run build:ci` if broader validation is needed." in text
     assert "After tests pass, run build and lint if broader validation is needed." not in text
+
+
+def test_rediscovery_waste_fast_path_blocks_build_when_only_lint_fact_exists(
+    tmp_path: Path,
+) -> None:
+    conn = connect(tmp_path)
+    add_fact(conn, predicate="uses_test_command", qualifier="node", object_norm="pnpm test")
+    add_fact(conn, predicate="uses_lint_command", qualifier="node", object_norm="pnpm run lint:ci")
+    add_experience_candidate(
+        conn,
+        exp_cand_id="exp_cand_single_lint_post_test",
+        run_id="run_single_lint_post_test",
+        kind="rediscovery_waste",
+        claim="Memory context was available, but rediscovery happened.",
+        suggested_action=(
+            "For validation tasks, execute the known verification command before broad "
+            "README/package/deployment rediscovery."
+        ),
+    )
+    experience.approve_candidate(conn, "exp_cand_single_lint_post_test")
+
+    result = render.render_project(conn, tmp_path)
+    text = result.path.read_text(encoding="utf-8")
+
+    assert (
+        "Do not run `pnpm run lint:ci` or any other build/lint command "
+        "before `pnpm test`."
+    ) in text
+    assert "After tests pass, run `pnpm run lint:ci` if broader validation is needed." in text
 
 
 def test_rediscovery_waste_fast_path_uses_generic_build_lint_for_non_pnpm_command(

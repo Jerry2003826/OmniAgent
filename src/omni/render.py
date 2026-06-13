@@ -359,6 +359,11 @@ def _build_lint_before_command_clause(
     post_test_commands: tuple[str, ...],
 ) -> str:
     if post_test_commands:
+        if len(post_test_commands) == 1:
+            return (
+                f"Do not run {_inline_command_list(post_test_commands)} or any other "
+                f"build/lint command before {_inline_code(command)}. "
+            )
         return (
             f"Do not run {_inline_command_list(post_test_commands)} "
             f"before {_inline_code(command)}. "
