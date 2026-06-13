@@ -169,9 +169,10 @@ the warm run adopted expected project commands, but it still performed a broad
 `Glob **`, read `package.json`, and scanned directories before the first
 expected command. Renderer v0.2 therefore places `Fast Path` before `Commands`
 and uses stronger validation wording: for rediscovery-waste validation notes, first try
-the known verification command and do not rediscover package scripts, README, or
-deployment docs before trying it unless it fails or the user explicitly asks for
-exploration. A single-run `memory_effect` may still be `neutral` when Claude Code
+the known verification command before checking environment files, package
+scripts, README, or deployment docs, and do not rediscover configuration or
+project structure before trying it unless it fails or the user explicitly asks
+for configuration-first exploration. A single-run `memory_effect` may still be `neutral` when Claude Code
 memory import is not observable as an explicit `Read` event; cold/warm dogfood
 comparison is the stronger behavior metric.
 

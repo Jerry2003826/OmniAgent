@@ -698,9 +698,10 @@ def test_fast_path_uses_test_command_when_fact_exists(tmp_path: Path) -> None:
 
     assert text.index("## Fast Path") < text.index("## Commands")
     assert (
-        "For validation tasks, first run `pnpm run test`. Do not rediscover "
-        "package scripts, README, or deployment docs before trying this known "
-        "command unless it fails or the user explicitly asks for exploration."
+        "For validation tasks, first run `pnpm run test` before checking environment "
+        "files, package scripts, README, or deployment docs. Do not rediscover "
+        "configuration or project structure before trying this known command unless "
+        "it fails or the user explicitly asks for configuration-first exploration."
     ) in text
 
 
@@ -728,9 +729,11 @@ def test_same_kind_notes_from_multiple_runs_render_one_guidance_line(
 
     assert (
         text.count(
-            "- For validation tasks, first run the known verification command. Do not "
-            "rediscover package scripts, README, or deployment docs before trying it "
-            "unless it fails or the user explicitly asks for exploration."
+            "- For validation tasks, first run the known verification command before "
+            "checking environment files, package scripts, README, or deployment docs. "
+            "Do not rediscover configuration or project structure before trying it "
+            "unless it fails or the user explicitly asks for configuration-first "
+            "exploration."
         )
         == 1
     )
@@ -770,9 +773,11 @@ def test_fast_path_and_rediscovery_waste_notes_render_distinct_lines(
     )
     assert (
         text.count(
-            "- For validation tasks, first run the known verification command. Do not "
-            "rediscover package scripts, README, or deployment docs before trying it "
-            "unless it fails or the user explicitly asks for exploration."
+            "- For validation tasks, first run the known verification command before "
+            "checking environment files, package scripts, README, or deployment docs. "
+            "Do not rediscover configuration or project structure before trying it "
+            "unless it fails or the user explicitly asks for configuration-first "
+            "exploration."
         )
         == 1
     )
@@ -801,9 +806,10 @@ def test_fast_path_uses_generic_wording_with_multiple_distinct_test_commands(
     text = result.path.read_text(encoding="utf-8")
 
     assert (
-        "For validation tasks, first run the known verification command. Do not "
-        "rediscover package scripts, README, or deployment docs before trying it "
-        "unless it fails or the user explicitly asks for exploration."
+        "For validation tasks, first run the known verification command before "
+        "checking environment files, package scripts, README, or deployment docs. "
+        "Do not rediscover configuration or project structure before trying it "
+        "unless it fails or the user explicitly asks for configuration-first exploration."
     ) in text
     assert "- For validation tasks, first run `pnpm run test`." not in text
     assert "- For validation tasks, first run `pytest -q`." not in text
@@ -843,9 +849,10 @@ def test_fast_path_prefers_base_qualifier_when_node_test_commands_are_scoped(
     text = result.path.read_text(encoding="utf-8")
 
     assert (
-        "For validation tasks, first run `pnpm run test`. Do not rediscover "
-        "package scripts, README, or deployment docs before trying this known "
-        "command unless it fails or the user explicitly asks for exploration."
+        "For validation tasks, first run `pnpm run test` before checking environment "
+        "files, package scripts, README, or deployment docs. Do not rediscover "
+        "configuration or project structure before trying this known command unless "
+        "it fails or the user explicitly asks for configuration-first exploration."
     ) in text
 
 
@@ -1055,7 +1062,8 @@ def test_fast_path_uses_generic_known_verification_command_without_fact(
     text = result.path.read_text(encoding="utf-8")
 
     assert (
-        "For validation tasks, first run the known verification command. Do not "
-        "rediscover package scripts, README, or deployment docs before trying it "
-        "unless it fails or the user explicitly asks for exploration."
+        "For validation tasks, first run the known verification command before "
+        "checking environment files, package scripts, README, or deployment docs. "
+        "Do not rediscover configuration or project structure before trying it "
+        "unless it fails or the user explicitly asks for configuration-first exploration."
     ) in text

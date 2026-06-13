@@ -317,14 +317,16 @@ def _known_test_command(facts: list[sqlite3.Row]) -> str | None:
 def _rediscovery_waste_fast_path_line(command: str | None) -> str:
     if command:
         return (
-            f"- For validation tasks, first run {_inline_code(command)}. Do not rediscover "
-            "package scripts, README, or deployment docs before trying this known command "
-            "unless it fails or the user explicitly asks for exploration."
+            f"- For validation tasks, first run {_inline_code(command)} before checking "
+            "environment files, package scripts, README, or deployment docs. Do not "
+            "rediscover configuration or project structure before trying this known command "
+            "unless it fails or the user explicitly asks for configuration-first exploration."
         )
     return (
-        "- For validation tasks, first run the known verification command. Do not rediscover "
-        "package scripts, README, or deployment docs before trying it unless it fails or the "
-        "user explicitly asks for exploration."
+        "- For validation tasks, first run the known verification command before checking "
+        "environment files, package scripts, README, or deployment docs. Do not rediscover "
+        "configuration or project structure before trying it unless it fails or the user "
+        "explicitly asks for configuration-first exploration."
     )
 
 
