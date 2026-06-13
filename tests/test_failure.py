@@ -152,6 +152,25 @@ def test_exit_code_is_extracted_from_text_without_event_exit_code(tmp_path: Path
     assert candidate["exit_code"] == 2
 
 
+def test_shell_output_with_plain_exit_text_does_not_create_candidate(
+    tmp_path: Path,
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_run(conn, "run_plain_exit_text")
+    _insert_event(
+        conn,
+        "run_plain_exit_text",
+        1,
+        tool="Bash",
+        meta={
+            "tool_input": {"command": "pnpm run dev"},
+            "tool_response": {"stdout": "Press q to exit 1 panel"},
+        },
+    )
+
+    assert failure.extract_candidates(conn, "run_plain_exit_text") == []
+
+
 def test_successful_bash_event_does_not_create_candidate(tmp_path: Path) -> None:
     conn = _fixture_db(tmp_path)
     _insert_run(conn, "run_success")
@@ -309,6 +328,61 @@ def test_secret_in_stderr_is_redacted_in_db_and_output(
     assert secret not in encoded
     assert "REDACTED:" in encoded
     assert secret not in json.dumps(candidate["evidence"])
+
+
+def test_secret_in_command_norm_is_redacted_in_candidate_and_pattern(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    secret = "-".join(("failure", "command", "secret", "123"))
+    monkeypatch.setenv("OMNI_FAILURE_COMMAND_SECRET", secret)
+    conn = _fixture_db(tmp_path)
+    _insert_run(conn, "run_secret_command")
+    _insert_event(
+        conn,
+        "run_secret_command",
+        1,
+        tool="Bash",
+        exit_code=1,
+        meta={
+            "tool_input": {
+                "command": f'curl -H "Authorization: Bearer {secret}" https://example.invalid'
+            },
+            "tool_response": {"stderr": "curl failed"},
+        },
+    )
+
+    [candidate] = failure.extract_candidates(conn, "run_secret_command")
+    approved = failure.approve_candidate(
+        conn,
+        candidate["failure_cand_id"],
+        summary="Curl failed.",
+        suggested_action="Use a safe local repro without inline secrets.",
+    )
+    candidate_row = conn.execute(
+        """
+        SELECT command_norm, evidence
+        FROM failure_candidates
+        WHERE failure_cand_id = ?
+        """,
+        (candidate["failure_cand_id"],),
+    ).fetchone()
+    pattern = conn.execute(
+        """
+        SELECT command_norm, evidence
+        FROM failure_patterns
+        WHERE pattern_id = ?
+        """,
+        (approved["pattern_id"],),
+    ).fetchone()
+    encoded = failure.as_json(approved)
+
+    assert secret not in candidate_row["command_norm"]
+    assert secret not in candidate_row["evidence"]
+    assert secret not in pattern["command_norm"]
+    assert secret not in pattern["evidence"]
+    assert secret not in encoded
+    assert "REDACTED:" in candidate_row["command_norm"]
+    assert "REDACTED:" in pattern["command_norm"]
 
 
 def test_list_show_and_reject_candidates(tmp_path: Path) -> None:

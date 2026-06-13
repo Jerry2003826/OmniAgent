@@ -255,7 +255,7 @@ def test_active_failure_patterns_render_known_failures_section(tmp_path: Path) -
     assert text.index("## Known Failures") < text.index("## Experience Notes")
     assert (
         "- If `pnpm run build` fails with `exit 1: dependency resolution failed`, "
-        "Inspect the lockfile before changing package managers."
+        "inspect the lockfile before changing package managers."
     ) in text
     assert "Tests failed because dependency resolution failed." not in text
     assert "failure_pattern_hidden" not in text
@@ -286,7 +286,7 @@ def test_failure_pattern_without_command_renders_generic_known_failure(tmp_path:
 
     assert (
         "- If this failure recurs with `exit 1: dependency resolution failed`, "
-        "Inspect the existing lockfile before changing package managers."
+        "inspect the existing lockfile before changing package managers."
     ) in text
 
 
@@ -304,7 +304,7 @@ def test_failure_pattern_inline_code_strips_backticks(tmp_path: Path) -> None:
 
     assert (
         "- If `pnpm run build` fails with `exit 1 dependency resolution failed`, "
-        "Inspect the lockfile before changing package managers."
+        "inspect the lockfile before changing package managers."
     ) in text
 
 
