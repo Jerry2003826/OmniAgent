@@ -244,3 +244,25 @@ When Claude Code hook or transcript behavior is UNKNOWN:
 - warm run satisfies G6 ROBUST criterion on 3/3 golden tasks
 - `golden_demo.sh` is optional harness coverage only; manual `docs/demo.md`
   acceptance remains authoritative
+
+## Cursor Cloud specific instructions
+
+This is a stdlib-only Python CLI (the `omni` command); there is no GUI, server,
+or separate lint step. CI (`.github/workflows/ci.yml`) runs only `pytest -q`.
+
+- Standard commands: install via `pip install -e ".[dev]"` (also the startup
+  update script); test with `pytest -q`. Both are documented above.
+- The base image exposes `python3` but the test suite and
+  `scripts/golden_demo.sh` invoke a bare `python` (default `PYTHON_BIN=python`).
+  A `python -> python3` symlink is provisioned in `/usr/local/bin` so these
+  pass; if `tests/test_cli_smoke.py::test_golden_demo_script_runs_with_fake_claude`
+  fails with `python: command not found`, recreate it:
+  `sudo ln -sf /usr/bin/python3 /usr/local/bin/python`.
+- pip console scripts (`omni`, `pytest`) live in `~/.local/bin`, which is added
+  to PATH in `~/.bashrc`. If a script is not found, run it module-style instead:
+  `python -m omni.cli ...` or `python -m pytest -q`.
+- End-to-end hello-world without a real Claude binary: run
+  `scripts/golden_demo.sh <target>` with a fake `claude` on PATH (see the stub
+  in `test_golden_demo_script_runs_with_fake_claude`). It must print
+  `G6 robust: 3/3`. Per safety rule 6, only run `omni` against sandbox repos
+  from `scripts/create_sandbox.sh`, never the real checkout.
