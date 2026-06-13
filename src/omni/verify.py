@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import shlex
 import shutil
 import sqlite3
@@ -64,6 +65,12 @@ POSIX_SHELL_CLUSTER_FLAGS = set("abefhilmnptuvxc")
 ENV_OPTIONS_WITH_VALUE = {"-u", "--unset", "-C", "--chdir", "-S", "--split-string"}
 
 
+class VerifyCommandError(ValueError):
+    def __init__(self, reason_code: str, message: str) -> None:
+        self.reason_code = reason_code
+        super().__init__(message)
+
+
 def connect_project_readonly(root: Path | str | None = None) -> sqlite3.Connection:
     base = Path(root or Path.cwd()).resolve()
     db_path = base / ".omni" / "omni.sqlite3"
@@ -85,6 +92,7 @@ def run_preflight(
     root: Path | str,
     *,
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
+    qualifier: str | None = None,
 ) -> dict[str, Any]:
     """Execute the active project test command without writing Omni state."""
 
@@ -92,19 +100,21 @@ def run_preflight(
         raise ValueError("timeout_seconds must be positive")
 
     root_path = Path(root).resolve()
-    selection = _select_verification_command(conn)
+    selection = _select_verification_command(conn, qualifier=qualifier)
     result = _base_result(root_path, timeout_seconds, selection)
     if selection["status"] != "selected":
         result["status"] = "unknown"
         result["reason"] = selection["reason"]
+        result["reason_code"] = selection["reason_code"]
         return result
 
     command = selection["_command_raw"]
     try:
         command_args = _command_args(command, root_path)
-    except ValueError as exc:
+    except VerifyCommandError as exc:
         result["status"] = "unknown"
         result["reason"] = str(exc)
+        result["reason_code"] = exc.reason_code
         return result
 
     started = time.perf_counter()
@@ -119,10 +129,13 @@ def run_preflight(
         result.update(
             {
                 "status": "failed",
+                "reason_code": "start_failed",
                 "exit_code": None,
                 "duration_ms": duration_ms,
                 "stdout_excerpt": "",
                 "stderr_excerpt": _safe_output(str(exc)),
+                "stdout_truncated": False,
+                "stderr_truncated": False,
                 "reason": "verification command could not be started",
             }
         )
@@ -131,15 +144,20 @@ def run_preflight(
     duration_ms = _duration_ms(started)
     timed_out = bool(completed["timed_out"])
     exit_code = completed["exit_code"]
+    stdout_excerpt, stdout_truncated = _safe_output_with_flag(completed["stdout"])
+    stderr_excerpt, stderr_truncated = _safe_output_with_flag(completed["stderr"])
     if timed_out:
         result.update(
             {
                 "status": "failed",
+                "reason_code": "timed_out",
                 "exit_code": None,
                 "duration_ms": duration_ms,
                 "timed_out": True,
-                "stdout_excerpt": _safe_output(completed["stdout"]),
-                "stderr_excerpt": _safe_output(completed["stderr"]),
+                "stdout_excerpt": stdout_excerpt,
+                "stderr_excerpt": stderr_excerpt,
+                "stdout_truncated": stdout_truncated,
+                "stderr_truncated": stderr_truncated,
                 "reason": f"verification command timed out after {timeout_seconds}s",
             }
         )
@@ -149,10 +167,13 @@ def run_preflight(
     result.update(
         {
             "status": "passed" if exit_code == 0 else "failed",
+            "reason_code": "passed" if exit_code == 0 else "failed_exit_code",
             "exit_code": exit_code,
             "duration_ms": duration_ms,
-            "stdout_excerpt": _safe_output(completed["stdout"]),
-            "stderr_excerpt": _safe_output(completed["stderr"]),
+            "stdout_excerpt": stdout_excerpt,
+            "stderr_excerpt": stderr_excerpt,
+            "stdout_truncated": stdout_truncated,
+            "stderr_truncated": stderr_truncated,
             "reason": (
                 "verification command passed"
                 if exit_code == 0
@@ -179,9 +200,12 @@ def _base_result(
 ) -> dict[str, Any]:
     return {
         "status": "unknown",
+        "reason_code": selection.get("reason_code", "unknown"),
         "predicate": VERIFY_PREDICATE,
         "qualifier": selection.get("qualifier"),
         "command": selection.get("command"),
+        "selection_mode": selection.get("selection_mode", "auto"),
+        "selection_reason": selection.get("selection_reason", selection.get("reason", "unknown")),
         "candidate_commands": selection.get("candidate_commands", []),
         "candidate_commands_omitted": selection.get("candidate_commands_omitted", 0),
         "cwd": str(root),
@@ -191,19 +215,81 @@ def _base_result(
         "timeout_seconds": timeout_seconds,
         "stdout_excerpt": "",
         "stderr_excerpt": "",
+        "stdout_truncated": False,
+        "stderr_truncated": False,
         "reason": selection.get("reason", "unknown"),
     }
 
 
-def _select_verification_command(conn: sqlite3.Connection) -> dict[str, Any]:
+def _select_verification_command(
+    conn: sqlite3.Connection,
+    *,
+    qualifier: str | None = None,
+) -> dict[str, Any]:
     rows = _active_test_command_rows(conn)
     candidates = _command_candidates(rows)
+    limited, omitted = _limit_candidates(candidates)
     if not candidates:
         return {
             "status": "missing",
+            "reason_code": "no_active_test_command",
             "reason": "no active uses_test_command facts",
+            "selection_mode": "qualifier" if qualifier else "auto",
+            "selection_reason": "no active uses_test_command facts",
             "candidate_commands": [],
             "candidate_commands_omitted": 0,
+        }
+
+    if qualifier is not None:
+        normalized_qualifier = _normalize_command(qualifier)
+        qualified_candidates = [
+            candidate
+            for candidate in candidates
+            if candidate["qualifier"] == normalized_qualifier
+        ]
+        if not qualified_candidates:
+            return {
+                "status": "missing",
+                "reason_code": "qualifier_not_found",
+                "reason": (
+                    "no active uses_test_command fact for qualifier "
+                    f"{normalized_qualifier}"
+                ),
+                "selection_mode": "qualifier",
+                "selection_reason": (
+                    "no active uses_test_command fact for qualifier "
+                    f"{normalized_qualifier}"
+                ),
+                "candidate_commands": limited,
+                "candidate_commands_omitted": omitted,
+            }
+        qualified_commands = _unique_commands(qualified_candidates)
+        if len(qualified_commands) == 1:
+            selection_reason = (
+                "selected active uses_test_command fact for qualifier "
+                f"{normalized_qualifier}"
+            )
+            return _selected(
+                qualified_candidates,
+                qualified_commands[0],
+                candidates,
+                selection_mode="qualifier",
+                selection_reason=selection_reason,
+            )
+        return {
+            "status": "ambiguous",
+            "reason_code": "ambiguous_qualifier",
+            "reason": (
+                "ambiguous active uses_test_command facts for qualifier "
+                f"{normalized_qualifier}"
+            ),
+            "selection_mode": "qualifier",
+            "selection_reason": (
+                "ambiguous active uses_test_command facts for qualifier "
+                f"{normalized_qualifier}"
+            ),
+            "candidate_commands": limited,
+            "candidate_commands_omitted": omitted,
         }
 
     base_candidates = [
@@ -211,16 +297,30 @@ def _select_verification_command(conn: sqlite3.Connection) -> dict[str, Any]:
     ]
     base_commands = _unique_commands(base_candidates)
     if len(base_commands) == 1:
-        return _selected(base_candidates, base_commands[0], candidates)
+        return _selected(
+            base_candidates,
+            base_commands[0],
+            candidates,
+            selection_mode="auto",
+            selection_reason="selected active uses_test_command fact",
+        )
 
     all_commands = _unique_commands(candidates)
     if len(all_commands) == 1:
-        return _selected(candidates, all_commands[0], candidates)
+        return _selected(
+            candidates,
+            all_commands[0],
+            candidates,
+            selection_mode="auto",
+            selection_reason="selected active uses_test_command fact",
+        )
 
-    limited, omitted = _limit_candidates(candidates)
     return {
         "status": "ambiguous",
+        "reason_code": "ambiguous_active_test_command",
         "reason": "ambiguous active uses_test_command facts",
+        "selection_mode": "auto",
+        "selection_reason": "ambiguous active uses_test_command facts",
         "candidate_commands": limited,
         "candidate_commands_omitted": omitted,
     }
@@ -267,6 +367,9 @@ def _selected(
     candidates_to_pick_from: list[dict[str, str]],
     command: str,
     all_candidates: list[dict[str, str]],
+    *,
+    selection_mode: str,
+    selection_reason: str,
 ) -> dict[str, Any]:
     selected = next(
         candidate for candidate in candidates_to_pick_from if candidate["_command_raw"] == command
@@ -274,7 +377,10 @@ def _selected(
     limited, omitted = _limit_candidates(all_candidates)
     return {
         "status": "selected",
+        "reason_code": "selected",
         "reason": "selected active uses_test_command fact",
+        "selection_mode": selection_mode,
+        "selection_reason": selection_reason,
         "qualifier": selected["qualifier"],
         "command": selected["command"],
         "_command_raw": selected["_command_raw"],
@@ -320,6 +426,7 @@ def _run_process(
         cwd=root_path,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        start_new_session=os.name != "nt",
     )
     threads = [
         threading.Thread(target=_read_limited, args=(process.stdout, stdout), daemon=True),
@@ -335,7 +442,7 @@ def _run_process(
     except subprocess.TimeoutExpired:
         timed_out = True
         exit_code = None
-        process.kill()
+        _terminate_process_tree(process)
         process.wait()
 
     for thread in threads:
@@ -361,18 +468,48 @@ def _read_limited(stream: Any, buffer: bytearray) -> None:
         stream.close()
 
 
+def _terminate_process_tree(process: subprocess.Popen[bytes]) -> None:
+    if os.name == "nt":
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+                check=False,
+            )
+            if process.poll() is not None:
+                return
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    else:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+            return
+        except OSError:
+            pass
+    process.kill()
+
+
 def _command_args(command: str, root_path: Path) -> list[str]:
     try:
         args = _split_command(command)
-    except ValueError as exc:
-        raise ValueError(f"could not parse verification command: {exc}") from exc
+    except VerifyCommandError as exc:
+        raise VerifyCommandError(
+            exc.reason_code,
+            f"could not parse verification command: {exc}",
+        ) from exc
     if not args:
-        raise ValueError("could not parse verification command: empty command")
+        raise VerifyCommandError(
+            "parse_error_empty_command",
+            "could not parse verification command: empty command",
+        )
     resolved = _resolve_executable(args[0], root_path)
     if _is_windows_batch_file(resolved) and _has_windows_batch_meta(command):
-        raise ValueError(
+        raise VerifyCommandError(
+            "parse_error_batch_metacharacter",
             "could not parse verification command: Windows batch metacharacters "
-            "are not supported"
+            "are not supported",
         )
     args[0] = resolved
     return args
@@ -380,10 +517,16 @@ def _command_args(command: str, root_path: Path) -> list[str]:
 
 def _split_command(command: str) -> list[str]:
     if _has_unquoted_shell_operator(command):
-        raise ValueError("shell operators are not supported")
-    args = shlex.split(command, posix=True, comments=False)
+        raise VerifyCommandError("parse_error_shell_operator", "shell operators are not supported")
+    try:
+        args = shlex.split(command, posix=True, comments=False)
+    except ValueError as exc:
+        raise VerifyCommandError("parse_error_empty_command", str(exc)) from exc
     if _uses_shell_command_wrapper(args):
-        raise ValueError("shell interpreter wrappers are not supported")
+        raise VerifyCommandError(
+            "parse_error_shell_wrapper",
+            "shell interpreter wrappers are not supported",
+        )
     return args
 
 
@@ -524,17 +667,25 @@ def _normalize_command(command: str) -> str:
 
 
 def _safe_output(value: str | bytes) -> str:
-    return _safe_text(_to_text(value), MAX_OUTPUT_CHARS)
+    return _safe_output_with_flag(value)[0]
+
+
+def _safe_output_with_flag(value: str | bytes) -> tuple[str, bool]:
+    return _safe_text_with_flag(_to_text(value), MAX_OUTPUT_CHARS)
 
 
 def _safe_text(value: str, max_chars: int) -> str:
+    return _safe_text_with_flag(value, max_chars)[0]
+
+
+def _safe_text_with_flag(value: str, max_chars: int) -> tuple[str, bool]:
     redacted = redact(value.encode("utf-8", errors="replace")).data.decode(
         "utf-8", errors="replace"
     )
     normalized = redacted.replace("\r\n", "\n").replace("\r", "\n").strip()
     if len(normalized) <= max_chars:
-        return normalized
-    return normalized[: max_chars - 14].rstrip() + "...[truncated]"
+        return normalized, False
+    return normalized[: max_chars - 14].rstrip() + "...[truncated]", True
 
 
 def _to_text(value: str | bytes | None) -> str:

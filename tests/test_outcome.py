@@ -284,20 +284,27 @@ def test_mark_outcome_from_verify_passed_records_tests_without_success_inference
         root: Path | str,
         *,
         timeout_seconds: int,
+        qualifier: str | None = None,
     ) -> dict[str, object]:
         assert verify_conn is conn
         assert Path(root) == tmp_path
         assert timeout_seconds == 120
+        assert qualifier is None
         return {
             "status": "passed",
+            "reason_code": "passed",
             "command": "pytest -q",
             "exit_code": 0,
             "timed_out": False,
             "reason": "verification command passed",
+            "selection_mode": "auto",
+            "selection_reason": "selected active uses_test_command fact",
             "duration_ms": 12,
             "timeout_seconds": 120,
             "predicate": "uses_test_command",
             "qualifier": "python",
+            "candidate_commands": [{"qualifier": "python", "command": "pytest -q"}],
+            "candidate_commands_omitted": 0,
             "stdout_excerpt": "should not be stored",
             "stderr_excerpt": "should not be stored",
         }
@@ -321,16 +328,72 @@ def test_mark_outcome_from_verify_passed_records_tests_without_success_inference
         "run_id": "run_verify_passed",
         "verify": {
             "status": "passed",
+            "reason_code": "passed",
             "command": "pytest -q",
             "exit_code": 0,
             "timed_out": False,
             "reason": "verification command passed",
+            "selection_mode": "auto",
+            "selection_reason": "selected active uses_test_command fact",
             "duration_ms": 12,
             "timeout_seconds": 120,
             "predicate": "uses_test_command",
             "qualifier": "python",
+            "candidate_commands": [{"qualifier": "python", "command": "pytest -q"}],
+            "candidate_commands_omitted": 0,
         },
     }
+
+
+def test_mark_outcome_from_verify_passes_explicit_qualifier(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_run(conn, "run_verify_qualified")
+
+    def fake_run_preflight(
+        verify_conn: sqlite3.Connection,
+        root: Path | str,
+        *,
+        timeout_seconds: int,
+        qualifier: str | None = None,
+    ) -> dict[str, object]:
+        assert timeout_seconds == 45
+        assert qualifier == "node:web"
+        return {
+            "status": "passed",
+            "reason_code": "passed",
+            "command": "pnpm --filter web test",
+            "exit_code": 0,
+            "timed_out": False,
+            "reason": "verification command passed",
+            "selection_mode": "qualifier",
+            "selection_reason": "selected active uses_test_command fact for qualifier node:web",
+            "duration_ms": 34,
+            "timeout_seconds": 45,
+            "predicate": "uses_test_command",
+            "qualifier": "node:web",
+        }
+
+    monkeypatch.setattr(
+        outcome,
+        "verify",
+        SimpleNamespace(run_preflight=fake_run_preflight),
+        raising=False,
+    )
+
+    result = outcome.mark_outcome_from_verify(
+        conn,
+        "run_verify_qualified",
+        tmp_path,
+        qualifier="node:web",
+        timeout_seconds=45,
+    )
+
+    assert result["tests_status"] == "passed"
+    assert result["final_command"] == "pnpm --filter web test"
+    assert result["evidence"]["verify"]["selection_mode"] == "qualifier"
+    assert result["evidence"]["verify"]["qualifier"] == "node:web"
 
 
 def test_mark_outcome_from_verify_failed_marks_tests_failed_and_keeps_user_status(
@@ -344,6 +407,7 @@ def test_mark_outcome_from_verify_failed_marks_tests_failed_and_keeps_user_statu
         root: Path | str,
         *,
         timeout_seconds: int,
+        qualifier: str | None = None,
     ) -> dict[str, object]:
         return {
             "status": "failed",
@@ -390,6 +454,7 @@ def test_mark_outcome_from_verify_startup_failure_keeps_tests_unknown(
         root: Path | str,
         *,
         timeout_seconds: int,
+        qualifier: str | None = None,
     ) -> dict[str, object]:
         return {
             "status": "failed",
@@ -426,6 +491,7 @@ def test_mark_outcome_from_verify_unknown_run_does_not_execute_verify(
         root: Path | str,
         *,
         timeout_seconds: int,
+        qualifier: str | None = None,
     ) -> dict[str, object]:
         raise AssertionError("verify should not run for an unknown run")
 
@@ -453,6 +519,7 @@ def test_mark_outcome_from_verify_redacts_evidence_and_omits_output_excerpts(
         root: Path | str,
         *,
         timeout_seconds: int,
+        qualifier: str | None = None,
     ) -> dict[str, object]:
         return {
             "status": "failed",
@@ -502,6 +569,7 @@ def test_cli_outcome_mark_from_verify_writes_json(
         root: Path | str,
         *,
         timeout_seconds: int,
+        qualifier: str | None = None,
     ) -> dict[str, object]:
         return {
             "status": "passed",
@@ -540,6 +608,61 @@ def test_cli_outcome_mark_from_verify_writes_json(
     assert marked["task_type"] == "validation"
     assert marked["final_command"] == "pytest -q"
     assert marked["evidence"]["source"] == "verify"
+
+
+def test_cli_outcome_mark_from_verify_accepts_qualifier(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_run(conn, "run_cli_verify_qualifier")
+    conn.close()
+    monkeypatch.chdir(tmp_path)
+
+    def fake_run_preflight(
+        verify_conn: sqlite3.Connection,
+        root: Path | str,
+        *,
+        timeout_seconds: int,
+        qualifier: str | None = None,
+    ) -> dict[str, object]:
+        assert qualifier == "node:web"
+        return {
+            "status": "passed",
+            "reason_code": "passed",
+            "command": "pnpm --filter web test",
+            "exit_code": 0,
+            "timed_out": False,
+            "reason": "verification command passed",
+            "selection_mode": "qualifier",
+            "selection_reason": "selected active uses_test_command fact for qualifier node:web",
+            "qualifier": "node:web",
+        }
+
+    monkeypatch.setattr(
+        outcome,
+        "verify",
+        SimpleNamespace(run_preflight=fake_run_preflight),
+        raising=False,
+    )
+
+    code = cli.main(
+        [
+            "outcome",
+            "mark-from-verify",
+            "run_cli_verify_qualifier",
+            "--qualifier",
+            "node:web",
+        ]
+    )
+    marked = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert marked["tests_status"] == "passed"
+    assert marked["final_command"] == "pnpm --filter web test"
+    assert marked["evidence"]["verify"]["selection_mode"] == "qualifier"
+    assert marked["evidence"]["verify"]["qualifier"] == "node:web"
 
 
 def test_cli_outcome_show_on_outdated_schema_is_read_only_and_exits_clearly(

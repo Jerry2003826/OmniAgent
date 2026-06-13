@@ -154,6 +154,7 @@ def mark_outcome_from_verify(
     task_summary: str | None = None,
     note: str | None = None,
     timeout_seconds: int = verify.DEFAULT_TIMEOUT_SECONDS,
+    qualifier: str | None = None,
 ) -> dict[str, Any]:
     _ensure_run_exists(conn, run_id)
     _validate_choice("status", status, STATUS_VALUES)
@@ -165,6 +166,7 @@ def mark_outcome_from_verify(
         conn,
         root,
         timeout_seconds=timeout_seconds,
+        qualifier=qualifier,
     )
     return mark_outcome(
         conn,
@@ -299,13 +301,18 @@ def _verify_command(verify_result: dict[str, Any]) -> str | None:
 def _verify_evidence(verify_result: dict[str, Any]) -> dict[str, Any]:
     keys = (
         "status",
+        "reason_code",
         "command",
         "exit_code",
         "timed_out",
         "reason",
+        "selection_mode",
+        "selection_reason",
         "duration_ms",
         "timeout_seconds",
         "predicate",
         "qualifier",
+        "candidate_commands",
+        "candidate_commands_omitted",
     )
     return {key: verify_result[key] for key in keys if key in verify_result}

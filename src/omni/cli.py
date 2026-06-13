@@ -76,6 +76,7 @@ def build_parser() -> argparse.ArgumentParser:
     inject_claude_parser.add_argument("--mode", choices=("preview", "link"), required=True)
     verify_parser = subcommands.add_parser("verify")
     verify_parser.add_argument("--timeout-seconds", type=int, default=120)
+    verify_parser.add_argument("--qualifier")
     eval_parser = subcommands.add_parser("eval")
     eval_subcommands = eval_parser.add_subparsers(dest="eval_command", required=True)
     eval_run_parser = eval_subcommands.add_parser("run")
@@ -165,6 +166,7 @@ def build_parser() -> argparse.ArgumentParser:
     outcome_mark_from_verify_parser.add_argument("--summary", dest="task_summary")
     outcome_mark_from_verify_parser.add_argument("--note")
     outcome_mark_from_verify_parser.add_argument("--timeout-seconds", type=int, default=120)
+    outcome_mark_from_verify_parser.add_argument("--qualifier")
     outcome_show_parser = outcome_subcommands.add_parser("show")
     outcome_show_parser.add_argument("run_id")
     experience_parser = subcommands.add_parser("experience")
@@ -396,6 +398,7 @@ def main(argv: list[str] | None = None) -> int:
                     conn,
                     root,
                     timeout_seconds=args.timeout_seconds,
+                    qualifier=args.qualifier,
                 )
             except ValueError as exc:
                 print(str(exc), file=sys.stderr)
@@ -463,6 +466,7 @@ def main(argv: list[str] | None = None) -> int:
                         task_summary=args.task_summary,
                         note=args.note,
                         timeout_seconds=args.timeout_seconds,
+                        qualifier=args.qualifier,
                     )
                 elif args.outcome_command == "show":
                     result = outcome.show_outcome(conn, args.run_id)

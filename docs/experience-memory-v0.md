@@ -257,6 +257,28 @@ Current scope limitation: Verify v0 only uses project-level
 `uses_test_command` facts. If several active test commands disagree and there is
 no single unscoped command to prefer, it reports `unknown` instead of guessing.
 
+## Verify Hardening v0.3
+
+Verify Hardening v0.3 keeps `omni verify` SQLite read-only and adds stable
+selection/output semantics for scripts and humans:
+
+```bash
+omni verify --qualifier <qualifier>
+omni outcome mark-from-verify <run_id> --qualifier <qualifier>
+```
+
+`--qualifier` is an exact match against active project-level
+`uses_test_command` facts. It does not accept arbitrary commands, does not add a
+new scope or subject selector, and does not write OmniMemory state. Missing or
+ambiguous qualifiers return `status=unknown` without executing a command.
+
+Verify JSON now includes a machine-readable `reason_code`, `selection_mode`,
+`selection_reason`, and stdout/stderr truncation booleans. Existing fields such
+as `status`, `reason`, `command`, `qualifier`, `exit_code`, `timed_out`,
+`candidate_commands`, and `candidate_commands_omitted` remain present for
+compatibility. `outcome mark-from-verify` stores only the bounded safe verify
+summary in outcome evidence and still excludes stdout and stderr excerpts.
+
 ## Stage Closeout Evidence
 
 The first v0.2 Experience/Failure Memory foundation loop was closed against the

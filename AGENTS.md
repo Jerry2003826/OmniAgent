@@ -1,12 +1,18 @@
-# OmniMemory v0.2 / Experience Memory foundations
+# OmniMemory v0.3 / Verify hardening
 
 ## Goal
 
-Current phase: OmniMemory v0.2 / Experience Memory foundations.
+Current phase: OmniMemory v0.3 / Verify hardening.
 
 Build ONE closed loop:
 
 Claude Code run → redacted trace → deterministic facts → generated memory block → measurably changed behavior in the next run.
+
+v0.3 keeps the v0.2 loop intact and hardens the read-only verification bridge:
+`omni verify` may select a known project-level verification command by exact
+qualifier, emits stable machine-readable reason codes, and still writes no
+OmniMemory state. `omni outcome mark-from-verify` remains the approved write
+bridge from verify output into the Outcome Log.
 
 ## Non-goals, hard this week
 
@@ -89,7 +95,8 @@ Violations require reverting the commit.
    Read-only commands open SQLite in read-only mode and never run
    migrations; migrations run only inside approved write commands.
    `omni verify` is SQLite read-only but executes the selected project
-   verification command; it writes no OmniMemory state.
+   verification command, including when `--qualifier` is used; it writes no
+   OmniMemory state.
 
 4. Never modify user content in `CLAUDE.md` outside the managed region:
 
