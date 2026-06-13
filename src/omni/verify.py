@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shlex
+import shutil
 import sqlite3
 import subprocess
 import threading
@@ -329,7 +330,12 @@ def _command_args(command: str) -> list[str]:
         raise ValueError(f"could not parse verification command: {exc}") from exc
     if not args:
         raise ValueError("could not parse verification command: empty command")
+    args[0] = _resolve_executable(args[0])
     return args
+
+
+def _resolve_executable(executable: str) -> str:
+    return shutil.which(executable) or executable
 
 
 def _normalize_command(command: str) -> str:
