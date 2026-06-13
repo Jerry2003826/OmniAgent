@@ -1,8 +1,8 @@
 # Failure Memory v0
 
-Failure Memory v0 starts with deterministic candidate extraction only. Phase 1
-creates reviewable failure candidates from already-ingested, already-redacted
-events:
+Failure Memory v0 starts with deterministic candidate extraction, human approval
+into active patterns, and a small Known Failures renderer. Phase 1 creates
+reviewable failure candidates from already-ingested, already-redacted events:
 
 ```bash
 omni failure extract <run_id>
@@ -14,9 +14,10 @@ omni failure approve <failure_cand_id> \
 omni failure reject <failure_cand_id>
 ```
 
-Failure Pattern v0 adds a human approval step for reviewed candidates. It does
-not render Known Failures into `.omni/generated/memory.md`, run verification,
-infer task success, or evolve memory automatically.
+Failure Pattern v0 adds a human approval step for reviewed candidates. Known
+Failures Renderer v0 renders approved active patterns into
+`.omni/generated/memory.md`. Failure Memory v0 still does not run verification,
+does not infer task success, and does not evolve memory automatically.
 
 The extractor does not use an LLM and does not parse raw artifacts. It only reads
 existing SQLite rows and the redacted event metadata already stored by ingest.
@@ -41,7 +42,8 @@ run and error signature is idempotent.
 Failure Candidate v0 is the next stage after Behavior Eval v0, Outcome Log v0,
 Experience Candidate v0, and Experience Notes Renderer v0: eval and outcome
 measure whether memory helped, experience notes can improve future behavior, and
-failure candidates provide reviewable evidence for future failure-memory work.
+failure candidates provide reviewable evidence for reviewed failure-memory
+patterns.
 
 ## Failure Pattern v0
 
@@ -68,6 +70,43 @@ Approval is review-gated and stateful:
 - if an active project pattern already exists for the same error signature, the
   newly approved candidate links to that pattern instead of creating a duplicate.
 
-Active `failure_patterns` are storage only in this PR. They do not render into
-`memory.md` yet. Known Failures Renderer v0 is future work, as are pattern
-retire and supersede flows.
+## Known Failures Renderer v0
+
+Known Failures Renderer v0 reads active `failure_patterns` rows and renders a
+`## Known Failures` section in `.omni/generated/memory.md`. It does not read or
+render pending or rejected `failure_candidates`.
+
+Rendered lines are deterministic and intentionally narrow:
+
+```md
+## Known Failures
+
+- If `pnpm run build` fails with `exit 1: dependency resolution failed`, Inspect the existing package manager and lockfile before changing dependencies.
+```
+
+If a pattern has no normalized command, the line uses generic recurrence
+wording:
+
+```md
+- If this failure recurs with `exit 1: dependency resolution failed`, Inspect the existing package manager and lockfile before changing dependencies.
+```
+
+Renderer output excludes pattern ids, source candidate ids, run ids, event ids,
+tool-use ids, evidence, error-signature hashes, timestamps, trust, confidence,
+raw stderr, and artifact references. The final generated memory block still
+passes through output redaction before it is written.
+
+The manual loop is:
+
+```bash
+omni failure approve <failure_cand_id> \
+  --summary "Tests failed because dependency resolution failed." \
+  --suggested-action "Inspect the existing package manager and lockfile before changing dependencies."
+omni render --diff
+omni render
+```
+
+This completes the v0 deterministic path from a redacted failure event to a
+candidate, then a human-approved active pattern, then a Known Failures memory
+line. Pattern retire and supersede flows, verification, and automatic pattern
+evolution remain future work.

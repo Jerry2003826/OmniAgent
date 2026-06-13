@@ -96,6 +96,98 @@ def add_experience_candidate(
     conn.commit()
 
 
+def add_failure_pattern(
+    conn,
+    *,
+    pattern_id: str = "failure_pattern_render",
+    source_failure_cand_id: str | None = "failure_cand_render",
+    command_norm: str | None = "pnpm run build",
+    failure_kind: str = "command_failed",
+    error_signature: str = "exit 1: dependency resolution failed",
+    error_signature_hash: str = "hash_failure_render",
+    summary: str = "Build failed because dependency resolution failed.",
+    suggested_action: str = "Inspect the existing lockfile before changing package managers.",
+    status: str = "active",
+    evidence: dict[str, object] | None = None,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO failure_patterns(
+          pattern_id, source_failure_cand_id, scope, command_norm, failure_kind,
+          error_signature, error_signature_hash, summary, suggested_action, trust,
+          status, evidence, created_seq, retired_seq, superseded_by, created_at,
+          updated_at
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            pattern_id,
+            source_failure_cand_id,
+            "project",
+            command_norm,
+            failure_kind,
+            error_signature,
+            error_signature_hash,
+            summary,
+            suggested_action,
+            2,
+            status,
+            json.dumps(evidence or {"run_id": "run_hidden"}, sort_keys=True),
+            1,
+            None,
+            None,
+            "2026-06-13T00:00:00+00:00",
+            "2026-06-13T00:00:00+00:00",
+        ),
+    )
+    conn.commit()
+
+
+def add_failure_candidate(
+    conn,
+    *,
+    failure_cand_id: str,
+    run_id: str,
+    state: str,
+    command_norm: str = "pnpm run build",
+    error_signature: str = "exit 1: candidate should not render",
+) -> None:
+    conn.execute(
+        "INSERT INTO runs(run_id, project_id, snapshot_seq, status) VALUES(?,?,?,?)",
+        (run_id, "project", 0, "closed"),
+    )
+    conn.execute(
+        """
+        INSERT INTO failure_candidates(
+          failure_cand_id, run_id, event_id, tool_use_id, tool, command_norm,
+          exit_code, failure_kind, error_signature, error_signature_hash,
+          stderr_excerpt, artifact_ref, evidence, state, created_at, reviewed_at,
+          review_note, pattern_id
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            failure_cand_id,
+            run_id,
+            "event_should_not_render",
+            "tool_should_not_render",
+            "Bash",
+            command_norm,
+            1,
+            "command_failed",
+            error_signature,
+            "hash_candidate_should_not_render",
+            "stderr candidate should not render",
+            "artifact_candidate_should_not_render",
+            json.dumps({"run_id": run_id, "event_id": "event_should_not_render"}, sort_keys=True),
+            state,
+            "2026-06-13T00:00:00+00:00",
+            None,
+            None,
+            None,
+        ),
+    )
+    conn.commit()
+
+
 def seed_project_facts(conn) -> None:
     add_fact(conn, predicate="uses_package_manager", qualifier="node", object_norm="pnpm")
     add_fact(conn, predicate="uses_test_command", qualifier="node", object_norm="pnpm run test")
@@ -127,47 +219,217 @@ def test_render_generates_byte_stable_memory_without_internal_metadata(tmp_path:
     assert "created_at" not in first_text.lower()
 
 
-def test_active_failure_patterns_do_not_render_yet(tmp_path: Path) -> None:
+def test_active_failure_patterns_render_known_failures_section(tmp_path: Path) -> None:
     conn = connect(tmp_path)
-    conn.execute(
-        """
-        INSERT INTO failure_patterns(
-          pattern_id, source_failure_cand_id, scope, command_norm, failure_kind,
-          error_signature, error_signature_hash, summary, suggested_action, trust,
-          status, evidence, created_seq, retired_seq, superseded_by, created_at,
-          updated_at
-        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-        """,
-        (
-            "failure_pattern_hidden",
-            "failure_cand_hidden",
-            "project",
-            "pnpm run build",
-            "command_failed",
-            "Dependency resolution failed",
-            "hash_hidden",
-            "Tests failed because dependency resolution failed.",
-            "Inspect the lockfile before changing package managers.",
-            2,
-            "active",
-            json.dumps({"source_failure_cand_id": "failure_cand_hidden"}, sort_keys=True),
-            1,
-            None,
-            None,
-            "2026-06-13T00:00:00+00:00",
-            "2026-06-13T00:00:00+00:00",
-        ),
+    seed_project_facts(conn)
+    add_experience_candidate(
+        conn,
+        exp_cand_id="exp_cand_section_order",
+        run_id="run_section_order",
+        kind="fast_path",
     )
-    conn.commit()
+    experience.approve_candidate(conn, "exp_cand_section_order")
+    add_failure_pattern(
+        conn,
+        pattern_id="failure_pattern_hidden",
+        source_failure_cand_id="failure_cand_hidden",
+        command_norm="pnpm run build",
+        error_signature="exit 1: dependency resolution failed",
+        error_signature_hash="hash_hidden",
+        summary="Tests failed because dependency resolution failed.",
+        suggested_action="Inspect the lockfile before changing package managers.",
+        evidence={
+            "source_failure_cand_id": "failure_cand_hidden",
+            "run_id": "run_hidden",
+            "stderr_excerpt": "raw stderr should not render",
+            "confidence": 0.99,
+        },
+    )
+
+    result = render.render_project(conn, tmp_path)
+    text = result.path.read_text(encoding="utf-8")
+
+    assert "## Known Failures" in text
+    assert text.index("## Fast Path") < text.index("## Commands")
+    assert text.index("## Commands") < text.index("## Known Failures")
+    assert text.index("## Known Failures") < text.index("## Experience Notes")
+    assert (
+        "- If `pnpm run build` fails with `exit 1: dependency resolution failed`, "
+        "Inspect the lockfile before changing package managers."
+    ) in text
+    assert "Tests failed because dependency resolution failed." not in text
+    assert "failure_pattern_hidden" not in text
+    assert "failure_cand_hidden" not in text
+    assert "run_hidden" not in text
+    assert "evidence" not in text.lower()
+    assert "confidence" not in text.lower()
+    assert "created_at" not in text.lower()
+    assert "updated_at" not in text.lower()
+    assert "raw stderr should not render" not in text
+    assert "hash_hidden" not in text
+
+
+def test_failure_pattern_without_command_renders_generic_known_failure(tmp_path: Path) -> None:
+    conn = connect(tmp_path)
+    add_failure_pattern(
+        conn,
+        pattern_id="failure_pattern_generic",
+        source_failure_cand_id=None,
+        command_norm=None,
+        error_signature="exit 1: dependency resolution failed",
+        error_signature_hash="hash_failure_generic",
+        suggested_action="Inspect the existing lockfile before changing package managers.",
+    )
+
+    result = render.render_project(conn, tmp_path)
+    text = result.path.read_text(encoding="utf-8")
+
+    assert (
+        "- If this failure recurs with `exit 1: dependency resolution failed`, "
+        "Inspect the existing lockfile before changing package managers."
+    ) in text
+
+
+def test_failure_pattern_inline_code_strips_backticks(tmp_path: Path) -> None:
+    conn = connect(tmp_path)
+    add_failure_pattern(
+        conn,
+        command_norm="`pnpm run build`",
+        error_signature="`exit 1` dependency resolution failed",
+        suggested_action="Inspect the `lockfile` before changing package managers.",
+    )
+
+    result = render.render_project(conn, tmp_path)
+    text = result.path.read_text(encoding="utf-8")
+
+    assert (
+        "- If `pnpm run build` fails with `exit 1 dependency resolution failed`, "
+        "Inspect the lockfile before changing package managers."
+    ) in text
+
+
+def test_failure_candidates_do_not_render_until_active_pattern_exists(tmp_path: Path) -> None:
+    conn = connect(tmp_path)
+    add_failure_candidate(
+        conn,
+        failure_cand_id="failure_cand_pending_render",
+        run_id="run_failure_pending_render",
+        state="pending",
+        error_signature="exit 1: pending candidate should not render",
+    )
+    add_failure_candidate(
+        conn,
+        failure_cand_id="failure_cand_rejected_render",
+        run_id="run_failure_rejected_render",
+        state="rejected",
+        error_signature="exit 1: rejected candidate should not render",
+    )
 
     result = render.render_project(conn, tmp_path)
     text = result.path.read_text(encoding="utf-8")
 
     assert "Known Failures" not in text
-    assert "Dependency resolution failed" not in text
-    assert "Inspect the lockfile" not in text
-    assert "failure_pattern_hidden" not in text
-    assert "failure_cand_hidden" not in text
+    assert "pending candidate should not render" not in text
+    assert "rejected candidate should not render" not in text
+    assert "failure_cand_pending_render" not in text
+    assert "failure_cand_rejected_render" not in text
+
+
+def test_non_active_failure_patterns_do_not_render(tmp_path: Path) -> None:
+    conn = connect(tmp_path)
+    add_failure_pattern(
+        conn,
+        pattern_id="failure_pattern_retired",
+        source_failure_cand_id=None,
+        command_norm="pnpm run build",
+        error_signature="exit 1: retired pattern should not render",
+        error_signature_hash="hash_failure_retired",
+        status="retired",
+    )
+
+    result = render.render_project(conn, tmp_path)
+    text = result.path.read_text(encoding="utf-8")
+
+    assert "Known Failures" not in text
+    assert "retired pattern should not render" not in text
+
+
+def test_active_failure_pattern_with_secret_text_renders_redacted(tmp_path: Path) -> None:
+    conn = connect(tmp_path)
+    raw_secret = "ghp_abcdefghijklmnopqrstuvwxyz1234567890"
+    add_failure_pattern(
+        conn,
+        command_norm="pnpm run build",
+        error_signature=f"exit 1 {raw_secret}",
+        error_signature_hash="hash_failure_secret",
+        summary=f"Build failed with {raw_secret}",
+        suggested_action=f"Do not print {raw_secret}",
+    )
+
+    result = render.render_project(conn, tmp_path)
+    text = result.path.read_text(encoding="utf-8")
+
+    assert raw_secret not in text
+    assert "REDACTED:github_token:" in text
+    assert result.body == text
+
+
+def test_failure_pattern_deps_track_visible_line_hashes(tmp_path: Path) -> None:
+    conn = connect(tmp_path)
+    add_failure_pattern(
+        conn,
+        pattern_id="failure_pattern_dep",
+        source_failure_cand_id=None,
+        command_norm="pnpm run build",
+        error_signature="exit 1: dependency resolution failed",
+        error_signature_hash="hash_failure_dep",
+        suggested_action="Inspect the lockfile before changing package managers.",
+        evidence={"run_id": "run_original"},
+    )
+
+    render.render_project(conn, tmp_path)
+    first_dep = conn.execute(
+        """
+        SELECT dep_line_hash
+        FROM block_deps
+        WHERE dep_kind = 'failure_pattern' AND dep_id = ?
+        """,
+        ("failure_pattern_dep",),
+    ).fetchone()
+    assert first_dep is not None
+    assert conn.execute("SELECT dirty FROM blocks WHERE block_id = 'project_memory'").fetchone()["dirty"] == 1
+
+    conn.execute(
+        "UPDATE failure_patterns SET evidence = ? WHERE pattern_id = ?",
+        (json.dumps({"run_id": "run_changed", "raw": "different evidence"}), "failure_pattern_dep"),
+    )
+    render.render_project(conn, tmp_path)
+    evidence_dep = conn.execute(
+        """
+        SELECT dep_line_hash
+        FROM block_deps
+        WHERE dep_kind = 'failure_pattern' AND dep_id = ?
+        """,
+        ("failure_pattern_dep",),
+    ).fetchone()
+    assert evidence_dep["dep_line_hash"] == first_dep["dep_line_hash"]
+    assert conn.execute("SELECT dirty FROM blocks WHERE block_id = 'project_memory'").fetchone()["dirty"] == 0
+
+    conn.execute(
+        "UPDATE failure_patterns SET suggested_action = ? WHERE pattern_id = ?",
+        ("Use the existing package manager before changing dependencies.", "failure_pattern_dep"),
+    )
+    render.render_project(conn, tmp_path)
+    changed_dep = conn.execute(
+        """
+        SELECT dep_line_hash
+        FROM block_deps
+        WHERE dep_kind = 'failure_pattern' AND dep_id = ?
+        """,
+        ("failure_pattern_dep",),
+    ).fetchone()
+    assert changed_dep["dep_line_hash"] != first_dep["dep_line_hash"]
+    assert conn.execute("SELECT dirty FROM blocks WHERE block_id = 'project_memory'").fetchone()["dirty"] == 1
 
 
 def test_render_dirty_changes_only_when_visible_line_hash_changes(tmp_path: Path) -> None:
