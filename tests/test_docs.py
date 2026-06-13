@@ -336,9 +336,11 @@ def test_known_failure_ab_dogfood_template_covers_control_treatment_verdicts() -
 def test_dogfood_acceptance_pack_covers_real_project_loop_and_record_template() -> None:
     pack = REPO_ROOT / "docs" / "dogfood-acceptance-pack-v0.md"
     template = REPO_ROOT / "docs" / "dogfood-acceptance-record-template.md"
+    stage_record = REPO_ROOT / "docs" / "dogfood-stage-acceptance-2026-06-14.md"
 
     pack_text = pack.read_text(encoding="utf-8")
     template_text = template.read_text(encoding="utf-8")
+    stage_text = stage_record.read_text(encoding="utf-8")
 
     for phrase in (
         "Dogfood Acceptance Pack v0",
@@ -362,6 +364,7 @@ def test_dogfood_acceptance_pack_covers_real_project_loop_and_record_template() 
         "Do not claim universal causal proof",
         "omni failure extract <warm_run_id>",
         "omni experience extract <warm_run_id>",
+        "docs/dogfood-stage-acceptance-2026-06-14.md",
     ):
         assert phrase in pack_text
 
@@ -381,6 +384,24 @@ def test_dogfood_acceptance_pack_covers_real_project_loop_and_record_template() 
         "Verdict: PASS | PARTIAL | FAIL | INCONCLUSIVE",
     ):
         assert phrase in template_text
+
+    for phrase in (
+        "Stage Dogfood Acceptance - 2026-06-14",
+        "does not add a new Claude Code run",
+        "fcdefb4a-2d39-46ed-ab1e-a1cae466e861",
+        "87722242-c373-4713-abe9-4288edc71982",
+        "memory_effect: failed_to_help",
+        "first_expected_command: pnpm run test",
+        "rediscovery_count: 0",
+        "improvement: true",
+        "reason_code: passed",
+        "tests_status: passed",
+        "lifecycle.renders: true",
+        "lifecycle.can_reactivate: false",
+        "Verdict: PASS",
+        "not a universal proof",
+    ):
+        assert phrase in stage_text
 
 
 def test_minimal_linux_ci_workflow_runs_pytest_on_311_and_312() -> None:

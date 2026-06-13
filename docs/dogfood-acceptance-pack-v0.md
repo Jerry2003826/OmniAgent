@@ -189,3 +189,10 @@ Approve only when the candidate is supported by eval and outcome evidence.
 Copy `docs/dogfood-acceptance-record-template.md` for each real-project run.
 Keep evidence concise and redacted. Do not paste raw artifacts, raw stderr,
 secrets, or large transcript content.
+
+Recorded stage acceptance:
+
+- `docs/dogfood-stage-acceptance-2026-06-14.md` packages the latest real
+  unihack evidence after Failure Lifecycle UX v0. It replays the acceptance
+  commands against existing runs and records the current PASS verdict without
+  creating a new Claude Code session.

@@ -1,19 +1,19 @@
-# OmniMemory Failure Lifecycle UX v0
+# OmniMemory Stage Dogfood Acceptance v0
 
 ## Goal
 
-Current phase: OmniMemory Failure Lifecycle UX v0.
+Current phase: OmniMemory Stage Dogfood Acceptance v0.
 
 Build ONE closed loop:
 
 Claude Code run → redacted trace → deterministic facts → generated memory block → measurably changed behavior in the next run.
 
-Failure Lifecycle UX v0 keeps the v0.2-v0.4 loop intact and improves the
-reviewed failure-pattern controls after real dogfood showed active Known
-Failures can affect behavior. This phase may improve `omni failure pattern
-ls/show/retire` readability and audit clarity. It must not add supersede,
-reactivation, new tables, migrations, automatic success inference, automatic
-failure memory, or automatic memory evolution.
+Stage Dogfood Acceptance v0 keeps the v0.2-v0.4 loop intact and packages real
+project evidence for the implemented eval, outcome, experience, failure, and
+verify surfaces. This phase may add or refresh acceptance records, runbooks,
+and docs tests. It must not add runtime features, supersede, reactivation, new
+tables, migrations, automatic success inference, automatic failure memory, or
+automatic memory evolution.
 
 ## Non-goals, hard this week
 
