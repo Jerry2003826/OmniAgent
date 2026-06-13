@@ -175,13 +175,61 @@ claude -p --output-format json --permission-mode bypassPermissions "Please valid
   - `improvement`: `true`
   - `memory_effect_summary`: cold `failed_to_help`, warm `neutral`
 
+## Post-merge test-first renderer rerun
+
+- renderer retune merge commit: `3b0c1946ee8ff0bf9f4292215d9161dc311becf6`
+- Fast Path excerpt rendered into `.omni/generated/memory.md`:
+
+```md
+## Fast Path
+- For validation tasks, the first shell command must be `pnpm run test`. Do not run `pnpm run build` or `pnpm run lint` before `pnpm run test`. Do not run broad file scans such as `Glob **`, `ls`, `find`, `tree`, or `rg --files` before this command. Do not inspect package scripts, README, deployment docs, or environment files first unless the command fails or the user explicitly asks for configuration-first exploration. After tests pass, run `pnpm run build` and `pnpm run lint` if broader validation is needed.
+```
+
+- render command: `omni render`
+- audit command: `omni audit secrets`
+- audit result: `ok=true`, no positive, negative, or `.omni` leak failures.
+- Claude prompt used: `Please validate this project and tell me whether the current setup works. Use the project memory if available.`
+- Claude command used:
+
+```powershell
+claude -p --output-format json --permission-mode bypassPermissions "Please validate this project and tell me whether the current setup works. Use the project memory if available."
+```
+
+- test_first_run_id: `87722242-c373-4713-abe9-4288edc71982`
+- ingest output summary: `run_ids=87722242-c373-4713-abe9-4288edc71982 events_inserted=24 queue_drained=2`
+- eval command: `omni eval run 87722242-c373-4713-abe9-4288edc71982`
+- eval output summary:
+  - `memory_effect`: `neutral`
+  - `claude_md_read`: `false`
+  - `memory_md_read`: `false`
+  - `expected_verification_executed`: `true`
+  - `first_expected_command`: `pnpm run test`
+  - `first_expected_command_position`: `17`
+  - observed expected commands: `pnpm run test`, `pnpm run build`, `pnpm run lint`
+  - `rediscovery_count`: `0`
+  - rediscovery before first expected command: none
+- dogfood comparison:
+  - command: `omni eval dogfood --cold fcdefb4a-2d39-46ed-ab1e-a1cae466e861 --warm 87722242-c373-4713-abe9-4288edc71982`
+  - `cold_rediscovery_count`: `10`
+  - `warm_rediscovery_count`: `0`
+  - `command_adopted`: `true`
+  - `improvement`: `true`
+  - `memory_effect_summary`: cold `failed_to_help`, warm `neutral`
+- outcome command:
+
+```powershell
+omni outcome mark 87722242-c373-4713-abe9-4288edc71982 --success --tests-passed --memory-effect neutral --task-type validation --summary "Tuned renderer warm run validated unihack with pnpm test as the first expected command and zero rediscovery before verification." --final-command "pnpm run test" --note "After the renderer retune, Claude ran pnpm run test first, then pnpm run build and pnpm run lint, with rediscovery_count=0 and dogfood improvement=true versus the old negative run."
+```
+
+- outcome_id: `outcome_2b2dceabf3ab43d6bfefa74a8472079e`
+
 ## Verdict
 
 BEHAVIOR PASS AFTER TUNING
 
 The first warm rerun was `PARTIAL`: it adopted expected project verification commands and reduced rediscovery from `10` to `3`, but still rediscovered project structure before the first expected command.
 
-After renderer tuning, the third warm run executed expected commands before any rediscovery and reduced rediscovery from `10` to `0`. Eval still classified `memory_effect` as `neutral` because it did not observe explicit `CLAUDE.md` or `memory.md` reads. The cold/warm dogfood comparison is the stronger behavior metric here and reports `improvement=true`.
+After renderer tuning, the third warm run executed expected commands before any rediscovery and reduced rediscovery from `10` to `0`, but its first expected command was `pnpm run build`. After the post-merge test-first retune, the next comparable warm run executed `pnpm run test` as the first expected command, then `pnpm run build` and `pnpm run lint`, with `rediscovery_count=0`. Eval still classified `memory_effect` as `neutral` because it did not observe explicit `CLAUDE.md` or `memory.md` reads. The cold/warm dogfood comparison is the stronger behavior metric here and reports `improvement=true`.
 
 ## Follow-up recommendation
 

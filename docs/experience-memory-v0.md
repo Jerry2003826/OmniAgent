@@ -197,6 +197,12 @@ configuration-first exploration. A single-run `memory_effect` may still be
 The later v0.2 closeout smoke is a separate evidence point: the latest
 comparable warm run reduced rediscovery from 10 events to 1, but still remained
 `PARTIAL` because one broad scan happened before the first expected command.
+The post-merge test-first renderer retune then produced a stronger comparable
+warm run: `87722242-c373-4713-abe9-4288edc71982` ran `pnpm run test` as the
+first expected command, ran `pnpm run build` and `pnpm run lint` afterward,
+reported `rediscovery_count=0`, and dogfood comparison against the old negative
+run still reported `improvement=true`. Its single-run `memory_effect` remained
+`neutral` because explicit `CLAUDE.md` or `memory.md` reads were not observable.
 
 This is still not Soul runtime, failure memory, verify automation, automatic
 memory evolution, LLM extraction, MCP, vector search, dashboard work, or an
@@ -266,9 +272,9 @@ Key evidence:
 - Known Failures rendering was validated with a real failed command path and a
   later warm run that avoided the old failed path.
 - The latest comparable dogfood check reported `improvement=true`,
-  `command_adopted=true`, and rediscovery reduced from 10 events to 1. It is
-  still a `PARTIAL` behavior proof because the warm run performed one broad scan
-  before the first expected command.
+  `command_adopted=true`, and rediscovery reduced from 10 events to 0. The warm
+  run executed `pnpm run test` as the first expected command before any
+  rediscovery, then ran build and lint.
 - Verify v0 selected `pnpm run test` in unihack and passed with exit code 0.
 - `omni outcome mark-from-verify 0caab82c-8ae8-40b9-9b51-a0b10a94ae8e
   --task-type validation` wrote an outcome with `tests_status=passed`,
