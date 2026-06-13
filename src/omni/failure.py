@@ -9,7 +9,7 @@ import shlex
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Iterable
 
 from omni import db
 from omni import eval as behavior_eval
@@ -129,36 +129,67 @@ def as_json(value: dict[str, Any]) -> str:
 
 
 def normalize_command(command: str | None) -> str | None:
-    if command is None:
-        return None
-    collapsed = _primary_command_segment(_collapse_whitespace(command))
-    if not collapsed:
+    collapsed = _normalizable_command(command)
+    if collapsed is None:
         return None
     tokens = _shell_tokens(collapsed)
     if not tokens:
         return None
     lowered = [token.lower() for token in tokens]
-    first = lowered[0]
+    known = _known_command_norm(lowered)
+    if known is not None:
+        return known
+    return _safe_text(collapsed, MAX_COMMAND_CHARS)
 
+
+def _normalizable_command(command: str | None) -> str | None:
+    if command is None:
+        return None
+    collapsed = _primary_command_segment(_collapse_whitespace(command))
+    return collapsed or None
+
+
+def _known_command_norm(lowered: list[str]) -> str | None:
+    first = lowered[0]
     if first in {"pnpm", "npm", "yarn"}:
-        if len(lowered) >= 3 and lowered[1] == "run":
-            return f"{first} run {lowered[2]}"
-        if len(lowered) >= 2:
-            return f"{first} run {lowered[1]}"
-        return first
+        return _package_command_norm(first, lowered)
     if first == "bun":
-        if len(lowered) >= 2:
-            return f"bun {lowered[1]}"
-        return "bun"
-    if first == "uv" and len(lowered) >= 3 and lowered[1] == "run":
-        return f"uv run {lowered[2]}"
-    if first in {"python", "python3", "py"} and len(lowered) >= 3 and lowered[1] == "-m":
-        return f"{first} -m {lowered[2]}"
+        return _single_arg_command_norm("bun", lowered)
+    if first == "uv":
+        return _uv_command_norm(lowered)
+    if first in {"python", "python3", "py"}:
+        return _python_module_norm(first, lowered)
     if first == "pytest":
         return "pytest"
     if first in {"bash", "sh", "pwsh", "powershell", "cmd"}:
         return first
-    return _safe_text(collapsed, MAX_COMMAND_CHARS)
+    return None
+
+
+def _package_command_norm(first: str, lowered: list[str]) -> str:
+    if len(lowered) >= 3 and lowered[1] == "run":
+        return f"{first} run {lowered[2]}"
+    if len(lowered) >= 2:
+        return f"{first} run {lowered[1]}"
+    return first
+
+
+def _single_arg_command_norm(first: str, lowered: list[str]) -> str:
+    if len(lowered) >= 2:
+        return f"{first} {lowered[1]}"
+    return first
+
+
+def _uv_command_norm(lowered: list[str]) -> str | None:
+    if len(lowered) >= 3 and lowered[1] == "run":
+        return f"uv run {lowered[2]}"
+    return None
+
+
+def _python_module_norm(first: str, lowered: list[str]) -> str | None:
+    if len(lowered) >= 3 and lowered[1] == "-m":
+        return f"{first} -m {lowered[2]}"
+    return None
 
 
 def _primary_command_segment(command: str) -> str:
@@ -402,33 +433,53 @@ def _input_metadata(value: Any) -> Any:
 
 
 def _nested_command(value: Any) -> str | None:
-    if isinstance(value, dict):
-        for key in ("command", "cmd"):
-            if key in value and isinstance(value[key], str):
-                return value[key]
-        for child in value.values():
-            found = _nested_command(child)
-            if found is not None:
-                return found
-    if isinstance(value, list):
-        for child in value:
-            found = _nested_command(child)
-            if found is not None:
-                return found
+    return _nested_find(value, _command_from_dict)
+
+
+def _command_from_dict(value: dict[str, Any]) -> str | None:
+    for key in ("command", "cmd"):
+        child = value.get(key)
+        if isinstance(child, str):
+            return child
     return None
 
 
 def _interrupted(value: Any) -> bool:
+    return _nested_match(value, _dict_has_interrupted)
+
+
+def _dict_has_interrupted(value: dict[str, Any]) -> bool:
+    return any(key.lower() == "interrupted" and child is True for key, child in value.items())
+
+
+def _nested_find(value: Any, reader: Callable[[dict[str, Any]], str | None]) -> str | None:
     if isinstance(value, dict):
-        for key, child in value.items():
-            if key.lower() == "interrupted" and child is True:
-                return True
-            if key in INPUT_CONTAINER_KEYS or key in OUTPUT_CONTAINER_KEYS:
-                if _interrupted(child):
-                    return True
-        return any(_interrupted(child) for child in value.values())
+        found = reader(value)
+        if found is not None:
+            return found
+        return _nested_find_in_children(value.values(), reader)
     if isinstance(value, list):
-        return any(_interrupted(child) for child in value)
+        return _nested_find_in_children(value, reader)
+    return None
+
+
+def _nested_find_in_children(
+    values: Iterable[Any], reader: Callable[[dict[str, Any]], str | None]
+) -> str | None:
+    for child in values:
+        found = _nested_find(child, reader)
+        if found is not None:
+            return found
+    return None
+
+
+def _nested_match(value: Any, predicate: Callable[[dict[str, Any]], bool]) -> bool:
+    if isinstance(value, dict):
+        return predicate(value) or any(
+            _nested_match(child, predicate) for child in value.values()
+        )
+    if isinstance(value, list):
+        return any(_nested_match(child, predicate) for child in value)
     return False
 
 

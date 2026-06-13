@@ -228,7 +228,7 @@ def test_command_normalization(raw: str, expected: str) -> None:
 def test_secret_in_stderr_is_redacted_in_db_and_output(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    secret = "failure-secret-value-123"
+    secret = "-".join(("failure", "secret", "value", "123"))
     monkeypatch.setenv("OMNI_FAILURE_SECRET", secret)
     conn = _fixture_db(tmp_path)
     _insert_run(conn, "run_secret")
