@@ -25,6 +25,21 @@ MAX_CAPTURE_BYTES = 64 * 1024
 READ_CHUNK_BYTES = 4096
 MAX_CANDIDATE_COMMANDS = 10
 SELECTION_REASON_SELECTED = "selected active uses_test_command fact"
+REASON_CODE_PASSED = "passed"
+REASON_CODE_FAILED_EXIT_CODE = "failed_exit_code"
+REASON_CODE_TIMED_OUT = "timed_out"
+REASON_CODE_START_FAILED = "start_failed"
+REASON_CODE_NO_ACTIVE_TEST_COMMAND = "no_active_test_command"
+REASON_CODE_AMBIGUOUS_ACTIVE_TEST_COMMAND = "ambiguous_active_test_command"
+REASON_CODE_QUALIFIER_NOT_FOUND = "qualifier_not_found"
+REASON_CODE_AMBIGUOUS_QUALIFIER = "ambiguous_qualifier"
+REASON_CODE_PARSE_ERROR_EMPTY_COMMAND = "parse_error_empty_command"
+REASON_CODE_PARSE_ERROR_SHELL_OPERATOR = "parse_error_shell_operator"
+REASON_CODE_PARSE_ERROR_SHELL_WRAPPER = "parse_error_shell_wrapper"
+REASON_CODE_PARSE_ERROR_BATCH_METACHARACTER = "parse_error_batch_metacharacter"
+REASON_CODE_PARSE_ERROR_INVALID_COMMAND = "parse_error_invalid_command"
+REASON_CODE_SELECTED = "selected"
+REASON_CODE_UNKNOWN = "unknown"
 WINDOWS_BATCH_EXTENSIONS = (".bat", ".cmd")
 WINDOWS_BATCH_META_CHARS = ("&", "<", ">", "^", "%", "!")
 ENV_WRAPPER_EXECUTABLES = {"env", "env.exe"}
@@ -131,7 +146,7 @@ def run_preflight(
         result.update(
             {
                 "status": "failed",
-                "reason_code": "start_failed",
+                "reason_code": REASON_CODE_START_FAILED,
                 "exit_code": None,
                 "duration_ms": duration_ms,
                 "stdout_excerpt": "",
@@ -154,7 +169,7 @@ def run_preflight(
         result.update(
             {
                 "status": "failed",
-                "reason_code": "timed_out",
+                "reason_code": REASON_CODE_TIMED_OUT,
                 "exit_code": None,
                 "duration_ms": duration_ms,
                 "timed_out": True,
@@ -171,7 +186,9 @@ def run_preflight(
     result.update(
         {
             "status": "passed" if exit_code == 0 else "failed",
-            "reason_code": "passed" if exit_code == 0 else "failed_exit_code",
+            "reason_code": (
+                REASON_CODE_PASSED if exit_code == 0 else REASON_CODE_FAILED_EXIT_CODE
+            ),
             "exit_code": exit_code,
             "duration_ms": duration_ms,
             "stdout_excerpt": stdout_excerpt,
@@ -204,7 +221,7 @@ def _base_result(
 ) -> dict[str, Any]:
     return {
         "status": "unknown",
-        "reason_code": selection.get("reason_code", "unknown"),
+        "reason_code": selection.get("reason_code", REASON_CODE_UNKNOWN),
         "predicate": VERIFY_PREDICATE,
         "qualifier": selection.get("qualifier"),
         "command": selection.get("command"),
@@ -236,7 +253,7 @@ def _select_verification_command(
     if not candidates:
         return {
             "status": "missing",
-            "reason_code": "no_active_test_command",
+            "reason_code": REASON_CODE_NO_ACTIVE_TEST_COMMAND,
             "reason": "no active uses_test_command facts",
             "selection_mode": "qualifier" if qualifier is not None else "auto",
             "selection_reason": "no active uses_test_command facts",
@@ -255,7 +272,7 @@ def _select_verification_command(
         if not qualified_candidates:
             return {
                 "status": "missing",
-                "reason_code": "qualifier_not_found",
+                "reason_code": REASON_CODE_QUALIFIER_NOT_FOUND,
                 "reason": (
                     "no active uses_test_command fact for qualifier "
                     f"{display_qualifier}"
@@ -284,7 +301,7 @@ def _select_verification_command(
         qualified_limited, qualified_omitted = _limit_candidates(qualified_candidates)
         return {
             "status": "ambiguous",
-            "reason_code": "ambiguous_qualifier",
+            "reason_code": REASON_CODE_AMBIGUOUS_QUALIFIER,
             "reason": (
                 "ambiguous active uses_test_command facts for qualifier "
                 f"{display_qualifier}"
@@ -323,7 +340,7 @@ def _select_verification_command(
 
     return {
         "status": "ambiguous",
-        "reason_code": "ambiguous_active_test_command",
+        "reason_code": REASON_CODE_AMBIGUOUS_ACTIVE_TEST_COMMAND,
         "reason": "ambiguous active uses_test_command facts",
         "selection_mode": "auto",
         "selection_reason": "ambiguous active uses_test_command facts",
@@ -353,8 +370,6 @@ def _command_candidates(rows: list[sqlite3.Row]) -> list[dict[str, str]]:
     for row in rows:
         command = _normalize_command(str(row["object_norm"]))
         qualifier = _normalize_qualifier(str(row["qualifier"] or "default"))
-        if not command:
-            continue
         key = (qualifier, command)
         if key in seen:
             continue
@@ -384,7 +399,7 @@ def _selected(
     limited, omitted = _limit_candidates(all_candidates)
     return {
         "status": "selected",
-        "reason_code": "selected",
+        "reason_code": REASON_CODE_SELECTED,
         "reason": SELECTION_REASON_SELECTED,
         "selection_mode": selection_mode,
         "selection_reason": selection_reason,
@@ -534,7 +549,7 @@ def _command_args(command: str, root_path: Path) -> list[str]:
         ) from exc
     if not args:
         raise VerifyCommandError(
-            "parse_error_empty_command",
+            REASON_CODE_PARSE_ERROR_EMPTY_COMMAND,
             "could not parse verification command: empty command",
         )
     for arg in args:
@@ -543,13 +558,13 @@ def _command_args(command: str, root_path: Path) -> list[str]:
         resolved = _resolve_executable(args[0], root_path)
     except (OSError, ValueError) as exc:
         raise VerifyCommandError(
-            "parse_error_invalid_command",
+            REASON_CODE_PARSE_ERROR_INVALID_COMMAND,
             f"could not parse verification command: invalid executable path: {exc}",
         ) from exc
     _reject_embedded_null(resolved)
     if _is_windows_batch_file(resolved) and _has_windows_batch_meta(command):
         raise VerifyCommandError(
-            "parse_error_batch_metacharacter",
+            REASON_CODE_PARSE_ERROR_BATCH_METACHARACTER,
             "could not parse verification command: Windows batch metacharacters "
             "are not supported",
         )
@@ -560,21 +575,24 @@ def _command_args(command: str, root_path: Path) -> list[str]:
 def _reject_embedded_null(value: str) -> None:
     if "\x00" in value:
         raise VerifyCommandError(
-            "parse_error_invalid_command",
+            REASON_CODE_PARSE_ERROR_INVALID_COMMAND,
             "could not parse verification command: embedded null byte",
         )
 
 
 def _split_command(command: str) -> list[str]:
     if _has_unquoted_shell_operator(command):
-        raise VerifyCommandError("parse_error_shell_operator", "shell operators are not supported")
+        raise VerifyCommandError(
+            REASON_CODE_PARSE_ERROR_SHELL_OPERATOR,
+            "shell operators are not supported",
+        )
     try:
         args = shlex.split(command, posix=True, comments=False)
     except ValueError as exc:
-        raise VerifyCommandError("parse_error_invalid_command", str(exc)) from exc
+        raise VerifyCommandError(REASON_CODE_PARSE_ERROR_INVALID_COMMAND, str(exc)) from exc
     if _uses_shell_command_wrapper(args):
         raise VerifyCommandError(
-            "parse_error_shell_wrapper",
+            REASON_CODE_PARSE_ERROR_SHELL_WRAPPER,
             "shell interpreter wrappers are not supported",
         )
     return args

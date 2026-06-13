@@ -138,6 +138,19 @@ def test_verify_preflight_reports_unknown_without_active_test_command(
     assert result["candidate_commands"] == []
 
 
+def test_verify_preflight_reports_empty_configured_command(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_fact(conn, "   ")
+
+    result = verify.run_preflight(conn, tmp_path)
+
+    assert result["status"] == "unknown"
+    assert result["reason_code"] == "parse_error_empty_command"
+    assert result["reason"] == "could not parse verification command: empty command"
+    assert result["stdout_excerpt"] == ""
+    assert result["stderr_excerpt"] == ""
+
+
 def test_verify_preflight_reports_qualifier_mode_for_empty_qualifier_without_facts(
     tmp_path: Path,
 ) -> None:

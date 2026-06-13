@@ -97,6 +97,29 @@ contain non-ASCII redaction markers such as U+27E8/U+27E9
 payloads with pwsh 7+, `Get-Content -Encoding utf8`, or
 `python -c "import json,sys; [print(json.loads(line)) for line in open(sys.argv[1], encoding='utf-8')]" .omni/spool/<file>`.
 
+## Verify Bridge
+
+After the warm run is ingested, run the read-only verification preflight:
+
+```bash
+omni verify
+```
+
+Expected result: `omni verify` selects the active `uses_test_command` fact and
+prints redacted JSON. A passing command exits 0 with `reason_code=passed`.
+If the selected command cannot start, it exits 1 with
+`reason_code=start_failed`; scripts should use the reason code to distinguish
+that from a command that ran and failed.
+
+To anchor the verify result in the user-marked Outcome Log, run:
+
+```bash
+omni outcome mark-from-verify <run_id> --task-type validation
+```
+
+This is the approved write bridge. `omni verify` itself remains SQLite read-only
+and writes no OmniMemory state.
+
 ## S12 Planted Secret Check
 
 The sandbox intentionally contains fake planted secrets in `.env` and

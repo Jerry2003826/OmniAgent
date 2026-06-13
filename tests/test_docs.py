@@ -22,6 +22,8 @@ def test_demo_doc_covers_manual_cold_warm_g6_and_definition_of_done() -> None:
         "omni inject claude --mode preview",
         "omni inject claude --mode link",
         "omni run show <run_id>",
+        "omni verify",
+        "omni outcome mark-from-verify <run_id> --task-type validation",
         "scripts/create_sandbox.ps1",
     ):
         assert command in text
@@ -30,6 +32,9 @@ def test_demo_doc_covers_manual_cold_warm_g6_and_definition_of_done() -> None:
         "Cold Run",
         "Warm Run",
         "G6 Robust Criterion",
+        "Verify Bridge",
+        "reason_code=start_failed",
+        "SQLite read-only",
         "S12 Planted Secret Check",
         "raw planted secrets",
         "working-tree-only redaction fixtures",
