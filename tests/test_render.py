@@ -719,10 +719,39 @@ def test_fast_path_uses_test_command_when_fact_exists(tmp_path: Path) -> None:
 
     assert text.index("## Fast Path") < text.index("## Commands")
     assert (
-        "For validation tasks, first run `pnpm run test` before checking environment "
-        "files, package scripts, README, or deployment docs. Do not rediscover "
-        "configuration or project structure before trying this known command unless "
-        "it fails or the user explicitly asks for configuration-first exploration."
+        "For validation tasks, first action: run `pnpm run test`. Do not run broad "
+        "file scans such as `Glob **`, `ls`, `find`, `tree`, or `rg --files` "
+        "before this command. Do not inspect package scripts, README, deployment "
+        "docs, or environment files first unless the command fails or the user "
+        "explicitly asks for configuration-first exploration."
+    ) in text
+
+
+def test_rediscovery_waste_fast_path_blocks_broad_scans_before_command(
+    tmp_path: Path,
+) -> None:
+    conn = connect(tmp_path)
+    add_fact(conn, predicate="uses_test_command", qualifier="node", object_norm="pnpm run test")
+    add_experience_candidate(
+        conn,
+        exp_cand_id="exp_cand_broad_scan_block",
+        run_id="run_broad_scan_block",
+        kind="rediscovery_waste",
+        claim="Memory context was available, but rediscovery happened.",
+        suggested_action=(
+            "For validation tasks, execute the known verification command before broad "
+            "README/package/deployment rediscovery."
+        ),
+    )
+    experience.approve_candidate(conn, "exp_cand_broad_scan_block")
+
+    result = render.render_project(conn, tmp_path)
+    text = result.path.read_text(encoding="utf-8")
+
+    assert "For validation tasks, first action: run `pnpm run test`." in text
+    assert (
+        "Do not run broad file scans such as `Glob **`, `ls`, `find`, `tree`, "
+        "or `rg --files` before this command."
     ) in text
 
 
@@ -750,11 +779,11 @@ def test_same_kind_notes_from_multiple_runs_render_one_guidance_line(
 
     assert (
         text.count(
-            "- For validation tasks, first run the known verification command before "
-            "checking environment files, package scripts, README, or deployment docs. "
-            "Do not rediscover configuration or project structure before trying it "
-            "unless it fails or the user explicitly asks for configuration-first "
-            "exploration."
+            "- For validation tasks, first action: run the known verification command. "
+            "Do not run broad file scans such as `Glob **`, `ls`, `find`, `tree`, "
+            "or `rg --files` before trying it. Do not inspect package scripts, README, "
+            "deployment docs, or environment files first unless it fails or the user "
+            "explicitly asks for configuration-first exploration."
         )
         == 1
     )
@@ -794,11 +823,11 @@ def test_fast_path_and_rediscovery_waste_notes_render_distinct_lines(
     )
     assert (
         text.count(
-            "- For validation tasks, first run the known verification command before "
-            "checking environment files, package scripts, README, or deployment docs. "
-            "Do not rediscover configuration or project structure before trying it "
-            "unless it fails or the user explicitly asks for configuration-first "
-            "exploration."
+            "- For validation tasks, first action: run the known verification command. "
+            "Do not run broad file scans such as `Glob **`, `ls`, `find`, `tree`, "
+            "or `rg --files` before trying it. Do not inspect package scripts, README, "
+            "deployment docs, or environment files first unless it fails or the user "
+            "explicitly asks for configuration-first exploration."
         )
         == 1
     )
@@ -827,13 +856,14 @@ def test_fast_path_uses_generic_wording_with_multiple_distinct_test_commands(
     text = result.path.read_text(encoding="utf-8")
 
     assert (
-        "For validation tasks, first run the known verification command before "
-        "checking environment files, package scripts, README, or deployment docs. "
-        "Do not rediscover configuration or project structure before trying it "
-        "unless it fails or the user explicitly asks for configuration-first exploration."
+        "For validation tasks, first action: run the known verification command. "
+        "Do not run broad file scans such as `Glob **`, `ls`, `find`, `tree`, "
+        "or `rg --files` before trying it. Do not inspect package scripts, README, "
+        "deployment docs, or environment files first unless it fails or the user "
+        "explicitly asks for configuration-first exploration."
     ) in text
-    assert "- For validation tasks, first run `pnpm run test`." not in text
-    assert "- For validation tasks, first run `pytest -q`." not in text
+    assert "- For validation tasks, first action: run `pnpm run test`." not in text
+    assert "- For validation tasks, first action: run `pytest -q`." not in text
 
 
 def test_fast_path_prefers_base_qualifier_when_node_test_commands_are_scoped(
@@ -870,10 +900,11 @@ def test_fast_path_prefers_base_qualifier_when_node_test_commands_are_scoped(
     text = result.path.read_text(encoding="utf-8")
 
     assert (
-        "For validation tasks, first run `pnpm run test` before checking environment "
-        "files, package scripts, README, or deployment docs. Do not rediscover "
-        "configuration or project structure before trying this known command unless "
-        "it fails or the user explicitly asks for configuration-first exploration."
+        "For validation tasks, first action: run `pnpm run test`. Do not run broad "
+        "file scans such as `Glob **`, `ls`, `find`, `tree`, or `rg --files` "
+        "before this command. Do not inspect package scripts, README, deployment "
+        "docs, or environment files first unless the command fails or the user "
+        "explicitly asks for configuration-first exploration."
     ) in text
 
 
@@ -1083,8 +1114,9 @@ def test_fast_path_uses_generic_known_verification_command_without_fact(
     text = result.path.read_text(encoding="utf-8")
 
     assert (
-        "For validation tasks, first run the known verification command before "
-        "checking environment files, package scripts, README, or deployment docs. "
-        "Do not rediscover configuration or project structure before trying it "
-        "unless it fails or the user explicitly asks for configuration-first exploration."
+        "For validation tasks, first action: run the known verification command. "
+        "Do not run broad file scans such as `Glob **`, `ls`, `find`, `tree`, "
+        "or `rg --files` before trying it. Do not inspect package scripts, README, "
+        "deployment docs, or environment files first unless it fails or the user "
+        "explicitly asks for configuration-first exploration."
     ) in text
