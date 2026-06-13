@@ -151,10 +151,11 @@ def _render_body(
         append_unique(("fact", fact["fact_id"]), _render_fact_line(fact))
 
     test_command = _known_test_command(facts)
+    post_test_commands = _known_post_test_commands(facts)
     for note in notes:
         append_unique(
             ("experience_note", note["note_id"]),
-            _render_experience_note_line(note, test_command),
+            _render_experience_note_line(note, test_command, post_test_commands),
         )
 
     for pattern in failure_patterns:
@@ -225,13 +226,15 @@ def _render_fact_line(fact: sqlite3.Row) -> tuple[str, str] | None:
 
 
 def _render_experience_note_line(
-    note: sqlite3.Row, test_command: str | None
+    note: sqlite3.Row,
+    test_command: str | None,
+    post_test_commands: tuple[str, ...],
 ) -> tuple[str, str] | None:
     task_type = note["task_type"]
     kind = note["kind"]
 
     if task_type == "validation" and kind == "rediscovery_waste":
-        return ("Fast Path", _rediscovery_waste_fast_path_line(test_command))
+        return ("Fast Path", _rediscovery_waste_fast_path_line(test_command, post_test_commands))
     if task_type == "validation" and kind == "fast_path":
         if test_command:
             return (
@@ -296,17 +299,30 @@ def _command_instruction(command_kind: str, qualifier: str, object_norm: str) ->
 
 
 def _known_test_command(facts: list[sqlite3.Row]) -> str | None:
-    test_facts = [
+    return _known_command_for_predicate(facts, "uses_test_command")
+
+
+def _known_post_test_commands(facts: list[sqlite3.Row]) -> tuple[str, ...]:
+    commands: list[str] = []
+    for predicate in ("uses_build_command", "uses_lint_command"):
+        command = _known_command_for_predicate(facts, predicate)
+        if command and command not in commands:
+            commands.append(command)
+    return tuple(commands)
+
+
+def _known_command_for_predicate(facts: list[sqlite3.Row], predicate: str) -> str | None:
+    matching_facts = [
         (str(fact["qualifier"]), _collapse_whitespace(str(fact["object_norm"])))
         for fact in facts
-        if fact["predicate"] == "uses_test_command"
+        if fact["predicate"] == predicate
     ]
-    commands = {command for _qualifier, command in test_facts if command}
+    commands = {command for _qualifier, command in matching_facts if command}
     if len(commands) == 1:
         return next(iter(commands))
     base_commands = {
         command
-        for qualifier, command in test_facts
+        for qualifier, command in matching_facts
         if command and ":" not in qualifier
     }
     if len(base_commands) == 1:
@@ -314,11 +330,14 @@ def _known_test_command(facts: list[sqlite3.Row]) -> str | None:
     return None
 
 
-def _rediscovery_waste_fast_path_line(command: str | None) -> str:
+def _rediscovery_waste_fast_path_line(
+    command: str | None,
+    post_test_commands: tuple[str, ...],
+) -> str:
     if command:
         return (
             f"- For validation tasks, the first shell command must be {_inline_code(command)}. "
-            f"{_build_lint_before_command_clause(command)}"
+            f"{_build_lint_before_command_clause(command, post_test_commands)}"
             "Do not run broad file scans such as `Glob **`, `ls`, `find`, `tree`, or "
             "`rg --files` before this command. Do not inspect package scripts, README, "
             "deployment docs, or environment files first unless the command fails or the "
@@ -335,10 +354,25 @@ def _rediscovery_waste_fast_path_line(command: str | None) -> str:
     )
 
 
-def _build_lint_before_command_clause(command: str) -> str:
-    if _collapse_whitespace(command).startswith("pnpm "):
-        return f"Do not run `pnpm run build` or `pnpm run lint` before {_inline_code(command)}. "
+def _build_lint_before_command_clause(
+    command: str,
+    post_test_commands: tuple[str, ...],
+) -> str:
+    if post_test_commands:
+        return (
+            f"Do not run {_inline_command_list(post_test_commands)} "
+            f"before {_inline_code(command)}. "
+        )
     return "Do not run build or lint before this command. "
+
+
+def _inline_command_list(commands: tuple[str, ...]) -> str:
+    values = [_inline_code(command) for command in commands]
+    if len(values) == 1:
+        return values[0]
+    if len(values) == 2:
+        return f"{values[0]} or {values[1]}"
+    return f"{', '.join(values[:-1])}, or {values[-1]}"
 
 
 def _inline_code(value: str) -> str:

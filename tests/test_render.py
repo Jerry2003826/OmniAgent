@@ -720,12 +720,12 @@ def test_fast_path_uses_test_command_when_fact_exists(tmp_path: Path) -> None:
     assert text.index("## Fast Path") < text.index("## Commands")
     assert (
         "For validation tasks, the first shell command must be `pnpm run test`. "
-        "Do not run `pnpm run build` or `pnpm run lint` before `pnpm run test`. "
-        "Do not run broad file scans such as `Glob **`, `ls`, `find`, `tree`, "
-        "or `rg --files` before this command. Do not inspect package scripts, "
-        "README, deployment docs, or environment files first unless the command "
-        "fails or the user explicitly asks for configuration-first exploration. "
-        "After tests pass, run build and lint if broader validation is needed."
+        "Do not run build or lint before this command. Do not run broad file scans "
+        "such as `Glob **`, `ls`, `find`, `tree`, or `rg --files` before this "
+        "command. Do not inspect package scripts, README, deployment docs, or "
+        "environment files first unless the command fails or the user explicitly "
+        "asks for configuration-first exploration. After tests pass, run build and "
+        "lint if broader validation is needed."
     ) in text
 
 
@@ -783,6 +783,33 @@ def test_rediscovery_waste_fast_path_requires_test_before_build_or_lint(
     assert "For validation tasks, the first shell command must be `pnpm run test`." in text
     assert "Do not run `pnpm run build` or `pnpm run lint` before `pnpm run test`." in text
     assert "After tests pass, run build and lint if broader validation is needed." in text
+
+
+def test_rediscovery_waste_fast_path_uses_active_build_lint_facts(
+    tmp_path: Path,
+) -> None:
+    conn = connect(tmp_path)
+    add_fact(conn, predicate="uses_test_command", qualifier="node", object_norm="pnpm test")
+    add_fact(conn, predicate="uses_build_command", qualifier="node", object_norm="pnpm run build:ci")
+    add_fact(conn, predicate="uses_lint_command", qualifier="node", object_norm="pnpm run lint:ci")
+    add_experience_candidate(
+        conn,
+        exp_cand_id="exp_cand_custom_build_lint",
+        run_id="run_custom_build_lint",
+        kind="rediscovery_waste",
+        claim="Memory context was available, but rediscovery happened.",
+        suggested_action=(
+            "For validation tasks, execute the known verification command before broad "
+            "README/package/deployment rediscovery."
+        ),
+    )
+    experience.approve_candidate(conn, "exp_cand_custom_build_lint")
+
+    result = render.render_project(conn, tmp_path)
+    text = result.path.read_text(encoding="utf-8")
+
+    assert "Do not run `pnpm run build:ci` or `pnpm run lint:ci` before `pnpm test`." in text
+    assert "Do not run `pnpm run build` or `pnpm run lint` before `pnpm test`." not in text
 
 
 def test_rediscovery_waste_fast_path_uses_generic_build_lint_for_non_pnpm_command(
@@ -963,12 +990,12 @@ def test_fast_path_prefers_base_qualifier_when_node_test_commands_are_scoped(
 
     assert (
         "For validation tasks, the first shell command must be `pnpm run test`. "
-        "Do not run `pnpm run build` or `pnpm run lint` before `pnpm run test`. "
-        "Do not run broad file scans such as `Glob **`, `ls`, `find`, `tree`, "
-        "or `rg --files` before this command. Do not inspect package scripts, "
-        "README, deployment docs, or environment files first unless the command "
-        "fails or the user explicitly asks for configuration-first exploration. "
-        "After tests pass, run build and lint if broader validation is needed."
+        "Do not run build or lint before this command. Do not run broad file scans "
+        "such as `Glob **`, `ls`, `find`, `tree`, or `rg --files` before this "
+        "command. Do not inspect package scripts, README, deployment docs, or "
+        "environment files first unless the command fails or the user explicitly "
+        "asks for configuration-first exploration. After tests pass, run build and "
+        "lint if broader validation is needed."
     ) in text
 
 
