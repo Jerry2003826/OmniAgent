@@ -229,7 +229,9 @@ It executes commands without a shell. Verify scans for unquoted shell operators
 such as `&&`, `||`, `;`, and `|` before tokenizing the stored command; quoted
 operator-like characters inside normal arguments remain allowed.
 Shell interpreter wrappers such as `bash -c` or `cmd /c` are unsupported because
-they would reintroduce shell semantics inside an argument.
+they would reintroduce shell semantics inside an argument. This includes common
+PowerShell command-execution aliases, Windows `.exe` POSIX-shell names such as
+`bash.exe`, and shell wrappers delegated through `env`.
 
 This is intentionally not automatic success detection. It does not mark
 outcomes, extract failure candidates, create experience candidates, render

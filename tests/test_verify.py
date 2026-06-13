@@ -192,14 +192,32 @@ def test_verify_command_args_preserves_hash_arguments(
     ]
 
 
+@pytest.mark.parametrize(
+    "command",
+    [
+        'bash -c "echo before && echo after"',
+        'bash -cl "echo before && echo after"',
+        'bash.exe -c "echo before && echo after"',
+        'sh.exe -c "echo before && echo after"',
+        'cmd.exe /c "echo before && echo after"',
+        'pwsh -e "ZQBjAGgAbwAgAGIAZQBmAG8AcgBl"',
+        'pwsh -ec "ZQBjAGgAbwAgAGIAZQBmAG8AcgBl"',
+        'pwsh -CommandWithArgs "echo before && echo after"',
+        'pwsh -cwa "echo before && echo after"',
+        'env bash -c "echo before && echo after"',
+        'env FOO=bar bash -c "echo before && echo after"',
+        '/usr/bin/env pwsh -Command "echo before && echo after"',
+    ],
+)
 def test_verify_command_args_rejects_shell_interpreter_wrappers(
     tmp_path: Path,
+    command: str,
 ) -> None:
     with pytest.raises(
         ValueError,
         match="could not parse verification command: shell interpreter wrappers",
     ):
-        verify._command_args('bash -c "echo before && echo after"', tmp_path)
+        verify._command_args(command, tmp_path)
 
 
 def test_verify_command_args_does_not_reject_non_command_shell_flags(

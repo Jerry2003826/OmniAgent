@@ -25,20 +25,43 @@ READ_CHUNK_BYTES = 4096
 MAX_CANDIDATE_COMMANDS = 10
 WINDOWS_BATCH_EXTENSIONS = (".bat", ".cmd")
 WINDOWS_BATCH_META_CHARS = ("&", "<", ">", "^", "%", "!")
-SHELL_WRAPPER_EXECUTABLES = {
+ENV_WRAPPER_EXECUTABLES = {"env", "env.exe"}
+POSIX_SHELL_WRAPPER_EXECUTABLES = {
     "bash",
-    "cmd",
-    "cmd.exe",
+    "bash.exe",
     "dash",
+    "dash.exe",
     "ksh",
+    "ksh.exe",
+    "sh",
+    "sh.exe",
+    "zsh",
+    "zsh.exe",
+}
+CMD_WRAPPER_EXECUTABLES = {"cmd", "cmd.exe"}
+POWERSHELL_WRAPPER_EXECUTABLES = {
     "powershell",
     "powershell.exe",
     "pwsh",
     "pwsh.exe",
-    "sh",
-    "zsh",
 }
-SHELL_WRAPPER_COMMAND_FLAGS = {"-c", "/c", "-command", "-encodedcommand"}
+SHELL_WRAPPER_EXECUTABLES = (
+    POSIX_SHELL_WRAPPER_EXECUTABLES
+    | CMD_WRAPPER_EXECUTABLES
+    | POWERSHELL_WRAPPER_EXECUTABLES
+)
+POWERSHELL_COMMAND_FLAGS = {
+    "-c",
+    "-command",
+    "-commandwithargs",
+    "-cwa",
+    "-e",
+    "-ec",
+    "-encodedcommand",
+    "-enc",
+}
+POSIX_SHELL_CLUSTER_FLAGS = set("abefhilmnptuvxc")
+ENV_OPTIONS_WITH_VALUE = {"-u", "--unset", "-C", "--chdir", "-S", "--split-string"}
 
 
 def connect_project_readonly(root: Path | str | None = None) -> sqlite3.Connection:
@@ -397,24 +420,71 @@ def _uses_shell_command_wrapper(args: list[str]) -> bool:
     if not args:
         return False
     executable = _executable_name(args[0])
+    if executable in ENV_WRAPPER_EXECUTABLES:
+        return _uses_shell_command_wrapper(_env_delegated_args(args[1:]))
     if executable not in SHELL_WRAPPER_EXECUTABLES:
         return False
-    return any(_is_shell_command_flag(arg) for arg in args[1:])
+    return any(_is_shell_command_flag(executable, arg) for arg in args[1:])
+
+
+def _env_delegated_args(args: list[str]) -> list[str]:
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg == "--":
+            return args[index + 1 :]
+        if arg == "-":
+            index += 1
+            continue
+        if _is_env_assignment(arg):
+            index += 1
+            continue
+        if _is_env_option_with_joined_value(arg):
+            index += 1
+            continue
+        if arg in ENV_OPTIONS_WITH_VALUE:
+            index += 2
+            continue
+        if arg.startswith("-"):
+            index += 1
+            continue
+        return args[index:]
+    return []
+
+
+def _is_env_assignment(value: str) -> bool:
+    name, separator, _ = value.partition("=")
+    return bool(separator and name) and not name.startswith("-")
+
+
+def _is_env_option_with_joined_value(value: str) -> bool:
+    if any(value.startswith(option + "=") for option in ENV_OPTIONS_WITH_VALUE):
+        return True
+    return any(
+        value.startswith(option) and value != option
+        for option in ("-u", "-C", "-S")
+    )
 
 
 def _executable_name(value: str) -> str:
     return value.replace("\\", "/").rsplit("/", 1)[-1].lower()
 
 
-def _is_shell_command_flag(value: str) -> bool:
+def _is_shell_command_flag(executable: str, value: str) -> bool:
     normalized = value.lower()
-    if normalized in SHELL_WRAPPER_COMMAND_FLAGS:
+    if executable in CMD_WRAPPER_EXECUTABLES:
+        return normalized == "/c"
+    if executable in POWERSHELL_WRAPPER_EXECUTABLES:
+        return normalized in POWERSHELL_COMMAND_FLAGS
+    if executable not in POSIX_SHELL_WRAPPER_EXECUTABLES:
+        return False
+    if normalized == "-c":
         return True
-    return (
-        normalized.startswith("-")
-        and not normalized.startswith("--")
-        and normalized.endswith("c")
-    )
+    if not normalized.startswith("-") or normalized.startswith("--"):
+        return False
+    flags = normalized[1:]
+    # POSIX shells accept clustered short flags such as -cl and -lc.
+    return "c" in flags and set(flags) <= POSIX_SHELL_CLUSTER_FLAGS
 
 
 def _resolve_executable(executable: str, root_path: Path) -> str:
