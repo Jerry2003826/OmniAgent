@@ -1,18 +1,19 @@
-# OmniMemory v0.3 / Verify hardening
+# OmniMemory v0.4 / Verify Polish
 
 ## Goal
 
-Current phase: OmniMemory v0.3 / Verify hardening.
+Current phase: OmniMemory v0.4 / Verify Polish.
 
 Build ONE closed loop:
 
 Claude Code run → redacted trace → deterministic facts → generated memory block → measurably changed behavior in the next run.
 
-v0.3 keeps the v0.2 loop intact and hardens the read-only verification bridge:
-`omni verify` may select a known project-level verification command by exact
-qualifier, emits stable machine-readable reason codes, and still writes no
-OmniMemory state. `omni outcome mark-from-verify` remains the approved write
-bridge from verify output into the Outcome Log.
+v0.4 keeps the v0.2/v0.3 loop intact and polishes the read-only verification
+bridge. This phase may clarify `omni verify` exit-code semantics, centralize
+verify reason-code literals, add narrow missing regression coverage, and update
+manual acceptance docs. `omni verify` still writes no OmniMemory state.
+`omni outcome mark-from-verify` remains the approved write bridge from verify
+output into the Outcome Log.
 
 ## Non-goals, hard this week
 
