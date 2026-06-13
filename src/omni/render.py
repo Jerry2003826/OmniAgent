@@ -174,7 +174,7 @@ def _render_body(
         "Project",
     )
     for section in section_order:
-        if section == "Known Failures" and not sections[section]:
+        if not sections[section]:
             continue
         lines.append((f"## {section}", None))
         for dep, line in sections[section]:

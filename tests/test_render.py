@@ -208,8 +208,10 @@ def test_render_generates_byte_stable_memory_without_internal_metadata(tmp_path:
     assert first_text.startswith("<!-- omni:generated render_ver=1 sha256=")
     assert "# Project memory" in first_text
     assert "## Commands" in first_text
-    assert "## Boundaries" in first_text
     assert "## Project" in first_text
+    assert "## Boundaries" not in first_text
+    assert "## Fast Path" not in first_text
+    assert "## Experience Notes" not in first_text
     assert "Use pnpm run test for Node tests." in first_text
     assert "Use pnpm run build to build Node." in first_text
     assert first_text.index("Use pnpm run test") < first_text.index("Use pnpm run build")
@@ -217,6 +219,25 @@ def test_render_generates_byte_stable_memory_without_internal_metadata(tmp_path:
     assert "fact_" not in first_text
     assert "confidence" not in first_text.lower()
     assert "created_at" not in first_text.lower()
+
+
+def test_render_omits_empty_sections(tmp_path: Path) -> None:
+    conn = connect(tmp_path)
+
+    result = render.render_project(conn, tmp_path)
+    text = result.path.read_text(encoding="utf-8")
+
+    assert text.startswith("<!-- omni:generated render_ver=1 sha256=")
+    assert "# Project memory" in text
+    for section in (
+        "## Fast Path",
+        "## Commands",
+        "## Known Failures",
+        "## Experience Notes",
+        "## Boundaries",
+        "## Project",
+    ):
+        assert section not in text
 
 
 def test_active_failure_patterns_render_known_failures_section(tmp_path: Path) -> None:
@@ -252,7 +273,7 @@ def test_active_failure_patterns_render_known_failures_section(tmp_path: Path) -
     assert "## Known Failures" in text
     assert text.index("## Fast Path") < text.index("## Commands")
     assert text.index("## Commands") < text.index("## Known Failures")
-    assert text.index("## Known Failures") < text.index("## Experience Notes")
+    assert "## Experience Notes" not in text
     assert (
         "- If `pnpm run build` fails with `exit 1: dependency resolution failed`: "
         "Inspect the lockfile before changing package managers."
