@@ -58,7 +58,8 @@ def render_project(
     path = base / GENERATED_PATH
     facts = _active_facts(conn)
     notes = _active_experience_notes(conn)
-    body, line_hashes = _render_body(facts, notes)
+    failure_patterns = _active_failure_patterns(conn)
+    body, line_hashes = _render_body(facts, notes, failure_patterns)
     text = _with_header(body)
     rendered_diff = _diff(path, text)
 
@@ -109,13 +110,27 @@ def _active_experience_notes(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     ).fetchall()
 
 
+def _active_failure_patterns(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    return conn.execute(
+        """
+        SELECT pattern_id, scope, command_norm, failure_kind, error_signature,
+               error_signature_hash, summary, suggested_action
+        FROM failure_patterns
+        WHERE status = 'active'
+        ORDER BY command_norm, failure_kind, error_signature_hash, summary, suggested_action
+        """
+    ).fetchall()
+
+
 def _render_body(
     facts: list[sqlite3.Row],
     notes: list[sqlite3.Row],
+    failure_patterns: list[sqlite3.Row],
 ) -> tuple[str, dict[Dependency, str]]:
     sections: dict[str, list[tuple[Dependency, str]]] = {
         "Commands": [],
         "Fast Path": [],
+        "Known Failures": [],
         "Experience Notes": [],
         "Boundaries": [],
         "Project": [],
@@ -142,9 +157,25 @@ def _render_body(
             _render_experience_note_line(note, test_command),
         )
 
+    for pattern in failure_patterns:
+        append_unique(
+            ("failure_pattern", pattern["pattern_id"]),
+            _render_failure_pattern_line(pattern),
+        )
+
     lines: list[tuple[str, Dependency | None]] = [("# Project memory", None), ("", None)]
     omitted = False
-    for section in ("Fast Path", "Commands", "Experience Notes", "Boundaries", "Project"):
+    section_order = (
+        "Fast Path",
+        "Commands",
+        "Known Failures",
+        "Experience Notes",
+        "Boundaries",
+        "Project",
+    )
+    for section in section_order:
+        if section == "Known Failures" and not sections[section]:
+            continue
         lines.append((f"## {section}", None))
         for dep, line in sections[section]:
             # Once the budget is hit, stop content lines in every later section
@@ -220,6 +251,27 @@ def _render_experience_note_line(
     return ("Experience Notes", f"- {action}")
 
 
+def _render_failure_pattern_line(pattern: sqlite3.Row) -> tuple[str, str] | None:
+    error_signature = _collapse_whitespace(str(pattern["error_signature"] or ""))
+    suggested_action = _plain_text(str(pattern["suggested_action"] or ""))
+    if not error_signature or not suggested_action:
+        return None
+
+    command = _collapse_whitespace(str(pattern["command_norm"] or ""))
+    if command:
+        return (
+            "Known Failures",
+            (
+                f"- If {_inline_code(command)} fails with {_inline_code(error_signature)}, "
+                f"{suggested_action}"
+            ),
+        )
+    return (
+        "Known Failures",
+        f"- If this failure recurs with {_inline_code(error_signature)}, {suggested_action}",
+    )
+
+
 def _with_header(body: str) -> str:
     return f"<!-- omni:generated render_ver={RENDER_VER} sha256={_sha256(body)} DO NOT EDIT -->\n{body}"
 
@@ -284,6 +336,10 @@ def _rediscovery_waste_fast_path_line(command: str | None) -> str:
 
 def _inline_code(value: str) -> str:
     return f"`{_collapse_whitespace(value).replace('`', '')}`"
+
+
+def _plain_text(value: str) -> str:
+    return _collapse_whitespace(value).replace("`", "")
 
 
 def _collapse_whitespace(value: str) -> str:
