@@ -144,7 +144,7 @@ def _render_body(
 
     lines: list[tuple[str, Dependency | None]] = [("# Project memory", None), ("", None)]
     omitted = False
-    for section in ("Commands", "Fast Path", "Experience Notes", "Boundaries", "Project"):
+    for section in ("Fast Path", "Commands", "Experience Notes", "Boundaries", "Project"):
         lines.append((f"## {section}", None))
         for dep, line in sections[section]:
             # Once the budget is hit, stop content lines in every later section
@@ -200,12 +200,7 @@ def _render_experience_note_line(
     kind = note["kind"]
 
     if task_type == "validation" and kind == "rediscovery_waste":
-        return (
-            "Fast Path",
-            "- For validation tasks, run "
-            f"{_verification_command_text(test_command)} before broad "
-            "README/package/deployment rediscovery.",
-        )
+        return ("Fast Path", _rediscovery_waste_fast_path_line(test_command))
     if task_type == "validation" and kind == "fast_path":
         if test_command:
             return (
@@ -271,6 +266,20 @@ def _verification_command_text(command: str | None) -> str:
     if command:
         return _inline_code(command)
     return "the known verification command"
+
+
+def _rediscovery_waste_fast_path_line(command: str | None) -> str:
+    if command:
+        return (
+            f"- For validation tasks, first run {_inline_code(command)}. Do not rediscover "
+            "package scripts, README, or deployment docs before trying this known command "
+            "unless it fails or the user explicitly asks for exploration."
+        )
+    return (
+        "- For validation tasks, first run the known verification command. Do not rediscover "
+        "package scripts, README, or deployment docs before trying it unless it fails or the "
+        "user explicitly asks for exploration."
+    )
 
 
 def _inline_code(value: str) -> str:

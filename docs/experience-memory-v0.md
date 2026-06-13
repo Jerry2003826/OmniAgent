@@ -163,6 +163,18 @@ guessing one command. Identical rendered guidance lines are deduplicated, so
 approving the same kind of candidate from multiple runs keeps a single line in
 `memory.md`.
 
+The first real unihack experience-loop rerun was `PARTIAL`: an active
+`rediscovery_waste` experience note reduced rediscovery from 10 events to 3 and
+the warm run adopted expected project commands, but it still performed a broad
+`Glob **`, read `package.json`, and scanned directories before the first
+expected command. Renderer v0.2 therefore places `Fast Path` before `Commands`
+and uses stronger validation wording: for rediscovery-waste validation notes, first try
+the known verification command and do not rediscover package scripts, README, or
+deployment docs before trying it unless it fails or the user explicitly asks for
+exploration. A single-run `memory_effect` may still be `neutral` when Claude Code
+memory import is not observable as an explicit `Read` event; cold/warm dogfood
+comparison is the stronger behavior metric.
+
 This is still not Soul runtime, failure memory, verify automation, automatic
 memory evolution, LLM extraction, MCP, vector search, dashboard work, or an
 adapter layer. Experience notes are a small reviewed bridge from eval/outcome

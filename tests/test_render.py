@@ -390,9 +390,11 @@ def test_fast_path_uses_test_command_when_fact_exists(tmp_path: Path) -> None:
     result = render.render_project(conn, tmp_path)
     text = result.path.read_text(encoding="utf-8")
 
+    assert text.index("## Fast Path") < text.index("## Commands")
     assert (
-        "For validation tasks, run `pnpm run test` before broad "
-        "README/package/deployment rediscovery."
+        "For validation tasks, first run `pnpm run test`. Do not rediscover "
+        "package scripts, README, or deployment docs before trying this known "
+        "command unless it fails or the user explicitly asks for exploration."
     ) in text
 
 
@@ -420,8 +422,9 @@ def test_same_kind_notes_from_multiple_runs_render_one_guidance_line(
 
     assert (
         text.count(
-            "- For validation tasks, run the known verification command before broad "
-            "README/package/deployment rediscovery."
+            "- For validation tasks, first run the known verification command. Do not "
+            "rediscover package scripts, README, or deployment docs before trying it "
+            "unless it fails or the user explicitly asks for exploration."
         )
         == 1
     )
@@ -461,8 +464,9 @@ def test_fast_path_and_rediscovery_waste_notes_render_distinct_lines(
     )
     assert (
         text.count(
-            "- For validation tasks, run the known verification command before broad "
-            "README/package/deployment rediscovery."
+            "- For validation tasks, first run the known verification command. Do not "
+            "rediscover package scripts, README, or deployment docs before trying it "
+            "unless it fails or the user explicitly asks for exploration."
         )
         == 1
     )
@@ -491,11 +495,12 @@ def test_fast_path_uses_generic_wording_with_multiple_distinct_test_commands(
     text = result.path.read_text(encoding="utf-8")
 
     assert (
-        "For validation tasks, run the known verification command before broad "
-        "README/package/deployment rediscovery."
+        "For validation tasks, first run the known verification command. Do not "
+        "rediscover package scripts, README, or deployment docs before trying it "
+        "unless it fails or the user explicitly asks for exploration."
     ) in text
-    assert "- For validation tasks, run `pnpm run test` before broad" not in text
-    assert "- For validation tasks, run `pytest -q` before broad" not in text
+    assert "- For validation tasks, first run `pnpm run test`." not in text
+    assert "- For validation tasks, first run `pytest -q`." not in text
 
 
 def test_fast_path_prefers_base_qualifier_when_node_test_commands_are_scoped(
@@ -532,8 +537,9 @@ def test_fast_path_prefers_base_qualifier_when_node_test_commands_are_scoped(
     text = result.path.read_text(encoding="utf-8")
 
     assert (
-        "For validation tasks, run `pnpm run test` before broad "
-        "README/package/deployment rediscovery."
+        "For validation tasks, first run `pnpm run test`. Do not rediscover "
+        "package scripts, README, or deployment docs before trying this known "
+        "command unless it fails or the user explicitly asks for exploration."
     ) in text
 
 
@@ -679,12 +685,6 @@ def test_render_truncation_does_not_promote_lower_priority_lines(
 ) -> None:
     conn = connect(tmp_path)
     monkeypatch.setattr(render, "MAX_BODY_CHARS", 220)
-    add_fact(
-        conn,
-        predicate="uses_test_command",
-        qualifier="node",
-        object_norm="pnpm run test -- --reporter verbose --bail --maxWorkers 4",
-    )
     add_experience_candidate(
         conn,
         exp_cand_id="exp_cand_trunc_priority",
@@ -692,16 +692,20 @@ def test_render_truncation_does_not_promote_lower_priority_lines(
         kind="fast_path",
     )
     experience.approve_candidate(conn, "exp_cand_trunc_priority")
-    add_fact(conn, predicate="boundary_rule", qualifier="default", object_norm="x")
+    add_fact(
+        conn,
+        predicate="boundary_rule",
+        qualifier="default",
+        object_norm="x" * 160,
+    )
 
     result = render.render_project(conn, tmp_path)
     text = result.path.read_text(encoding="utf-8")
 
-    assert "for Node tests." in text
+    assert "prefer the known verification command early" in text
     assert "Additional entries omitted due to size limit." in text
-    # The Fast Path line was dropped for size; the lower-priority boundary line
+    # Fast Path is the highest-priority section; a lower-priority boundary line
     # must not take its place.
-    assert "prefer running" not in text
     assert "boundary rule: x" not in text
 
 
@@ -745,6 +749,7 @@ def test_fast_path_uses_generic_known_verification_command_without_fact(
     text = result.path.read_text(encoding="utf-8")
 
     assert (
-        "For validation tasks, run the known verification command before broad "
-        "README/package/deployment rediscovery."
+        "For validation tasks, first run the known verification command. Do not "
+        "rediscover package scripts, README, or deployment docs before trying it "
+        "unless it fails or the user explicitly asks for exploration."
     ) in text
