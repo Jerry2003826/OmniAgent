@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shlex
 import shutil
 import sqlite3
@@ -22,6 +23,9 @@ MAX_OUTPUT_CHARS = 4000
 MAX_CAPTURE_BYTES = 64 * 1024
 READ_CHUNK_BYTES = 4096
 MAX_CANDIDATE_COMMANDS = 10
+SHELL_OPERATOR_TOKENS = ("&&", "||", ";", "|")
+WINDOWS_BATCH_EXTENSIONS = (".bat", ".cmd")
+WINDOWS_BATCH_META_CHARS = ("&", "<", ">", "^", "%", "!")
 
 
 def connect_project_readonly(root: Path | str | None = None) -> sqlite3.Connection:
@@ -61,7 +65,7 @@ def run_preflight(
 
     command = selection["_command_raw"]
     try:
-        command_args = _command_args(command)
+        command_args = _command_args(command, root_path)
     except ValueError as exc:
         result["status"] = "unknown"
         result["reason"] = str(exc)
@@ -321,8 +325,8 @@ def _read_limited(stream: Any, buffer: bytearray) -> None:
         stream.close()
 
 
-def _command_args(command: str) -> list[str]:
-    if any(operator in command for operator in ("&&", "||", ";", "|")):
+def _command_args(command: str, root_path: Path) -> list[str]:
+    if any(operator in command for operator in SHELL_OPERATOR_TOKENS):
         raise ValueError("could not parse verification command: shell operators are not supported")
     try:
         args = shlex.split(command, posix=True)
@@ -330,12 +334,46 @@ def _command_args(command: str) -> list[str]:
         raise ValueError(f"could not parse verification command: {exc}") from exc
     if not args:
         raise ValueError("could not parse verification command: empty command")
-    args[0] = _resolve_executable(args[0])
+    resolved = _resolve_executable(args[0], root_path)
+    if _is_windows_batch_file(resolved) and _has_windows_batch_meta(command):
+        raise ValueError(
+            "could not parse verification command: Windows batch metacharacters "
+            "are not supported"
+        )
+    args[0] = resolved
     return args
 
 
-def _resolve_executable(executable: str) -> str:
-    return shutil.which(executable) or executable
+def _resolve_executable(executable: str, root_path: Path) -> str:
+    if _has_path_separator(executable):
+        executable_path = Path(executable)
+        if not executable_path.is_absolute():
+            executable_path = root_path / executable_path
+        return shutil.which(str(executable_path)) or str(executable_path)
+    return shutil.which(executable, path=_path_for_cwd(root_path)) or executable
+
+
+def _path_for_cwd(root_path: Path) -> str:
+    entries: list[str] = []
+    for entry in os.environ.get("PATH", "").split(os.pathsep):
+        if not entry:
+            entries.append(str(root_path))
+            continue
+        path = Path(entry)
+        entries.append(str(path if path.is_absolute() else root_path / path))
+    return os.pathsep.join(entries)
+
+
+def _has_path_separator(value: str) -> bool:
+    return "/" in value or "\\" in value
+
+
+def _is_windows_batch_file(value: str) -> bool:
+    return value.lower().endswith(WINDOWS_BATCH_EXTENSIONS)
+
+
+def _has_windows_batch_meta(command: str) -> bool:
+    return any(char in command for char in WINDOWS_BATCH_META_CHARS)
 
 
 def _normalize_command(command: str) -> str:

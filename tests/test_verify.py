@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import sys
 from pathlib import Path
@@ -159,17 +160,54 @@ def test_verify_preflight_bounds_large_output_while_running(tmp_path: Path) -> N
     assert result["stdout_excerpt"].endswith("...[truncated]")
 
 
-def test_verify_command_args_resolves_path_executable(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_which(executable: str) -> str | None:
+def test_verify_command_args_resolves_path_executable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_which(executable: str, path: str | None = None) -> str | None:
         return "C:\\Tools\\pnpm.CMD" if executable == "pnpm" else None
 
     monkeypatch.setattr(verify.shutil, "which", fake_which)
 
-    assert verify._command_args("pnpm run test") == [
+    assert verify._command_args("pnpm run test", tmp_path) == [
         "C:\\Tools\\pnpm.CMD",
         "run",
         "test",
     ]
+
+
+def test_verify_command_args_resolves_relative_path_entries_against_verify_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    absolute_bin = tmp_path / "global-bin"
+    monkeypatch.setenv("PATH", f"node_modules/.bin{os.pathsep}{absolute_bin}")
+    calls: list[str | None] = []
+
+    def fake_which(executable: str, path: str | None = None) -> str | None:
+        calls.append(path)
+        return str(root / "node_modules" / ".bin" / "pytest") if executable == "pytest" else None
+
+    monkeypatch.setattr(verify.shutil, "which", fake_which)
+
+    args = verify._command_args("pytest -q", root)
+    path_entries = str(calls[0]).split(os.pathsep)
+
+    assert args == [str(root / "node_modules" / ".bin" / "pytest"), "-q"]
+    assert path_entries[0] == str(root / "node_modules" / ".bin")
+    assert path_entries[1] == str(absolute_bin)
+
+
+def test_verify_command_args_rejects_batch_metacharacters_for_batch_targets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fake_which(executable: str, path: str | None = None) -> str | None:
+        return "C:\\Tools\\pnpm.CMD" if executable == "pnpm" else None
+
+    monkeypatch.setattr(verify.shutil, "which", fake_which)
+
+    with pytest.raises(ValueError, match="Windows batch metacharacters"):
+        verify._command_args("pnpm run test -- --grep ok & type .env", tmp_path)
 
 
 def test_verify_json_redacts_stdout_and_stderr(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
