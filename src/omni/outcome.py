@@ -73,11 +73,7 @@ def mark_outcome(
         (run_id,),
     ).fetchone()
     now = _now()
-    evidence_json = json.dumps(
-        _redact_json(evidence or {"source": "user", "run_id": run_id}),
-        sort_keys=True,
-        separators=(",", ":"),
-    )
+    evidence_json = _evidence_json(evidence or {"source": "user", "run_id": run_id})
     values = {
         "run_id": run_id,
         "task_type": task_type,
@@ -238,6 +234,15 @@ def _redact_json(value: Any) -> Any:
     if value is None or isinstance(value, (bool, int, float)):
         return value
     return _redact_text(str(value))
+
+
+def _evidence_json(value: dict[str, Any]) -> str:
+    encoded = json.dumps(
+        _redact_json(value),
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return redact(encoded).data.decode("utf-8", errors="replace")
 
 
 def _decode_evidence(value: str) -> dict[str, Any]:

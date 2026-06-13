@@ -150,6 +150,29 @@ def test_mark_outcome_redacts_free_text_before_db_and_output(
     assert "REDACTED:" in encoded
 
 
+def test_mark_outcome_redacts_serialized_evidence_before_db_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    canary = "outcome-evidence-sentinel-123456"
+    monkeypatch.setenv("OMNI_OUTCOME_EVIDENCE_SECRET", canary)
+    conn = _fixture_db(tmp_path)
+    _insert_run(conn, "run_evidence_key")
+
+    result = outcome.mark_outcome(
+        conn,
+        "run_evidence_key",
+        evidence={"source": "user", "run_id": "run_evidence_key", canary: "key"},
+    )
+    row = conn.execute(
+        "SELECT evidence FROM outcomes WHERE run_id = 'run_evidence_key'"
+    ).fetchone()
+    encoded = outcome.as_json(result)
+
+    assert canary not in row["evidence"]
+    assert canary not in encoded
+    assert "REDACTED:" in row["evidence"]
+
+
 def test_cli_mark_and_show_outputs_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
     conn = _fixture_db(tmp_path)
     _insert_run(conn, "run_cli")
