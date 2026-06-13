@@ -283,6 +283,84 @@ def test_eval_run_ignores_context_fields_for_hard_eval_signals(tmp_path: Path) -
     assert result["expected_verification_executed"] is False
 
 
+def test_eval_run_ignores_input_containers_under_unknown_contexts(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_fact(conn, "uses_test_command", "pnpm run test")
+    _insert_event(
+        conn,
+        "unknown_context_run",
+        1,
+        tool="Bash",
+        meta={
+            "transcript": {
+                "input": {"command": "pnpm run test"},
+                "parameters": {"file_path": "README.md"},
+            }
+        },
+    )
+    conn.commit()
+
+    result = eval_module.evaluate_run(tmp_path, "unknown_context_run")
+
+    assert result["observed_commands"] == []
+    assert result["rediscovery_events_before_first_expected_command"] == []
+    assert result["expected_verification_executed"] is False
+
+
+def test_eval_run_ignores_output_alias_input_containers(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_fact(conn, "uses_test_command", "pnpm run test")
+    _insert_event(
+        conn,
+        "output_alias_run",
+        1,
+        tool="Bash",
+        meta={
+            "tool_result": {
+                "input": {"command": "pnpm run test"},
+                "parameters": {"file_path": "package.json"},
+            },
+            "response": {"args": {"pattern": "**/*"}},
+        },
+    )
+    conn.commit()
+
+    result = eval_module.evaluate_run(tmp_path, "output_alias_run")
+
+    assert result["observed_commands"] == []
+    assert result["rediscovery_events_before_first_expected_command"] == []
+    assert result["expected_verification_executed"] is False
+
+
+def test_eval_run_reads_reconciled_hook_input_for_hard_eval_signals(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_fact(conn, "uses_test_command", "pnpm run test")
+    _insert_event(
+        conn,
+        "reconciled_run",
+        1,
+        tool="Bash",
+        meta={
+            "transcript": {
+                "toolUseResult": {
+                    "command": "pnpm run test",
+                    "stdout": "README.md\npackage.json",
+                }
+            },
+            "hook": {"tool_input": {"command": "pnpm run test"}},
+        },
+    )
+    conn.commit()
+
+    result = eval_module.evaluate_run(tmp_path, "reconciled_run")
+
+    assert result["observed_commands"] == [
+        {"seq": 1, "tool": "Bash", "command": "pnpm run test"}
+    ]
+    assert result["rediscovery_events_before_first_expected_command"] == []
+    assert result["expected_verification_executed"] is True
+
+
 def test_eval_run_marks_memory_seen_without_expected_command_when_intent_unknown(
     tmp_path: Path,
 ) -> None:

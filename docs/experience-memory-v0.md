@@ -30,11 +30,12 @@ is detectable, the active expected commands from `uses_test_command`,
 the observed shell commands, the first expected command position, rediscovery
 events before that position, and a `memory_effect` classification.
 
-Hard classification signals come from tool input fields such as `tool_input`,
-`input`, `parameters`, or `args` with command, path, or glob-pattern values.
-Tool output, response, and message-context fields are ignored for hard command
-and rediscovery detection so stdout or historical content does not look like an
-agent action.
+Hard classification signals come only from explicit tool input containers at the
+event root, or under the reconciled `hook` wrapper: `tool_input`, `input`,
+`parameters`, or `args` with command, path, or glob-pattern values. Tool output,
+response, transcript, and message-context fields are ignored for hard command and
+rediscovery detection so stdout or historical content does not look like an agent
+action.
 
 JSON output is bounded. The report includes the first 100 observed commands and
 the first 100 rediscovery events, plus `observed_commands_omitted` and

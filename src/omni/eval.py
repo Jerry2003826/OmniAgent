@@ -32,6 +32,7 @@ MAX_REDISCOVERY_EVENTS = 100
 MAX_COMMAND_CHARS = 200
 MAX_DETAIL_CHARS = 200
 INPUT_KEYS = {"args", "input", "parameters", "tool_input"}
+INPUT_WRAPPER_KEYS = {"hook"}
 INPUT_FIELD_KEYS = {
     "cmd",
     "command",
@@ -40,19 +41,9 @@ INPUT_FIELD_KEYS = {
     "path",
     "pattern",
 }
-OUTPUT_KEYS = {
-    "output",
-    "result",
-    "stderr",
-    "stdout",
-    "tool_response",
-    "toolUseResult",
-}
-CONTEXT_KEYS = {"content", "message", "messages"}
 INPUT_KEY_LOOKUP = {key.lower() for key in INPUT_KEYS}
+INPUT_WRAPPER_KEY_LOOKUP = {key.lower() for key in INPUT_WRAPPER_KEYS}
 INPUT_FIELD_KEY_LOOKUP = {key.lower() for key in INPUT_FIELD_KEYS}
-OUTPUT_KEY_LOOKUP = {key.lower() for key in OUTPUT_KEYS}
-CONTEXT_KEY_LOOKUP = {key.lower() for key in CONTEXT_KEYS}
 PACKAGE_MANAGERS = {"bun", "npm", "pnpm", "yarn"}
 
 
@@ -454,34 +445,39 @@ def _nested_command(value: Any) -> Any:
 
 
 def _input_metadata(value: Any) -> Any:
-    return _input_metadata_from(value, in_input_container=False)
+    if not isinstance(value, dict):
+        return {}
+    collected: list[Any] = []
+    _collect_input_metadata(value, collected)
+    for key, child in value.items():
+        if key.lower() in INPUT_WRAPPER_KEY_LOOKUP:
+            _collect_input_metadata(child, collected)
+    return collected
 
 
-def _input_metadata_from(value: Any, *, in_input_container: bool) -> Any:
+def _collect_input_metadata(value: Any, collected: list[Any]) -> None:
+    if not isinstance(value, dict):
+        return
+    for key, child in value.items():
+        if not _is_input_container_key(key):
+            continue
+        fields = _input_container_fields(child)
+        if _has_content(fields):
+            collected.append(fields)
+
+
+def _input_container_fields(value: Any) -> Any:
     if isinstance(value, dict):
-        collected = []
-        for key, child in value.items():
-            if _is_output_key(key) or _is_context_key(key):
-                continue
-            if in_input_container and _is_input_field_key(key):
-                collected.append({key: child})
-                continue
-            if _is_input_container_key(key):
-                nested = _input_metadata_from(child, in_input_container=True)
-                if _has_content(nested):
-                    collected.append(nested)
-                continue
-            nested = _input_metadata_from(child, in_input_container=False)
-            if _has_content(nested):
-                collected.append(nested)
-        return collected
+        return [
+            {key: child}
+            for key, child in value.items()
+            if _is_input_field_key(key)
+        ]
     if isinstance(value, list):
         return [
             nested
             for child in value
-            if _has_content(
-                nested := _input_metadata_from(child, in_input_container=in_input_container)
-            )
+            if _has_content(nested := _input_container_fields(child))
         ]
     return {}
 
@@ -492,14 +488,6 @@ def _is_input_container_key(key: str) -> bool:
 
 def _is_input_field_key(key: str) -> bool:
     return key.lower() in INPUT_FIELD_KEY_LOOKUP
-
-
-def _is_output_key(key: str) -> bool:
-    return key.lower() in OUTPUT_KEY_LOOKUP
-
-
-def _is_context_key(key: str) -> bool:
-    return key.lower() in CONTEXT_KEY_LOOKUP
 
 
 def _has_content(value: Any) -> bool:
