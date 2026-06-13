@@ -138,6 +138,18 @@ def test_verify_preflight_reports_unknown_without_active_test_command(
     assert result["candidate_commands"] == []
 
 
+def test_verify_preflight_reports_qualifier_mode_for_empty_qualifier_without_facts(
+    tmp_path: Path,
+) -> None:
+    conn = _fixture_db(tmp_path)
+
+    result = verify.run_preflight(conn, tmp_path, qualifier="")
+
+    assert result["status"] == "unknown"
+    assert result["reason_code"] == "no_active_test_command"
+    assert result["selection_mode"] == "qualifier"
+
+
 def test_verify_preflight_does_not_execute_shell_operator_commands(tmp_path: Path) -> None:
     conn = _fixture_db(tmp_path)
     _insert_fact(conn, "echo before && echo after")
@@ -446,6 +458,35 @@ def test_verify_preflight_reports_capture_limit_truncation(tmp_path: Path) -> No
     assert result["status"] == "passed"
     assert result["stdout_truncated"] is True
     assert result["stdout_excerpt"] == ""
+
+
+def test_terminate_process_tree_kills_direct_posix_process_if_group_kill_misses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[tuple[str, int, int | None]] = []
+
+    class FakeProcess:
+        pid = 1234
+
+        def poll(self) -> None:
+            return None
+
+        def kill(self) -> None:
+            calls.append(("kill", self.pid, None))
+
+    def fake_killpg(pid: int, sig: int) -> None:
+        calls.append(("killpg", pid, sig))
+
+    monkeypatch.setattr(verify.os, "name", "posix")
+    monkeypatch.setattr(verify.os, "killpg", fake_killpg, raising=False)
+    monkeypatch.setattr(verify.signal, "SIGKILL", 9, raising=False)
+
+    verify._terminate_process_tree(FakeProcess())  # type: ignore[arg-type]
+
+    assert calls == [
+        ("killpg", 1234, 9),
+        ("kill", 1234, None),
+    ]
 
 
 def test_verify_preflight_reports_timeout_with_reason_code(tmp_path: Path) -> None:

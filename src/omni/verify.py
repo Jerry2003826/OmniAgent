@@ -238,7 +238,7 @@ def _select_verification_command(
             "status": "missing",
             "reason_code": "no_active_test_command",
             "reason": "no active uses_test_command facts",
-            "selection_mode": "qualifier" if qualifier else "auto",
+            "selection_mode": "qualifier" if qualifier is not None else "auto",
             "selection_reason": "no active uses_test_command facts",
             "candidate_commands": [],
             "candidate_commands_omitted": 0,
@@ -513,10 +513,14 @@ def _terminate_process_tree(process: subprocess.Popen[bytes]) -> None:
     else:
         try:
             os.killpg(process.pid, signal.SIGKILL)
-            return
         except OSError:
             pass
-    process.kill()
+        if process.poll() is not None:
+            return
+    try:
+        process.kill()
+    except OSError:
+        pass
 
 
 def _command_args(command: str, root_path: Path) -> list[str]:
