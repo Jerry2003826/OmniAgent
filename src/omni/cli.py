@@ -28,7 +28,7 @@ def build_parser() -> argparse.ArgumentParser:
     subcommands = parser.add_subparsers(
         dest="command",
         required=True,
-        metavar="{init,status,render,inject,eval,outcome,experience,failure}",
+        metavar="{init,status,render,inject,eval,outcome,experience,failure,verify}",
     )
     init_parser = subcommands.add_parser("init", help="Create a project-local .omni layout")
     init_parser.add_argument("--install-claude-hooks", action="store_true")
@@ -74,6 +74,8 @@ def build_parser() -> argparse.ArgumentParser:
     inject_subcommands = inject_parser.add_subparsers(dest="inject_command", required=True)
     inject_claude_parser = inject_subcommands.add_parser("claude")
     inject_claude_parser.add_argument("--mode", choices=("preview", "link"), required=True)
+    verify_parser = subcommands.add_parser("verify")
+    verify_parser.add_argument("--timeout-seconds", type=int, default=120)
     eval_parser = subcommands.add_parser("eval")
     eval_subcommands = eval_parser.add_subparsers(dest="eval_command", required=True)
     eval_run_parser = eval_subcommands.add_parser("run")
@@ -340,6 +342,34 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         _print_diff(result.body if args.mode == "preview" else result.diff)
         return 0
+
+    if args.command == "verify":
+        from omni import verify
+
+        root = project_root()
+        try:
+            conn = verify.connect_project_readonly(root)
+        except (FileNotFoundError, ValueError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        try:
+            try:
+                result = verify.run_preflight(
+                    conn,
+                    root,
+                    timeout_seconds=args.timeout_seconds,
+                )
+            except ValueError as exc:
+                print(str(exc), file=sys.stderr)
+                return 2
+        finally:
+            conn.close()
+        _print_diff(verify.as_json(result))
+        if result["status"] == "passed":
+            return 0
+        if result["status"] == "failed":
+            return 1
+        return 2
 
     if args.command == "eval":
         from omni import eval as behavior_eval

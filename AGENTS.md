@@ -82,9 +82,12 @@ Violations require reverting the commit.
    - `omni failure show`
    - `omni failure pattern ls`
    - `omni failure pattern show`
+   - `omni verify`
 
    Read-only commands open SQLite in read-only mode and never run
    migrations; migrations run only inside approved write commands.
+   `omni verify` is SQLite read-only but executes the selected project
+   verification command; it writes no OmniMemory state.
 
 4. Never modify user content in `CLAUDE.md` outside the managed region:
 
