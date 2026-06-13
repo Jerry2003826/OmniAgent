@@ -193,3 +193,27 @@ Known Failures Renderer v0 renders only active failure patterns into
 `memory.md`; pending and rejected failure candidates do not render.
 Pattern Lifecycle v0 can retire an active pattern so it stops rendering, but it
 does not implement supersede or automatic evolution.
+
+## Verify v0 Preflight
+
+Verify v0 adds a manual preflight command:
+
+```bash
+omni verify
+```
+
+`omni verify` opens the OmniMemory SQLite database in read-only mode, selects an
+active project-level `uses_test_command` fact, executes that command from the
+project root, and prints redacted JSON with the command, exit code, duration,
+bounded stdout/stderr excerpts, timeout state, and a simple
+`passed`/`failed`/`unknown` status.
+
+This is intentionally not automatic success detection. It does not mark
+outcomes, extract failure candidates, create experience candidates, render
+memory, or write any OmniMemory state. A failed preflight exits non-zero so a
+human or script can stop, inspect the JSON evidence, and decide whether to mark
+an outcome or extract a failure candidate.
+
+Current scope limitation: Verify v0 only uses project-level
+`uses_test_command` facts. If several active test commands disagree and there is
+no single unscoped command to prefer, it reports `unknown` instead of guessing.
