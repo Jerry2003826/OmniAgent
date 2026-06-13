@@ -266,3 +266,6 @@ end-to-end v0.2 proof that redacted evidence can be evaluated, reviewed into
 memory, rendered back to agents, verified with a known command, and anchored in
 Outcome Log evidence without adding runtime services or automatic success
 inference.
+
+See `docs/v02-closeout-audit-2026-06-14.md` for the local v0.2 closeout audit,
+CLI smoke checks, read-only hash guard, and remaining stage checklist.
