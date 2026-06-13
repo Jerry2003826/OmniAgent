@@ -236,3 +236,30 @@ so the preflight command itself remains SQLite read-only.
 Current scope limitation: Verify v0 only uses project-level
 `uses_test_command` facts. If several active test commands disagree and there is
 no single unscoped command to prefer, it reports `unknown` instead of guessing.
+
+## Stage Closeout Evidence
+
+The first v0.2 Experience/Failure Memory foundation loop was closed against the
+real unihack dogfood project on 2026-06-13.
+
+Key evidence:
+
+- Old negative run: `fcdefb4a-2d39-46ed-ab1e-a1cae466e861` evaluated as
+  `failed_to_help`.
+- Experience notes reduced rediscovery and caused expected command adoption in
+  later warm runs, with single-run `memory_effect` still sometimes `neutral`
+  when explicit memory reads were not observable.
+- Known Failures rendering was validated with a real failed command path and a
+  later warm run that avoided the old failed path.
+- Verify v0 selected `pnpm run test` in unihack and passed with exit code 0.
+- `omni outcome mark-from-verify 0caab82c-8ae8-40b9-9b51-a0b10a94ae8e
+  --task-type validation --memory-effect neutral` wrote an outcome with
+  `tests_status=passed`, `status=unknown`, `final_command=pnpm run test`, and
+  verify-sourced evidence that excluded stdout and stderr excerpts.
+- `omni audit secrets` passed after the mark-from-verify write.
+
+This is still not causal proof for all future runs. It is a concrete
+end-to-end v0.2 proof that redacted evidence can be evaluated, reviewed into
+memory, rendered back to agents, verified with a known command, and anchored in
+Outcome Log evidence without adding runtime services or automatic success
+inference.
