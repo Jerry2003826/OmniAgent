@@ -269,6 +269,42 @@ def test_failure_memory_v0_doc_covers_candidate_only_scope() -> None:
         assert phrase in text
 
 
+def test_known_failure_ab_dogfood_template_covers_control_treatment_verdicts() -> None:
+    doc = REPO_ROOT / "docs" / "dogfood-known-failure-ab-template.md"
+
+    text = doc.read_text(encoding="utf-8")
+
+    for phrase in (
+        "# Known Failure A/B Dogfood Template",
+        "## Context",
+        "OmniMemory commit:",
+        "project:",
+        "failure pattern id:",
+        "old failed run id:",
+        "known failure memory line:",
+        "## Control / cold run",
+        "memory disabled or Known Failure absent:",
+        "did it use old failed command:",
+        "failure extract created:",
+        "audit result:",
+        "## Treatment / warm run",
+        "Known Failure present:",
+        "did it avoid old failed command:",
+        "## Verdict",
+        "PASS",
+        "PARTIAL",
+        "FAIL",
+        "INCONCLUSIVE",
+        "cold/control reproduces or attempts the old failed path",
+        "warm/treatment avoids the old failed path",
+        "warm uses the safer command family",
+        "audit secrets passes",
+        "created=0 is necessary but not sufficient by itself",
+        "Do not claim causal proof without controlled cold/warm evidence",
+    ):
+        assert phrase in text
+
+
 def test_minimal_linux_ci_workflow_runs_pytest_on_311_and_312() -> None:
     workflow = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 

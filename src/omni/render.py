@@ -253,7 +253,7 @@ def _render_experience_note_line(
 
 def _render_failure_pattern_line(pattern: sqlite3.Row) -> tuple[str, str] | None:
     error_signature = _collapse_whitespace(str(pattern["error_signature"] or ""))
-    suggested_action = _action_clause(str(pattern["suggested_action"] or ""))
+    suggested_action = _plain_text(str(pattern["suggested_action"] or ""))
     if not error_signature or not suggested_action:
         return None
 
@@ -262,13 +262,13 @@ def _render_failure_pattern_line(pattern: sqlite3.Row) -> tuple[str, str] | None
         return (
             "Known Failures",
             (
-                f"- If {_inline_code(command)} fails with {_inline_code(error_signature)}, "
+                f"- If {_inline_code(command)} fails with {_inline_code(error_signature)}: "
                 f"{suggested_action}"
             ),
         )
     return (
         "Known Failures",
-        f"- If this failure recurs with {_inline_code(error_signature)}, {suggested_action}",
+        f"- If this failure recurs with {_inline_code(error_signature)}: {suggested_action}",
     )
 
 
@@ -334,18 +334,6 @@ def _inline_code(value: str) -> str:
 
 def _plain_text(value: str) -> str:
     return _collapse_whitespace(value).replace("`", "")
-
-
-def _action_clause(value: str) -> str:
-    text = _plain_text(value)
-    if not text:
-        return ""
-    first_word = text.split(" ", 1)[0]
-    if len(first_word) > 1 and first_word.isupper():
-        return text
-    if text[0].isupper():
-        return text[0].lower() + text[1:]
-    return text
 
 
 def _collapse_whitespace(value: str) -> str:
