@@ -215,9 +215,41 @@ def test_experience_memory_v0_doc_covers_behavior_eval_v0() -> None:
         "Experience Notes + Renderer v0",
         "approved candidates into active experience",
         "active notes can affect future agent behavior",
+        "Failure Memory v0 Pointer",
+        "omni failure extract",
+        "approved failure-pattern rendering comes later",
         "not Soul runtime",
         "review-gated",
         "bridge from eval/outcome evidence to future memory rendering",
+    ):
+        assert phrase in text
+
+
+def test_failure_memory_v0_doc_covers_candidate_only_scope() -> None:
+    doc = REPO_ROOT / "docs" / "failure-memory-v0.md"
+
+    text = doc.read_text(encoding="utf-8")
+
+    for phrase in (
+        "Failure Memory v0",
+        "Failure Candidate v0",
+        "omni failure extract <run_id>",
+        "omni failure ls",
+        "omni failure show <failure_cand_id>",
+        "omni failure reject <failure_cand_id>",
+        "no approval flow",
+        "does not create approved failure patterns",
+        "does not use an LLM",
+        "does not parse raw artifacts",
+        "redacted event metadata",
+        "PostToolUseFailure",
+        "non-zero exit codes",
+        "interrupted",
+        "error_signature_hash",
+        "Rejected candidates are not recreated",
+        "Behavior Eval v0",
+        "Outcome Log v0",
+        "Experience Notes Renderer v0",
     ):
         assert phrase in text
 

@@ -28,7 +28,7 @@ def build_parser() -> argparse.ArgumentParser:
     subcommands = parser.add_subparsers(
         dest="command",
         required=True,
-        metavar="{init,status,render,inject,eval,outcome,experience}",
+        metavar="{init,status,render,inject,eval,outcome,experience,failure}",
     )
     init_parser = subcommands.add_parser("init", help="Create a project-local .omni layout")
     init_parser.add_argument("--install-claude-hooks", action="store_true")
@@ -151,6 +151,24 @@ def build_parser() -> argparse.ArgumentParser:
     for command in ("approve", "reject"):
         experience_review_parser = experience_subcommands.add_parser(command)
         experience_review_parser.add_argument("exp_cand_id")
+    failure_parser = subcommands.add_parser("failure")
+    failure_subcommands = failure_parser.add_subparsers(
+        dest="failure_command",
+        required=True,
+        metavar="{extract,ls,show,reject}",
+    )
+    failure_extract_parser = failure_subcommands.add_parser("extract")
+    failure_extract_parser.add_argument("run_id")
+    failure_ls_parser = failure_subcommands.add_parser("ls")
+    failure_ls_parser.add_argument(
+        "--state",
+        choices=("pending", "rejected", "all"),
+        default="pending",
+    )
+    failure_show_parser = failure_subcommands.add_parser("show")
+    failure_show_parser.add_argument("failure_cand_id")
+    failure_reject_parser = failure_subcommands.add_parser("reject")
+    failure_reject_parser.add_argument("failure_cand_id")
 
     _hide_subcommands(
         subcommands,
@@ -391,6 +409,39 @@ def main(argv: list[str] | None = None) -> int:
         finally:
             conn.close()
         _print_diff(experience.as_json(result))
+        return 0
+
+    if args.command == "failure":
+        from omni import failure
+
+        try:
+            if args.failure_command in ("ls", "show"):
+                conn = failure.connect_project_readonly(project_root())
+            else:
+                conn = failure.connect_project(project_root())
+        except (FileNotFoundError, ValueError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        try:
+            try:
+                if args.failure_command == "extract":
+                    candidates = failure.extract_candidates(conn, args.run_id)
+                    result = {"created": len(candidates), "candidates": candidates}
+                elif args.failure_command == "ls":
+                    result = {"candidates": failure.list_candidates(conn, args.state)}
+                elif args.failure_command == "show":
+                    result = failure.show_candidate(conn, args.failure_cand_id)
+                elif args.failure_command == "reject":
+                    result = failure.reject_candidate(conn, args.failure_cand_id)
+                else:
+                    parser.error(f"unknown failure command: {args.failure_command}")
+                    return 2
+            except ValueError as exc:
+                print(str(exc), file=sys.stderr)
+                return 2
+        finally:
+            conn.close()
+        _print_diff(failure.as_json(result))
         return 0
 
     parser.error(f"unknown command: {args.command}")

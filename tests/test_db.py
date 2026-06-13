@@ -21,6 +21,7 @@ EXPECTED_TABLES = {
     "events",
     "experience_candidates",
     "experience_notes",
+    "failure_candidates",
     "fact_candidates",
     "facts",
     "meta",
@@ -64,7 +65,7 @@ def test_migration_creates_schema_and_seed_meta(tmp_path: Path) -> None:
 
     assert table_names(conn) == EXPECTED_TABLES
     assert dict(conn.execute("SELECT key, value FROM meta")) == {
-        "schema_version": "4",
+        "schema_version": "5",
         "commit_seq": "0",
         "redaction_ver": "1",
     }
@@ -98,7 +99,7 @@ def test_migration_002_adds_outcomes_to_existing_schema_1_database(tmp_path: Pat
     db.migrate(conn)
 
     assert "outcomes" in table_names(conn)
-    assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == "4"
+    assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == "5"
     indexes = conn.execute("PRAGMA index_list(outcomes)").fetchall()
     assert any(index["name"] == "uq_outcomes_run_id" and index["unique"] for index in indexes)
     assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
@@ -115,7 +116,7 @@ def test_migration_003_adds_experience_candidates_to_existing_schema_2_database(
     db.migrate(conn)
 
     assert "experience_candidates" in table_names(conn)
-    assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == "4"
+    assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == "5"
     indexes = conn.execute("PRAGMA index_list(experience_candidates)").fetchall()
     index_names = {index["name"] for index in indexes}
     assert {
@@ -138,7 +139,7 @@ def test_migration_004_adds_experience_notes_to_existing_schema_3_database(
     db.migrate(conn)
 
     assert "experience_notes" in table_names(conn)
-    assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == "4"
+    assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == "5"
     indexes = conn.execute("PRAGMA index_list(experience_notes)").fetchall()
     index_names = {index["name"] for index in indexes}
     assert {
@@ -147,6 +148,35 @@ def test_migration_004_adds_experience_notes_to_existing_schema_3_database(
     }.issubset(index_names)
     assert any(
         index["name"] == "uq_experience_notes_active_source" and index["unique"]
+        for index in indexes
+    )
+    assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+def test_migration_005_adds_failure_candidates_to_existing_schema_4_database(
+    tmp_path: Path,
+) -> None:
+    conn = db.connect(tmp_path / ".omni" / "omni.sqlite3")
+    conn.executescript(db.migration_sql("001_init.sql"))
+    conn.executescript(db.migration_sql("002_outcomes.sql"))
+    conn.executescript(db.migration_sql("003_experience_candidates.sql"))
+    conn.executescript(db.migration_sql("004_experience_notes.sql"))
+    conn.commit()
+
+    db.migrate(conn)
+
+    assert "failure_candidates" in table_names(conn)
+    assert conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0] == "5"
+    indexes = conn.execute("PRAGMA index_list(failure_candidates)").fetchall()
+    index_names = {index["name"] for index in indexes}
+    assert {
+        "idx_failure_candidates_state",
+        "idx_failure_candidates_run",
+        "idx_failure_candidates_signature",
+        "uq_failure_candidate_run_signature",
+    }.issubset(index_names)
+    assert any(
+        index["name"] == "uq_failure_candidate_run_signature" and index["unique"]
         for index in indexes
     )
     assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
@@ -162,17 +192,17 @@ def test_failed_migration_rolls_back_completely_and_can_retry(
         "sql": (
             "CREATE TABLE migration_probe(x TEXT);\n"
             "INSERT INTO missing_table VALUES(1);\n"
-            "UPDATE meta SET value = '5' WHERE key = 'schema_version';\n"
+            "UPDATE meta SET value = '6' WHERE key = 'schema_version';\n"
         )
     }
 
     def fake_migration_sql(filename: str) -> str:
-        if filename == "005_probe.sql":
+        if filename == "006_probe.sql":
             return probe_sql["sql"]
         return original_migration_sql(filename)
 
-    monkeypatch.setattr(db, "MIGRATIONS", db.MIGRATIONS + (("5", "005_probe.sql"),))
-    monkeypatch.setattr(db, "LATEST_SCHEMA_VERSION", "5")
+    monkeypatch.setattr(db, "MIGRATIONS", db.MIGRATIONS + (("6", "006_probe.sql"),))
+    monkeypatch.setattr(db, "LATEST_SCHEMA_VERSION", "6")
     monkeypatch.setattr(db, "migration_sql", fake_migration_sql)
 
     with pytest.raises(sqlite3.OperationalError):
@@ -180,19 +210,19 @@ def test_failed_migration_rolls_back_completely_and_can_retry(
 
     assert (
         conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0]
-        == "4"
+        == "5"
     )
     assert "migration_probe" not in table_names(conn)
 
     probe_sql["sql"] = (
         "CREATE TABLE migration_probe(x TEXT);\n"
-        "UPDATE meta SET value = '5' WHERE key = 'schema_version';\n"
+        "UPDATE meta SET value = '6' WHERE key = 'schema_version';\n"
     )
     db.migrate(conn)
 
     assert (
         conn.execute("SELECT value FROM meta WHERE key = 'schema_version'").fetchone()[0]
-        == "5"
+        == "6"
     )
     assert "migration_probe" in table_names(conn)
 

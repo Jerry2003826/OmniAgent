@@ -533,7 +533,7 @@ def test_cli_experience_ls_on_outdated_schema_is_read_only_and_exits_clearly(
     check.close()
 
     assert code == 2
-    assert "OmniMemory schema is outdated (found 3, need 4)" in captured.err
+    assert "OmniMemory schema is outdated (found 3, need 5)" in captured.err
     assert "omni render" in captured.err
     assert captured.out == ""
     assert version == "3"

@@ -18,7 +18,7 @@ NO multi-engine router.
 NO Computer Use.  
 NO automatic evolution.  
 NO answer cache.  
-No new tables beyond approved migrations for the current phase. Approved now: 001_init.sql, 002_outcomes.sql, 003_experience_candidates.sql, and 004_experience_notes.sql.
+No new tables beyond approved migrations for the current phase. Approved now: 001_init.sql, 002_outcomes.sql, 003_experience_candidates.sql, 004_experience_notes.sql, and 005_failure_candidates.sql.
 
 Day-5B items are week-2 unless Day-5A acceptance passes early:
 - observed_command extractor
@@ -65,6 +65,8 @@ Violations require reverting the commit.
    - `omni experience extract`
    - `omni experience approve`
    - `omni experience reject`
+   - `omni failure extract`
+   - `omni failure reject`
 
    These commands are read-only:
    - `omni parse`
@@ -74,6 +76,8 @@ Violations require reverting the commit.
    - `omni outcome show`
    - `omni experience ls`
    - `omni experience show`
+   - `omni failure ls`
+   - `omni failure show`
 
    Read-only commands open SQLite in read-only mode and never run
    migrations; migrations run only inside approved write commands.

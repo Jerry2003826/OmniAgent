@@ -179,3 +179,11 @@ This is still not Soul runtime, failure memory, verify automation, automatic
 memory evolution, LLM extraction, MCP, vector search, dashboard work, or an
 adapter layer. Experience notes are a small reviewed bridge from eval/outcome
 evidence into deterministic rendered behavior guidance.
+
+## Failure Memory v0 Pointer
+
+Failure Memory v0 starts after the real unihack experience loop reached behavior
+pass after renderer tuning. Phase 1 is candidate extraction only:
+`omni failure extract`, `omni failure ls`, `omni failure show`, and
+`omni failure reject`. It creates reviewable failure candidates from redacted
+events and metadata; approved failure-pattern rendering comes later.
