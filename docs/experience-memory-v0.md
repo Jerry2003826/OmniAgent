@@ -256,9 +256,9 @@ Key evidence:
 
 - Old negative run: `fcdefb4a-2d39-46ed-ab1e-a1cae466e861` evaluated as
   `failed_to_help`.
-- Experience notes reduced rediscovery and caused expected command adoption in
-  later warm runs, with single-run `memory_effect` still sometimes `neutral`
-  when explicit memory reads were not observable.
+- Experience notes reduced rediscovery and were associated with expected
+  command adoption in later warm runs, with single-run `memory_effect` still
+  sometimes `neutral` when explicit memory reads were not observable.
 - Known Failures rendering was validated with a real failed command path and a
   later warm run that avoided the old failed path.
 - The latest comparable dogfood check reported `improvement=true`,

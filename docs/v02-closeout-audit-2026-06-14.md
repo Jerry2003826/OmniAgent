@@ -63,7 +63,7 @@ omni audit secrets
 
 Results:
 
-- `where omni` resolved to
+- `where.exe omni` resolved to
   `C:\Users\Jiarui Li\scoop\apps\python\current\Scripts\omni.exe`.
 - `pytest -q`: `412 passed, 3 skipped, 1 warning`.
 - `omni audit secrets`: `ok=true`, no positive fixture misses, no negative
@@ -159,10 +159,10 @@ The real unihack loop remains the strongest evidence for v0.2 behavior impact:
 
 - The old negative run `fcdefb4a-2d39-46ed-ab1e-a1cae466e861` evaluated as
   `failed_to_help`.
-- Experience notes reduced rediscovery and caused expected command adoption in
-  later warm runs. The latest comparable run improved from 10 rediscovery
-  events to 1, but it is still `PARTIAL` rather than strict pass because the
-  first expected command came after one broad scan.
+- Experience notes reduced rediscovery and were associated with expected
+  command adoption in later warm runs. The latest comparable run improved from
+  10 rediscovery events to 1, but it is still `PARTIAL` rather than strict pass
+  because the first expected command came after one broad scan.
 - Renderer tuning later pushed validation fast paths earlier and strengthened
   wording.
 - Known Failures rendering was validated with a real failed command path and a
