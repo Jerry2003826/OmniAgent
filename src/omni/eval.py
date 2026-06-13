@@ -130,22 +130,39 @@ def evaluate_dogfood(
     warm = evaluate_run(root, warm_run_id)
     cold_position = cold["first_expected_command_position"]
     warm_position = warm["first_expected_command_position"]
-    command_adopted = cold_position is None and isinstance(warm_position, int)
+    cold_comparable = _run_is_comparable(root, cold_run_id)
+    command_adopted = (
+        cold_comparable and cold_position is None and isinstance(warm_position, int)
+    )
     position_improved = (
-        isinstance(cold_position, int)
+        cold_comparable
+        and isinstance(cold_position, int)
         and isinstance(warm_position, int)
         and warm_position < cold_position
     )
-    rediscovery_improved = warm["rediscovery_count"] < cold["rediscovery_count"]
+    rediscovery_improved = (
+        cold_comparable and warm["rediscovery_count"] < cold["rediscovery_count"]
+    )
     warm_executed_expected = bool(warm["expected_verification_executed"])
     improvement = bool(
-        warm_executed_expected
+        cold_comparable
+        and warm_executed_expected
         and (command_adopted or rediscovery_improved or position_improved)
+    )
+    summary = (
+        "cold run not comparable"
+        if not cold_comparable
+        else (
+            "warm adopted expected command or reduced rediscovery"
+            if improvement
+            else "no measurable warm-run improvement"
+        )
     )
 
     return {
         "cold_run_id": cold_run_id,
         "warm_run_id": warm_run_id,
+        "cold_comparable": cold_comparable,
         "cold_rediscovery_count": cold["rediscovery_count"],
         "warm_rediscovery_count": warm["rediscovery_count"],
         "cold_first_expected_command_position": cold_position,
@@ -155,11 +172,7 @@ def evaluate_dogfood(
         "memory_effect_summary": {
             "cold": cold["memory_effect"],
             "warm": warm["memory_effect"],
-            "summary": (
-                "warm adopted expected command or reduced rediscovery"
-                if improvement
-                else "no measurable warm-run improvement"
-            ),
+            "summary": summary,
         },
     }
 
@@ -175,6 +188,30 @@ def as_json(value: dict[str, Any]) -> str:
 
 def _connect_readonly(db_path: Path) -> sqlite3.Connection:
     return db.connect_readonly(db_path)
+
+
+def _run_is_comparable(root: Path | str, run_id: str) -> bool:
+    db_path = Path(root).resolve() / ".omni" / "omni.sqlite3"
+    if not db_path.exists():
+        return False
+    try:
+        conn = _connect_readonly(db_path)
+    except sqlite3.Error:
+        return False
+    try:
+        row = conn.execute(
+            """
+            SELECT
+              EXISTS(SELECT 1 FROM runs WHERE run_id = ?) AS has_run,
+              EXISTS(SELECT 1 FROM events WHERE run_id = ?) AS has_events
+            """,
+            (run_id, run_id),
+        ).fetchone()
+    except sqlite3.Error:
+        return False
+    finally:
+        conn.close()
+    return bool(row and row["has_run"] and row["has_events"])
 
 
 def _active_expected_commands(conn: sqlite3.Connection) -> dict[str, list[str]]:
