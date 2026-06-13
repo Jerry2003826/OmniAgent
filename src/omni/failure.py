@@ -131,13 +131,10 @@ def as_json(value: dict[str, Any]) -> str:
 def normalize_command(command: str | None) -> str | None:
     if command is None:
         return None
-    collapsed = _collapse_whitespace(command)
+    collapsed = _primary_command_segment(_collapse_whitespace(command))
     if not collapsed:
         return None
-    try:
-        tokens = shlex.split(collapsed, posix=True)
-    except ValueError:
-        tokens = collapsed.split()
+    tokens = _shell_tokens(collapsed)
     if not tokens:
         return None
     lowered = [token.lower() for token in tokens]
@@ -162,6 +159,68 @@ def normalize_command(command: str | None) -> str | None:
     if first in {"bash", "sh", "pwsh", "powershell", "cmd"}:
         return first
     return _safe_text(collapsed, MAX_COMMAND_CHARS)
+
+
+def _primary_command_segment(command: str) -> str:
+    segments = _split_shell_segments(command)
+    for segment in segments:
+        tokens = _shell_tokens(segment)
+        if not tokens:
+            continue
+        command_name = tokens[0].lower()
+        if command_name in {"cd", "pushd", "popd"}:
+            continue
+        if command_name in {"if", "then"}:
+            continue
+        return segment
+    return command
+
+
+def _split_shell_segments(command: str) -> list[str]:
+    segments: list[str] = []
+    current: list[str] = []
+    quote: str | None = None
+    index = 0
+    while index < len(command):
+        char = command[index]
+        if quote is not None:
+            current.append(char)
+            if char == quote:
+                quote = None
+            index += 1
+            continue
+        if char in {"'", '"'}:
+            quote = char
+            current.append(char)
+            index += 1
+            continue
+        if char == ";":
+            _append_segment(segments, current)
+            current = []
+            index += 1
+            continue
+        if command.startswith("&&", index) or command.startswith("||", index):
+            _append_segment(segments, current)
+            current = []
+            index += 2
+            continue
+        current.append(char)
+        index += 1
+    _append_segment(segments, current)
+    return segments or [command]
+
+
+def _append_segment(segments: list[str], current: list[str]) -> None:
+    segment = _collapse_whitespace("".join(current))
+    if segment:
+        segments.append(segment)
+
+
+def _shell_tokens(command: str) -> list[str]:
+    try:
+        return shlex.split(command, posix=True)
+    except ValueError:
+        return command.split()
 
 
 def _insert_candidate(

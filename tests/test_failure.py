@@ -216,6 +216,9 @@ def test_rejected_candidate_is_not_recreated(tmp_path: Path) -> None:
         ("python -m pytest tests/foo -q", "python -m pytest"),
         ("pytest tests/foo -q", "pytest"),
         ("bash -c 'echo error >&2; exit 7'", "bash"),
+        ('cd "C:\\repo" ; pnpm run test 2>&1', "pnpm run test"),
+        ('cd "C:\\repo\\apps\\web" ; pnpm test -- --run 2>&1', "pnpm run test"),
+        ('cd "C:\\repo" ; pnpm run lint ; if ($?) { pnpm run test } 2>&1', "pnpm run lint"),
     ],
 )
 def test_command_normalization(raw: str, expected: str) -> None:
