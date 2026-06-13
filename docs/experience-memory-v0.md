@@ -186,13 +186,14 @@ The first real unihack experience-loop rerun was `PARTIAL`: an active
 the warm run adopted expected project commands, but it still performed a broad
 `Glob **`, read `package.json`, and scanned directories before the first
 expected command. Renderer v0.2 therefore places `Fast Path` before `Commands`
-and uses stronger validation wording: for rediscovery-waste validation notes, first try
-the known verification command before checking environment files, package
-scripts, README, or deployment docs, and do not rediscover configuration or
-project structure before trying it unless it fails or the user explicitly asks
-for configuration-first exploration. A single-run `memory_effect` may still be `neutral` when Claude Code
-memory import is not observable as an explicit `Read` event; cold/warm dogfood
-comparison is the stronger behavior metric.
+and uses stronger validation wording: for rediscovery-waste validation notes,
+make the known verification command the first action, do not run broad file
+scans such as `Glob **`, `ls`, `find`, `tree`, or `rg --files` before it, and
+do not inspect package scripts, README, deployment docs, or environment files
+first unless the command fails or the user explicitly asks for
+configuration-first exploration. A single-run `memory_effect` may still be
+`neutral` when Claude Code memory import is not observable as an explicit
+`Read` event; cold/warm dogfood comparison is the stronger behavior metric.
 The later v0.2 closeout smoke is a separate evidence point: the latest
 comparable warm run reduced rediscovery from 10 events to 1, but still remained
 `PARTIAL` because one broad scan happened before the first expected command.

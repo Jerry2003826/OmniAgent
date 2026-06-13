@@ -139,7 +139,7 @@ claude -p --output-format json --permission-mode bypassPermissions "Please valid
 
 ```md
 ## Fast Path
-- For validation tasks, first run `pnpm run test`. Do not rediscover package scripts, README, or deployment docs before trying this known command unless it fails or the user explicitly asks for exploration.
+- For validation tasks, first action: run `pnpm run test`. Do not run broad file scans such as `Glob **`, `ls`, `find`, `tree`, or `rg --files` before this command. Do not inspect package scripts, README, deployment docs, or environment files first unless the command fails or the user explicitly asks for configuration-first exploration.
 
 ## Commands
 ```
