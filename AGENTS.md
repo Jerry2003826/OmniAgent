@@ -1,19 +1,18 @@
-# OmniMemory v0.4 / Verify Polish
+# OmniMemory Dogfood Acceptance Pack v0
 
 ## Goal
 
-Current phase: OmniMemory v0.4 / Verify Polish.
+Current phase: OmniMemory Dogfood Acceptance Pack v0.
 
 Build ONE closed loop:
 
 Claude Code run → redacted trace → deterministic facts → generated memory block → measurably changed behavior in the next run.
 
-v0.4 keeps the v0.2/v0.3 loop intact and polishes the read-only verification
-bridge. This phase may clarify `omni verify` exit-code semantics, centralize
-verify reason-code literals, add narrow missing regression coverage, and update
-manual acceptance docs. `omni verify` still writes no OmniMemory state.
-`omni outcome mark-from-verify` remains the approved write bridge from verify
-output into the Outcome Log.
+Dogfood Acceptance Pack v0 keeps the v0.2-v0.4 loop intact and turns real
+project validation into a repeatable evidence package. This phase may add
+runbooks, evidence templates, and docs tests for real dogfood acceptance. It
+must not add runtime features, tables, migrations, automatic success inference,
+automatic failure memory, or automatic memory evolution.
 
 ## Non-goals, hard this week
 
@@ -128,7 +127,10 @@ Violations require reverting the commit.
    If `omni audit secrets` has never passed in this checkout, installing hooks additionally requires `--yes`.
 
 6. Real projects are FORBIDDEN until `omni audit secrets` exits 0.
-   All manual testing happens in `scripts/create_sandbox.sh` repos.
+   Default manual testing happens in `scripts/create_sandbox.sh` repos. Real
+   dogfood acceptance may run only as an explicit Dogfood Acceptance Pack task
+   after `omni audit secrets` passes in both the OmniMemory checkout and the
+   target project.
 
 ## Environment and commands
 
