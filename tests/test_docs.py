@@ -328,6 +328,56 @@ def test_known_failure_ab_dogfood_template_covers_control_treatment_verdicts() -
         assert phrase in text
 
 
+def test_dogfood_acceptance_pack_covers_real_project_loop_and_record_template() -> None:
+    pack = REPO_ROOT / "docs" / "dogfood-acceptance-pack-v0.md"
+    template = REPO_ROOT / "docs" / "dogfood-acceptance-record-template.md"
+
+    pack_text = pack.read_text(encoding="utf-8")
+    template_text = template.read_text(encoding="utf-8")
+
+    for phrase in (
+        "Dogfood Acceptance Pack v0",
+        "rendered memory -> Claude Code warm run -> ingest -> eval -> verify -> outcome",
+        "Single runs are not causal proof",
+        "omni audit secrets",
+        "omni render --diff",
+        "omni render",
+        "omni inject claude --mode preview",
+        "omni inject claude --mode link",
+        "Please validate this project and tell me whether the current setup works",
+        "omni ingest",
+        "omni eval run <warm_run_id>",
+        "omni verify",
+        "omni outcome mark-from-verify <warm_run_id> --task-type validation",
+        "omni eval dogfood --cold <cold_run_id> --warm <warm_run_id>",
+        "PASS",
+        "PARTIAL",
+        "FAIL",
+        "INCONCLUSIVE",
+        "Do not claim universal causal proof",
+        "omni failure extract <warm_run_id>",
+        "omni experience extract <warm_run_id>",
+    ):
+        assert phrase in pack_text
+
+    for phrase in (
+        "Dogfood Acceptance Record",
+        "OmniMemory commit:",
+        "Target project commit:",
+        "Cold or old negative run id:",
+        "Warm run id:",
+        "memory_effect:",
+        "expected_verification_executed:",
+        "first_expected_command:",
+        "rediscovery_count:",
+        "dogfood improvement:",
+        "verify reason_code:",
+        "outcome tests_status:",
+        "Verdict: PASS | PARTIAL | FAIL | INCONCLUSIVE",
+    ):
+        assert phrase in template_text
+
+
 def test_minimal_linux_ci_workflow_runs_pytest_on_311_and_312() -> None:
     workflow = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 
