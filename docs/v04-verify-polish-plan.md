@@ -13,12 +13,11 @@ automatic failure memory, or automatic success inference.
 
 ## Planned Work
 
-1. Decide `start_failed` exit semantics.
-   - Current behavior: verify result has `status="failed"` and
-     `reason_code="start_failed"`, so CLI exits `1`.
-   - v0.4 decision: either keep exit `1` as a failed verification command, or
-     map only `start_failed` to exit `2` as an environment/selection problem.
-   - Update tests and docs to match the chosen contract.
+1. Settle `start_failed` exit semantics.
+   - Decision: keep `start_failed` as `status="failed"` with CLI exit `1`.
+   - Scripts should distinguish this case through `reason_code="start_failed"`.
+   - Rationale: the command was selected and parsed, but process start failed;
+     keeping it in the failed-verification family preserves v0.2/v0.3 behavior.
 
 2. Centralize verify reason codes.
    - Replace scattered string literals with one local source of truth in
@@ -46,12 +45,13 @@ automatic failure memory, or automatic success inference.
 - `omni audit secrets` passes.
 - `git diff --check` passes.
 - No new migrations or tables are added.
-- `AGENTS.md`, docs, CLI behavior, and tests agree on verify exit semantics.
+- `AGENTS.md`, docs, CLI behavior, and tests agree that `start_failed` exits
+  `1` and is distinguished by `reason_code="start_failed"`.
 - Any PR for v0.4 remains tightly scoped to Verify Polish.
 
 ## Recommended PR Order
 
-1. `verify: settle start_failed exit semantics`
+1. `verify: document start_failed exit semantics`
 2. `verify: centralize reason codes`
 3. `docs: refresh verify manual acceptance`
 

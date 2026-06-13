@@ -212,6 +212,8 @@ def test_experience_memory_v0_doc_covers_behavior_eval_v0() -> None:
         "reason_code",
         "selection_mode",
         "selection_reason",
+        "Verify Polish v0.4",
+        "start_failed",
         "does not store stdout or stderr excerpts",
         "anchor for future experience and failure memory",
         "Experience Candidate v0",

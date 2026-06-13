@@ -40,8 +40,9 @@ External closeout review found:
 - Blocker: none
 - Major: none
 - Minor: none
-- Nit: `start_failed` currently maps to CLI exit code `1`; v0.4 may decide
-  whether to keep that behavior or map it to exit code `2`.
+- Nit: `start_failed` currently maps to CLI exit code `1`. v0.4 settled this
+  as the intended contract: scripts should use `reason_code="start_failed"` to
+  distinguish the case without changing the CLI exit family.
 
 The earlier `env -S` / `--split-string` bypass finding was fixed in commit
 `9a8186d` and confirmed closed by review.

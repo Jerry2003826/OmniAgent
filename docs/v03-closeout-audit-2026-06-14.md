@@ -142,8 +142,8 @@ No blocker or major issue remains for v0.3 closeout.
 
 Possible v0.4 follow-ups:
 
-- Decide whether `start_failed` should keep CLI exit code `1` or move to exit
-  code `2`. The current reason code already lets scripts distinguish it.
+- `start_failed` keeps CLI exit code `1`; scripts should use
+  `reason_code="start_failed"` to distinguish process-start failures.
 - Centralize verify reason-code literals into constants or an enum.
 - Add a narrow test for a literal empty configured command if future reviewers
   want direct coverage beyond the current parse-error matrix.

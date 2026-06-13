@@ -655,6 +655,27 @@ def test_cli_verify_failed_command_returns_one(
     assert output["exit_code"] == 3
 
 
+def test_cli_verify_start_failed_returns_one_with_reason_code(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_fact(conn, "definitely_missing_omni_verify_runner_zzzzz")
+    conn.close()
+    monkeypatch.chdir(tmp_path)
+
+    code = cli.main(["verify"])
+    captured = capsys.readouterr()
+    output = json.loads(captured.out)
+
+    assert code == 1
+    assert captured.err == ""
+    assert output["status"] == "failed"
+    assert output["reason_code"] == "start_failed"
+    assert output["exit_code"] is None
+
+
 def test_cli_verify_unknown_command_returns_two(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

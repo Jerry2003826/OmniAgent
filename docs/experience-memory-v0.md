@@ -284,6 +284,14 @@ Malformed configured commands report stable parse reason codes such as
 `parse_error_invalid_command` instead of being collapsed into empty-command
 failures.
 
+## Verify Polish v0.4
+
+Verify Polish v0.4 settles one open exit-code decision without changing the
+write boundary: `start_failed` remains `status=failed`, so `omni verify` exits
+`1` when a selected and parsed verification command cannot start. Scripts should
+distinguish this from a command that ran and failed by checking
+`reason_code=start_failed`.
+
 ## Stage Closeout Evidence
 
 The first v0.2 Experience/Failure Memory foundation loop was closed against the
