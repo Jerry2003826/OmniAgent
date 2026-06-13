@@ -163,7 +163,7 @@ def close_stale_runs(
 
 def run_show(root: Path | str | None, run_id: str, seq: int | None = None) -> str:
     base = Path(root or Path.cwd()).resolve()
-    conn = _connect_project_db(base)
+    conn = _connect_project_db_readonly(base)
     try:
         if seq is not None:
             row = conn.execute(
@@ -229,6 +229,13 @@ def _connect_project_db(root: Path) -> sqlite3.Connection:
     conn = db.connect(root / ".omni" / "omni.sqlite3")
     db.migrate(conn)
     return conn
+
+
+def _connect_project_db_readonly(root: Path) -> sqlite3.Connection:
+    db_path = root / ".omni" / "omni.sqlite3"
+    if not db_path.exists():
+        raise FileNotFoundError(f"OmniMemory database is missing: {db_path}")
+    return db.connect_readonly(db_path)
 
 
 def _ensure_run(conn: sqlite3.Connection, root: Path, run_id: str, transcript: Path | None) -> None:

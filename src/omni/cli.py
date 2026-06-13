@@ -304,7 +304,12 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "run" and args.run_command == "show":
         from omni.ingest import run_show
 
-        _print_diff(run_show(project_root(), args.run_id, seq=args.seq))
+        try:
+            result = run_show(project_root(), args.run_id, seq=args.seq)
+        except FileNotFoundError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        _print_diff(result)
         return 0
 
     if args.command == "audit" and args.audit_command == "secrets":

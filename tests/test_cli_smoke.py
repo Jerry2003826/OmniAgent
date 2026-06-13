@@ -878,6 +878,14 @@ def test_ingest_and_run_show_cli(tmp_path: Path) -> None:
     assert '"source": "transcript"' in expanded_result.stdout
 
 
+def test_run_show_cli_missing_db_is_read_only_and_clear(tmp_path: Path) -> None:
+    result = run_omni(tmp_path, "run", "show", "missing_run")
+
+    assert result.returncode == 2
+    assert "OmniMemory database is missing" in result.stderr
+    assert not (tmp_path / ".omni").exists()
+
+
 def test_ingest_cli_accepts_run_id_option(tmp_path: Path) -> None:
     transcript = tmp_path / "transcript.jsonl"
     transcript.write_text(

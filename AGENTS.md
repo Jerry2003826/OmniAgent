@@ -73,6 +73,7 @@ Violations require reverting the commit.
 
    These commands are read-only:
    - `omni parse`
+   - `omni run show`
    - `omni status`
    - `omni eval run`
    - `omni eval dogfood`

@@ -59,6 +59,64 @@ def test_connect_readonly_sets_busy_timeout(tmp_path: Path) -> None:
         readonly.close()
 
 
+def test_run_show_does_not_migrate_existing_database(tmp_path: Path) -> None:
+    (tmp_path / ".omni").mkdir()
+    setup = sqlite3.connect(tmp_path / ".omni" / "omni.sqlite3")
+    setup.row_factory = sqlite3.Row
+    try:
+        setup.executescript(db.migration_sql("001_init.sql"))
+        setup.execute(
+            "INSERT INTO runs(run_id, project_id, snapshot_seq, status) VALUES(?,?,?,?)",
+            ("legacy_run", "project", 0, "closed"),
+        )
+        setup.execute(
+            """
+            INSERT INTO events(
+              event_id, run_id, seq, ts, event_type, tool, tool_use_id,
+              input_ref, output_ref, exit_code, duration_ms, redaction_status,
+              redaction_ver, source, meta
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "evt_legacy",
+                "legacy_run",
+                1,
+                "2026-06-13T00:00:00Z",
+                "tool_use",
+                "Bash",
+                "toolu_legacy",
+                None,
+                None,
+                0,
+                None,
+                "clean",
+                1,
+                "transcript",
+                json.dumps({"input": {"command": "pnpm run test"}}),
+            ),
+        )
+        setup.commit()
+    finally:
+        setup.close()
+
+    shown = ingest.run_show(tmp_path, "legacy_run")
+
+    check = sqlite3.connect(tmp_path / ".omni" / "omni.sqlite3")
+    try:
+        schema_version = check.execute(
+            "SELECT value FROM meta WHERE key = 'schema_version'"
+        ).fetchone()[0]
+        failure_tables = check.execute(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'failure_patterns'"
+        ).fetchone()[0]
+    finally:
+        check.close()
+
+    assert "1 | 2026-06-13T00:00:00Z | tool_use | Bash | 0 |" in shown
+    assert schema_version == "1"
+    assert failure_tables == 0
+
+
 def test_migration_creates_schema_and_seed_meta(tmp_path: Path) -> None:
     conn = db.connect(tmp_path / ".omni" / "omni.sqlite3")
 
