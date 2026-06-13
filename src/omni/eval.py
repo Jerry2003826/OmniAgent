@@ -149,15 +149,12 @@ def evaluate_dogfood(
         and warm_executed_expected
         and (command_adopted or rediscovery_improved or position_improved)
     )
-    summary = (
-        "cold run not comparable"
-        if not cold_comparable
-        else (
-            "warm adopted expected command or reduced rediscovery"
-            if improvement
-            else "no measurable warm-run improvement"
-        )
-    )
+    if not cold_comparable:
+        summary = "cold run not comparable"
+    elif improvement:
+        summary = "warm adopted expected command or reduced rediscovery"
+    else:
+        summary = "no measurable warm-run improvement"
 
     return {
         "cold_run_id": cold_run_id,
