@@ -254,8 +254,8 @@ def test_active_failure_patterns_render_known_failures_section(tmp_path: Path) -
     assert text.index("## Commands") < text.index("## Known Failures")
     assert text.index("## Known Failures") < text.index("## Experience Notes")
     assert (
-        "- If `pnpm run build` fails with `exit 1: dependency resolution failed`, "
-        "inspect the lockfile before changing package managers."
+        "- If `pnpm run build` fails with `exit 1: dependency resolution failed`: "
+        "Inspect the lockfile before changing package managers."
     ) in text
     assert "Tests failed because dependency resolution failed." not in text
     assert "failure_pattern_hidden" not in text
@@ -285,27 +285,28 @@ def test_failure_pattern_without_command_renders_generic_known_failure(tmp_path:
     text = result.path.read_text(encoding="utf-8")
 
     assert (
-        "- If this failure recurs with `exit 1: dependency resolution failed`, "
-        "inspect the existing lockfile before changing package managers."
+        "- If this failure recurs with `exit 1: dependency resolution failed`: "
+        "Inspect the existing lockfile before changing package managers."
     ) in text
 
 
-def test_failure_pattern_inline_code_strips_backticks(tmp_path: Path) -> None:
+def test_failure_pattern_wording_uses_colon_and_strips_backticks(tmp_path: Path) -> None:
     conn = connect(tmp_path)
     add_failure_pattern(
         conn,
         command_norm="`pnpm run build`",
         error_signature="`exit 1` dependency resolution failed",
-        suggested_action="Inspect the `lockfile` before changing package managers.",
+        suggested_action="When Claude Code uses Bash, inspect the `lockfile` first.",
     )
 
     result = render.render_project(conn, tmp_path)
     text = result.path.read_text(encoding="utf-8")
 
     assert (
-        "- If `pnpm run build` fails with `exit 1 dependency resolution failed`, "
-        "inspect the lockfile before changing package managers."
+        "- If `pnpm run build` fails with `exit 1 dependency resolution failed`: "
+        "When Claude Code uses Bash, inspect the lockfile first."
     ) in text
+    assert ", When Claude Code" not in text
 
 
 def test_failure_candidates_do_not_render_until_active_pattern_exists(tmp_path: Path) -> None:
