@@ -155,7 +155,7 @@ def build_parser() -> argparse.ArgumentParser:
     failure_subcommands = failure_parser.add_subparsers(
         dest="failure_command",
         required=True,
-        metavar="{extract,ls,show,approve,reject}",
+        metavar="{extract,ls,show,approve,reject,pattern}",
     )
     failure_extract_parser = failure_subcommands.add_parser("extract")
     failure_extract_parser.add_argument("run_id")
@@ -173,6 +173,22 @@ def build_parser() -> argparse.ArgumentParser:
     failure_approve_parser.add_argument("--suggested-action", required=True)
     failure_reject_parser = failure_subcommands.add_parser("reject")
     failure_reject_parser.add_argument("failure_cand_id")
+    failure_pattern_parser = failure_subcommands.add_parser("pattern")
+    failure_pattern_subcommands = failure_pattern_parser.add_subparsers(
+        dest="failure_pattern_command",
+        required=True,
+        metavar="{ls,show,retire}",
+    )
+    failure_pattern_ls_parser = failure_pattern_subcommands.add_parser("ls")
+    failure_pattern_ls_parser.add_argument(
+        "--status",
+        choices=("active", "retired", "all"),
+        default="active",
+    )
+    failure_pattern_show_parser = failure_pattern_subcommands.add_parser("show")
+    failure_pattern_show_parser.add_argument("pattern_id")
+    failure_pattern_retire_parser = failure_pattern_subcommands.add_parser("retire")
+    failure_pattern_retire_parser.add_argument("pattern_id")
 
     _hide_subcommands(
         subcommands,
@@ -419,7 +435,11 @@ def main(argv: list[str] | None = None) -> int:
         from omni import failure
 
         try:
-            if args.failure_command in ("ls", "show"):
+            failure_readonly = args.failure_command in ("ls", "show") or (
+                args.failure_command == "pattern"
+                and args.failure_pattern_command in ("ls", "show")
+            )
+            if failure_readonly:
                 conn = failure.connect_project_readonly(project_root())
             else:
                 conn = failure.connect_project(project_root())
@@ -444,6 +464,23 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 elif args.failure_command == "reject":
                     result = failure.reject_candidate(conn, args.failure_cand_id)
+                elif args.failure_command == "pattern":
+                    if args.failure_pattern_command == "ls":
+                        result = {
+                            "patterns": failure.list_patterns(
+                                conn,
+                                status=args.status,
+                            )
+                        }
+                    elif args.failure_pattern_command == "show":
+                        result = failure.show_pattern(conn, args.pattern_id)
+                    elif args.failure_pattern_command == "retire":
+                        result = failure.retire_pattern(conn, args.pattern_id)
+                    else:
+                        parser.error(
+                            f"unknown failure pattern command: {args.failure_pattern_command}"
+                        )
+                        return 2
                 else:
                     parser.error(f"unknown failure command: {args.failure_command}")
                     return 2

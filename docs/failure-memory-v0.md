@@ -12,6 +12,9 @@ omni failure approve <failure_cand_id> \
   --summary "Tests failed because the configured command returned a dependency resolution error." \
   --suggested-action "Inspect the existing package manager and lockfile before installing or switching package managers."
 omni failure reject <failure_cand_id>
+omni failure pattern ls
+omni failure pattern show <pattern_id>
+omni failure pattern retire <pattern_id>
 ```
 
 Failure Pattern v0 adds a human approval step for reviewed candidates. Known
@@ -70,6 +73,29 @@ Approval is review-gated and stateful:
 - if an active project pattern already exists for the same error signature, the
   newly approved candidate links to that pattern instead of creating a duplicate.
 
+## Pattern Lifecycle v0
+
+Pattern Lifecycle v0 adds the minimum controls needed after Known Failures can
+affect future behavior:
+
+```bash
+omni failure pattern ls
+omni failure pattern show <pattern_id>
+omni failure pattern retire <pattern_id>
+```
+
+`ls` and `show` are read-only and open SQLite in read-only mode. `retire` is the
+only pattern lifecycle writer in v0. It changes an active pattern's `status` to
+`retired`, sets `retired_seq` and `updated_at`, and leaves the source failure
+candidate approved with its original `pattern_id`.
+
+Retiring an already-retired pattern is idempotent. Unknown pattern ids return a
+clear error and a non-zero CLI exit. Retired patterns do not render into
+`.omni/generated/memory.md`.
+
+Pattern Lifecycle v0 does not implement supersede, reactivation, automatic
+trust changes, verification, or note/pattern evolution.
+
 ## Known Failures Renderer v0
 
 Known Failures Renderer v0 reads active `failure_patterns` rows and renders a
@@ -81,14 +107,14 @@ Rendered lines are deterministic and intentionally narrow:
 ```md
 ## Known Failures
 
-- If `pnpm run build` fails with `exit 1: dependency resolution failed`, Inspect the existing package manager and lockfile before changing dependencies.
+- If `pnpm run build` fails with `exit 1: dependency resolution failed`: Inspect the existing package manager and lockfile before changing dependencies.
 ```
 
 If a pattern has no normalized command, the line uses generic recurrence
 wording:
 
 ```md
-- If this failure recurs with `exit 1: dependency resolution failed`, Inspect the existing package manager and lockfile before changing dependencies.
+- If this failure recurs with `exit 1: dependency resolution failed`: Inspect the existing package manager and lockfile before changing dependencies.
 ```
 
 Renderer output excludes pattern ids, source candidate ids, run ids, event ids,
@@ -108,5 +134,5 @@ omni render
 
 This completes the v0 deterministic path from a redacted failure event to a
 candidate, then a human-approved active pattern, then a Known Failures memory
-line. Pattern retire and supersede flows, verification, and automatic pattern
-evolution remain future work.
+line. Supersede flows, verification, and automatic pattern evolution remain
+future work.

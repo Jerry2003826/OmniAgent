@@ -9,6 +9,7 @@ import pytest
 from omni import cli
 from omni import db
 from omni import failure
+from omni import render
 
 
 def test_migration_006_creates_failure_patterns_and_sets_schema_version(
@@ -504,6 +505,64 @@ def test_approve_second_candidate_reuses_active_signature_pattern(tmp_path: Path
     ).fetchone()["source_failure_cand_id"] == first_candidate["failure_cand_id"]
 
 
+def test_list_show_and_retire_failure_pattern(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    candidate = _create_failure_candidate(conn, run_id="run_pattern_lifecycle")
+    approved = failure.approve_candidate(
+        conn,
+        candidate["failure_cand_id"],
+        summary="Known build failure.",
+        suggested_action="Use the known remediation.",
+    )
+    pattern_id = approved["pattern_id"]
+
+    active_patterns = failure.list_patterns(conn)
+    shown = failure.show_pattern(conn, pattern_id)
+    retired = failure.retire_pattern(conn, pattern_id)
+    retired_again = failure.retire_pattern(conn, pattern_id)
+
+    assert active_patterns == [shown]
+    assert shown["pattern_id"] == pattern_id
+    assert shown["status"] == "active"
+    assert shown["evidence"]["run_id"] == "run_pattern_lifecycle"
+    assert retired["pattern_id"] == pattern_id
+    assert retired["status"] == "retired"
+    assert retired["retired_seq"] is not None
+    assert retired["created_at"] == shown["created_at"]
+    assert retired["updated_at"] >= shown["updated_at"]
+    assert retired_again == retired
+    assert failure.list_patterns(conn) == []
+    assert failure.list_patterns(conn, status="retired") == [retired]
+    assert failure.list_patterns(conn, status="all") == [retired]
+    assert failure.show_candidate(conn, candidate["failure_cand_id"])["state"] == "approved"
+    assert failure.show_candidate(conn, candidate["failure_cand_id"])["pattern_id"] == pattern_id
+
+
+def test_retired_failure_pattern_no_longer_renders(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    candidate = _create_failure_candidate(conn, run_id="run_retire_render")
+    approved = failure.approve_candidate(
+        conn,
+        candidate["failure_cand_id"],
+        summary="Known build failure.",
+        suggested_action="Use the known remediation.",
+    )
+
+    before = render.render_project(conn, tmp_path)
+    before_text = before.path.read_text(encoding="utf-8")
+    retired = failure.retire_pattern(conn, approved["pattern_id"])
+    after = render.render_project(conn, tmp_path)
+    after_text = after.path.read_text(encoding="utf-8")
+
+    assert retired["status"] == "retired"
+    assert "## Known Failures" in before_text
+    assert "pnpm run build" in before_text
+    assert "## Known Failures" not in after_text
+    assert "pnpm run build" not in after_text
+    assert approved["pattern_id"] not in before_text
+    assert approved["pattern_id"] not in after_text
+
+
 def test_failure_candidate_state_machine_for_approve_and_reject(tmp_path: Path) -> None:
     conn = _fixture_db(tmp_path)
     approved_candidate = _create_failure_candidate(conn, run_id="run_state_approved")
@@ -607,6 +666,15 @@ def test_show_unknown_candidate_raises_clear_error(tmp_path: Path) -> None:
         failure.show_candidate(conn, "missing")
 
 
+def test_show_and_retire_unknown_pattern_raise_clear_error(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+
+    with pytest.raises(ValueError, match="unknown failure pattern: missing"):
+        failure.show_pattern(conn, "missing")
+    with pytest.raises(ValueError, match="unknown failure pattern: missing"):
+        failure.retire_pattern(conn, "missing")
+
+
 def test_cli_extract_ls_show_reject_work(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -683,6 +751,45 @@ def test_cli_failure_approve_works(
     assert ls_code == 0
     assert listed["candidates"][0]["failure_cand_id"] == candidate["failure_cand_id"]
     assert listed["candidates"][0]["pattern_id"] == approved["pattern_id"]
+
+
+def test_cli_failure_pattern_ls_show_retire_work(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    conn = _fixture_db(tmp_path)
+    candidate = _create_failure_candidate(conn, run_id="run_cli_pattern")
+    approved = failure.approve_candidate(
+        conn,
+        candidate["failure_cand_id"],
+        summary="Known failure.",
+        suggested_action="Known action.",
+    )
+    conn.close()
+    monkeypatch.chdir(tmp_path)
+
+    ls_code = cli.main(["failure", "pattern", "ls"])
+    listed = json.loads(capsys.readouterr().out)
+    show_code = cli.main(["failure", "pattern", "show", approved["pattern_id"]])
+    shown = json.loads(capsys.readouterr().out)
+    retire_code = cli.main(["failure", "pattern", "retire", approved["pattern_id"]])
+    retired = json.loads(capsys.readouterr().out)
+    active_code = cli.main(["failure", "pattern", "ls"])
+    active = json.loads(capsys.readouterr().out)
+    retired_ls_code = cli.main(["failure", "pattern", "ls", "--status", "retired"])
+    retired_ls = json.loads(capsys.readouterr().out)
+
+    assert ls_code == 0
+    assert listed["patterns"][0]["pattern_id"] == approved["pattern_id"]
+    assert listed["patterns"][0]["status"] == "active"
+    assert show_code == 0
+    assert shown["pattern_id"] == approved["pattern_id"]
+    assert retire_code == 0
+    assert retired["status"] == "retired"
+    assert retired["retired_seq"] is not None
+    assert active_code == 0
+    assert active == {"patterns": []}
+    assert retired_ls_code == 0
+    assert retired_ls["patterns"][0]["pattern_id"] == approved["pattern_id"]
 
 
 def test_cli_failure_approve_requires_summary_and_suggested_action(
@@ -795,6 +902,26 @@ def test_cli_unknown_run_and_candidate_exit_2(
     assert show_code == 2
     assert "unknown failure candidate: missing_candidate" in show_captured.err
     assert show_captured.out == ""
+
+
+def test_cli_unknown_pattern_exits_2(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    conn = _fixture_db(tmp_path)
+    conn.close()
+    monkeypatch.chdir(tmp_path)
+
+    show_code = cli.main(["failure", "pattern", "show", "missing_pattern"])
+    show_captured = capsys.readouterr()
+    retire_code = cli.main(["failure", "pattern", "retire", "missing_pattern"])
+    retire_captured = capsys.readouterr()
+
+    assert show_code == 2
+    assert "unknown failure pattern: missing_pattern" in show_captured.err
+    assert show_captured.out == ""
+    assert retire_code == 2
+    assert "unknown failure pattern: missing_pattern" in retire_captured.err
+    assert retire_captured.out == ""
 
 
 def _create_failure_candidate(

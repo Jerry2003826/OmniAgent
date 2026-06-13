@@ -187,6 +187,9 @@ Failure Memory v0 starts after the real unihack experience loop reached behavior
 pass after renderer tuning. It now includes reviewable candidate extraction and
 human approval into active failure patterns:
 `omni failure extract`, `omni failure ls`, `omni failure show`,
-`omni failure approve`, and `omni failure reject`. Known Failures Renderer v0
-renders only active failure patterns into `memory.md`; pending and rejected
-failure candidates do not render.
+`omni failure approve`, `omni failure reject`, `omni failure pattern ls`,
+`omni failure pattern show`, and `omni failure pattern retire`.
+Known Failures Renderer v0 renders only active failure patterns into
+`memory.md`; pending and rejected failure candidates do not render.
+Pattern Lifecycle v0 can retire an active pattern so it stops rendering, but it
+does not implement supersede or automatic evolution.

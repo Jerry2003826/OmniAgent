@@ -18,6 +18,8 @@ from omni.redact import redact
 
 STATE_VALUES = {"pending", "approved", "rejected"}
 LIST_STATE_VALUES = STATE_VALUES | {"all"}
+PATTERN_STATUS_VALUES = {"active", "retired"}
+LIST_PATTERN_STATUS_VALUES = PATTERN_STATUS_VALUES | {"all"}
 MAX_ERROR_CHARS = 300
 MAX_EXCERPT_CHARS = 300
 MAX_COMMAND_CHARS = 200
@@ -100,6 +102,62 @@ def show_candidate(conn: sqlite3.Connection, failure_cand_id: str) -> dict[str, 
     if row is None:
         raise ValueError(f"unknown failure candidate: {failure_cand_id}")
     return _candidate_from_row(row)
+
+
+def list_patterns(conn: sqlite3.Connection, status: str = "active") -> list[dict[str, Any]]:
+    _validate_choice("status", status, LIST_PATTERN_STATUS_VALUES)
+    if status == "all":
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM failure_patterns
+            ORDER BY created_seq, pattern_id
+            """
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM failure_patterns
+            WHERE status = ?
+            ORDER BY created_seq, pattern_id
+            """,
+            (status,),
+        ).fetchall()
+    return [_pattern_from_row(row) for row in rows]
+
+
+def show_pattern(conn: sqlite3.Connection, pattern_id: str) -> dict[str, Any]:
+    row = _pattern_row(conn, pattern_id)
+    return _pattern_from_row(row)
+
+
+def retire_pattern(conn: sqlite3.Connection, pattern_id: str) -> dict[str, Any]:
+    try:
+        conn.execute("BEGIN")
+        pattern = _pattern_row(conn, pattern_id)
+        status = pattern["status"]
+        _validate_choice("status", status, PATTERN_STATUS_VALUES)
+        if status == "retired":
+            conn.commit()
+            return show_pattern(conn, pattern_id)
+
+        updated = conn.execute(
+            """
+            UPDATE failure_patterns
+            SET status = 'retired', retired_seq = ?, updated_at = ?
+            WHERE pattern_id = ? AND status = 'active'
+            """,
+            (_next_commit_seq(conn), _now(), pattern_id),
+        )
+        if updated.rowcount != 1:
+            raise ValueError(f"failure pattern could not be retired: {pattern_id}")
+        conn.commit()
+        return show_pattern(conn, pattern_id)
+    except Exception:
+        if conn.in_transaction:
+            conn.rollback()
+        raise
 
 
 def approve_candidate(
@@ -362,6 +420,16 @@ def _candidate_row(conn: sqlite3.Connection, failure_cand_id: str) -> sqlite3.Ro
     ).fetchone()
     if row is None:
         raise ValueError(f"unknown failure candidate: {failure_cand_id}")
+    return row
+
+
+def _pattern_row(conn: sqlite3.Connection, pattern_id: str) -> sqlite3.Row:
+    row = conn.execute(
+        "SELECT * FROM failure_patterns WHERE pattern_id = ?",
+        (pattern_id,),
+    ).fetchone()
+    if row is None:
+        raise ValueError(f"unknown failure pattern: {pattern_id}")
     return row
 
 
@@ -664,6 +732,12 @@ def _ensure_run_exists(conn: sqlite3.Connection, run_id: str) -> None:
 
 
 def _candidate_from_row(row: sqlite3.Row) -> dict[str, Any]:
+    result = dict(row)
+    result["evidence"] = _decode_json_object(result["evidence"])
+    return result
+
+
+def _pattern_from_row(row: sqlite3.Row) -> dict[str, Any]:
     result = dict(row)
     result["evidence"] = _decode_json_object(result["evidence"])
     return result

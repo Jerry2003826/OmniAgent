@@ -68,6 +68,7 @@ Violations require reverting the commit.
    - `omni failure extract`
    - `omni failure approve`
    - `omni failure reject`
+   - `omni failure pattern retire`
 
    These commands are read-only:
    - `omni parse`
@@ -79,6 +80,8 @@ Violations require reverting the commit.
    - `omni experience show`
    - `omni failure ls`
    - `omni failure show`
+   - `omni failure pattern ls`
+   - `omni failure pattern show`
 
    Read-only commands open SQLite in read-only mode and never run
    migrations; migrations run only inside approved write commands.
