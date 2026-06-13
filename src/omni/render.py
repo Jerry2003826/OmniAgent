@@ -341,8 +341,8 @@ def _rediscovery_waste_fast_path_line(
             "Do not run broad file scans such as `Glob **`, `ls`, `find`, `tree`, or "
             "`rg --files` before this command. Do not inspect package scripts, README, "
             "deployment docs, or environment files first unless the command fails or the "
-            "user explicitly asks for configuration-first exploration. After tests pass, "
-            "run build and lint if broader validation is needed."
+            "user explicitly asks for configuration-first exploration. "
+            f"{_post_test_followup_clause(post_test_commands)}"
         )
     return (
         "- For validation tasks, the first shell command must be the known verification "
@@ -366,13 +366,23 @@ def _build_lint_before_command_clause(
     return "Do not run build or lint before this command. "
 
 
-def _inline_command_list(commands: tuple[str, ...]) -> str:
+def _post_test_followup_clause(post_test_commands: tuple[str, ...]) -> str:
+    if post_test_commands:
+        return (
+            "After tests pass, run "
+            f"{_inline_command_list(post_test_commands, conjunction='and')} "
+            "if broader validation is needed."
+        )
+    return "After tests pass, run build and lint if broader validation is needed."
+
+
+def _inline_command_list(commands: tuple[str, ...], *, conjunction: str = "or") -> str:
     values = [_inline_code(command) for command in commands]
     if len(values) == 1:
         return values[0]
     if len(values) == 2:
-        return f"{values[0]} or {values[1]}"
-    return f"{', '.join(values[:-1])}, or {values[-1]}"
+        return f"{values[0]} {conjunction} {values[1]}"
+    return f"{', '.join(values[:-1])}, {conjunction} {values[-1]}"
 
 
 def _inline_code(value: str) -> str:

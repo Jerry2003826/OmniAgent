@@ -782,7 +782,10 @@ def test_rediscovery_waste_fast_path_requires_test_before_build_or_lint(
 
     assert "For validation tasks, the first shell command must be `pnpm run test`." in text
     assert "Do not run `pnpm run build` or `pnpm run lint` before `pnpm run test`." in text
-    assert "After tests pass, run build and lint if broader validation is needed." in text
+    assert (
+        "After tests pass, run `pnpm run build` and `pnpm run lint` "
+        "if broader validation is needed."
+    ) in text
 
 
 def test_rediscovery_waste_fast_path_uses_active_build_lint_facts(
@@ -809,7 +812,38 @@ def test_rediscovery_waste_fast_path_uses_active_build_lint_facts(
     text = result.path.read_text(encoding="utf-8")
 
     assert "Do not run `pnpm run build:ci` or `pnpm run lint:ci` before `pnpm test`." in text
+    assert (
+        "After tests pass, run `pnpm run build:ci` and `pnpm run lint:ci` "
+        "if broader validation is needed."
+    ) in text
     assert "Do not run `pnpm run build` or `pnpm run lint` before `pnpm test`." not in text
+
+
+def test_rediscovery_waste_fast_path_uses_single_post_test_fact_in_followup(
+    tmp_path: Path,
+) -> None:
+    conn = connect(tmp_path)
+    add_fact(conn, predicate="uses_test_command", qualifier="node", object_norm="pnpm test")
+    add_fact(conn, predicate="uses_build_command", qualifier="node", object_norm="pnpm run build:ci")
+    add_experience_candidate(
+        conn,
+        exp_cand_id="exp_cand_single_post_test",
+        run_id="run_single_post_test",
+        kind="rediscovery_waste",
+        claim="Memory context was available, but rediscovery happened.",
+        suggested_action=(
+            "For validation tasks, execute the known verification command before broad "
+            "README/package/deployment rediscovery."
+        ),
+    )
+    experience.approve_candidate(conn, "exp_cand_single_post_test")
+
+    result = render.render_project(conn, tmp_path)
+    text = result.path.read_text(encoding="utf-8")
+
+    assert "Do not run `pnpm run build:ci` before `pnpm test`." in text
+    assert "After tests pass, run `pnpm run build:ci` if broader validation is needed." in text
+    assert "After tests pass, run build and lint if broader validation is needed." not in text
 
 
 def test_rediscovery_waste_fast_path_uses_generic_build_lint_for_non_pnpm_command(
