@@ -625,6 +625,8 @@ def _env_delegated_args(args: list[str]) -> list[str]:
         if arg == "-":
             index += 1
             continue
+        if _is_env_split_string_option(arg):
+            return ["sh", "-c"]
         if _is_env_assignment(arg):
             index += 1
             continue
@@ -639,6 +641,14 @@ def _env_delegated_args(args: list[str]) -> list[str]:
             continue
         return args[index:]
     return []
+
+
+def _is_env_split_string_option(value: str) -> bool:
+    return (
+        value in {"-S", "--split-string"}
+        or value.startswith("--split-string=")
+        or (value.startswith("-S") and value != "-S")
+    )
 
 
 def _is_env_assignment(value: str) -> bool:

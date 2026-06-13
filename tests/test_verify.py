@@ -362,6 +362,10 @@ def test_verify_command_args_preserves_hash_arguments(
         'env bash -c "echo before && echo after"',
         'env FOO=bar bash -c "echo before && echo after"',
         '/usr/bin/env pwsh -Command "echo before && echo after"',
+        'env -S "bash -c echo before"',
+        'env --split-string "sh -c echo before"',
+        'env --split-string="bash -c echo before"',
+        'env -Sbash -c echo before',
     ],
 )
 def test_verify_command_args_rejects_shell_interpreter_wrappers(
