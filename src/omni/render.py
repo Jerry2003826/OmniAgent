@@ -253,7 +253,7 @@ def _render_experience_note_line(
 
 def _render_failure_pattern_line(pattern: sqlite3.Row) -> tuple[str, str] | None:
     error_signature = _collapse_whitespace(str(pattern["error_signature"] or ""))
-    suggested_action = _plain_text(str(pattern["suggested_action"] or ""))
+    suggested_action = _action_clause(str(pattern["suggested_action"] or ""))
     if not error_signature or not suggested_action:
         return None
 
@@ -314,12 +314,6 @@ def _known_test_command(facts: list[sqlite3.Row]) -> str | None:
     return None
 
 
-def _verification_command_text(command: str | None) -> str:
-    if command:
-        return _inline_code(command)
-    return "the known verification command"
-
-
 def _rediscovery_waste_fast_path_line(command: str | None) -> str:
     if command:
         return (
@@ -340,6 +334,18 @@ def _inline_code(value: str) -> str:
 
 def _plain_text(value: str) -> str:
     return _collapse_whitespace(value).replace("`", "")
+
+
+def _action_clause(value: str) -> str:
+    text = _plain_text(value)
+    if not text:
+        return ""
+    first_word = text.split(" ", 1)[0]
+    if len(first_word) > 1 and first_word.isupper():
+        return text
+    if text[0].isupper():
+        return text[0].lower() + text[1:]
+    return text
 
 
 def _collapse_whitespace(value: str) -> str:

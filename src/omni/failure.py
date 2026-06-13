@@ -21,6 +21,7 @@ LIST_STATE_VALUES = STATE_VALUES | {"all"}
 MAX_ERROR_CHARS = 300
 MAX_EXCERPT_CHARS = 300
 MAX_COMMAND_CHARS = 200
+MAX_REVIEW_TEXT_CHARS = 800
 INPUT_CONTAINER_KEYS = ("tool_input", "input", "parameters", "args")
 OUTPUT_CONTAINER_KEYS = ("tool_response", "toolUseResult")
 ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
@@ -335,7 +336,7 @@ def _insert_candidate(
             spec["event_id"],
             spec["tool_use_id"],
             spec["tool"],
-            spec["command_norm"],
+            _redact_text(spec["command_norm"]),
             spec["exit_code"],
             spec["failure_kind"],
             _redact_text(spec["error_signature"]),
@@ -414,7 +415,7 @@ def _create_failure_pattern(
             pattern_id,
             candidate["failure_cand_id"],
             "project",
-            candidate["command_norm"],
+            _redact_text(candidate["command_norm"]),
             candidate["failure_kind"],
             candidate["error_signature"],
             candidate["error_signature_hash"],
@@ -503,16 +504,39 @@ def _failure_kind(
 def _event_exit_code(event: sqlite3.Row, meta: dict[str, Any]) -> int | None:
     if event["exit_code"] is not None:
         return int(event["exit_code"])
-    for value in _nested_strings(meta):
+    for value in _exit_code_text_candidates(meta):
         exit_code = _parse_exit_code_text(value)
         if exit_code is not None:
             return exit_code
     return None
 
 
+def _exit_code_text_candidates(meta: dict[str, Any]) -> list[str]:
+    values: list[str] = []
+    for value in (
+        meta.get("error"),
+        meta.get("stderr"),
+        _nested_get(meta.get("tool_response"), "error"),
+        _nested_get(meta.get("tool_response"), "stderr"),
+        _nested_get(meta.get("toolUseResult"), "error"),
+        _nested_get(meta.get("toolUseResult"), "stderr"),
+    ):
+        if isinstance(value, str):
+            values.append(value)
+    values.extend(_nested_error_strings(meta))
+    return values
+
+
 def _parse_exit_code_text(value: str) -> int | None:
     lowered = value.lower()
-    for marker in ("exit_code", "exit code", "exited code", "exited", "exit"):
+    for marker in (
+        "exit_code",
+        "exit code",
+        "exit status",
+        "exited with status",
+        "exited with code",
+        "exited with",
+    ):
         start = lowered.find(marker)
         if start == -1:
             continue
@@ -735,19 +759,6 @@ def _nested_error_strings(value: Any) -> list[str]:
     return found
 
 
-def _nested_strings(value: Any) -> list[str]:
-    strings: list[str] = []
-    if isinstance(value, dict):
-        for child in value.values():
-            strings.extend(_nested_strings(child))
-    elif isinstance(value, list):
-        for child in value:
-            strings.extend(_nested_strings(child))
-    elif isinstance(value, str):
-        strings.append(value)
-    return strings
-
-
 def _is_shell_tool(tool: Any) -> bool:
     return str(tool or "").lower() in {"bash", "shell", "powershell", "pwsh", "cmd"}
 
@@ -779,7 +790,7 @@ def _redact_text(value: str | None) -> str | None:
 def _required_redacted_text(name: str, value: str | None) -> str:
     if value is None or not value.strip():
         raise ValueError(f"{name} is required")
-    return _redact_text(value.strip()) or ""
+    return _safe_text(_redact_text(value.strip()), MAX_REVIEW_TEXT_CHARS)
 
 
 def _redact_json(value: dict[str, Any]) -> str:
