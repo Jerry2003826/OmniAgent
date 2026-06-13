@@ -126,6 +126,7 @@ def run_preflight(
         )
     except OSError as exc:
         duration_ms = _duration_ms(started)
+        stderr_excerpt, stderr_truncated = _safe_output_with_flag(str(exc))
         result.update(
             {
                 "status": "failed",
@@ -133,9 +134,9 @@ def run_preflight(
                 "exit_code": None,
                 "duration_ms": duration_ms,
                 "stdout_excerpt": "",
-                "stderr_excerpt": _safe_output(str(exc)),
+                "stderr_excerpt": stderr_excerpt,
                 "stdout_truncated": False,
-                "stderr_truncated": False,
+                "stderr_truncated": stderr_truncated,
                 "reason": "verification command could not be started",
             }
         )
@@ -242,10 +243,11 @@ def _select_verification_command(
 
     if qualifier is not None:
         normalized_qualifier = _normalize_command(qualifier)
+        display_qualifier = _safe_text(normalized_qualifier, MAX_COMMAND_CHARS)
         qualified_candidates = [
             candidate
             for candidate in candidates
-            if candidate["qualifier"] == normalized_qualifier
+            if candidate["_qualifier_raw"] == normalized_qualifier
         ]
         if not qualified_candidates:
             return {
@@ -253,12 +255,12 @@ def _select_verification_command(
                 "reason_code": "qualifier_not_found",
                 "reason": (
                     "no active uses_test_command fact for qualifier "
-                    f"{normalized_qualifier}"
+                    f"{display_qualifier}"
                 ),
                 "selection_mode": "qualifier",
                 "selection_reason": (
                     "no active uses_test_command fact for qualifier "
-                    f"{normalized_qualifier}"
+                    f"{display_qualifier}"
                 ),
                 "candidate_commands": limited,
                 "candidate_commands_omitted": omitted,
@@ -267,7 +269,7 @@ def _select_verification_command(
         if len(qualified_commands) == 1:
             selection_reason = (
                 "selected active uses_test_command fact for qualifier "
-                f"{normalized_qualifier}"
+                f"{display_qualifier}"
             )
             return _selected(
                 qualified_candidates,
@@ -281,19 +283,19 @@ def _select_verification_command(
             "reason_code": "ambiguous_qualifier",
             "reason": (
                 "ambiguous active uses_test_command facts for qualifier "
-                f"{normalized_qualifier}"
+                f"{display_qualifier}"
             ),
             "selection_mode": "qualifier",
             "selection_reason": (
                 "ambiguous active uses_test_command facts for qualifier "
-                f"{normalized_qualifier}"
+                f"{display_qualifier}"
             ),
             "candidate_commands": limited,
             "candidate_commands_omitted": omitted,
         }
 
     base_candidates = [
-        candidate for candidate in candidates if ":" not in candidate["qualifier"]
+        candidate for candidate in candidates if ":" not in candidate["_qualifier_raw"]
     ]
     base_commands = _unique_commands(base_candidates)
     if len(base_commands) == 1:
@@ -356,6 +358,7 @@ def _command_candidates(rows: list[sqlite3.Row]) -> list[dict[str, str]]:
         candidates.append(
             {
                 "qualifier": _safe_text(qualifier, MAX_COMMAND_CHARS),
+                "_qualifier_raw": qualifier,
                 "command": _safe_text(command, MAX_COMMAND_CHARS),
                 "_command_raw": command,
             }
@@ -521,7 +524,7 @@ def _split_command(command: str) -> list[str]:
     try:
         args = shlex.split(command, posix=True, comments=False)
     except ValueError as exc:
-        raise VerifyCommandError("parse_error_empty_command", str(exc)) from exc
+        raise VerifyCommandError("parse_error_invalid_command", str(exc)) from exc
     if _uses_shell_command_wrapper(args):
         raise VerifyCommandError(
             "parse_error_shell_wrapper",
@@ -664,10 +667,6 @@ def _has_windows_batch_meta(command: str) -> bool:
 
 def _normalize_command(command: str) -> str:
     return " ".join(command.strip().split())
-
-
-def _safe_output(value: str | bytes) -> str:
-    return _safe_output_with_flag(value)[0]
 
 
 def _safe_output_with_flag(value: str | bytes) -> tuple[str, bool]:

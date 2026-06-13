@@ -64,6 +64,26 @@ def test_verify_preflight_reports_start_failed_with_reason_code(tmp_path: Path) 
     assert result["reason"] == "verification command could not be started"
 
 
+def test_verify_preflight_start_failed_reports_truncated_stderr_flag(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_fact(conn, "python test.py")
+
+    def raise_large_os_error(*args: object, **kwargs: object) -> dict[str, object]:
+        raise OSError("x" * (verify.MAX_OUTPUT_CHARS + 200))
+
+    monkeypatch.setattr(verify, "_run_process", raise_large_os_error)
+
+    result = verify.run_preflight(conn, tmp_path)
+
+    assert result["status"] == "failed"
+    assert result["reason_code"] == "start_failed"
+    assert result["stderr_truncated"] is True
+    assert result["stderr_excerpt"].endswith("...[truncated]")
+
+
 def test_verify_preflight_prefers_unscoped_qualifier_over_scoped_commands(
     tmp_path: Path,
 ) -> None:
@@ -159,6 +179,17 @@ def test_verify_preflight_rejects_or_shell_operator_commands(tmp_path: Path) -> 
     )
 
 
+def test_verify_preflight_reports_invalid_parse_for_unclosed_quotes(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_fact(conn, 'python "unterminated')
+
+    result = verify.run_preflight(conn, tmp_path)
+
+    assert result["status"] == "unknown"
+    assert result["reason_code"] == "parse_error_invalid_command"
+    assert result["reason"].startswith("could not parse verification command:")
+
+
 def test_verify_preflight_selects_explicit_qualifier(tmp_path: Path) -> None:
     conn = _fixture_db(tmp_path)
     base_script = _script(tmp_path, "base_verify.py", "raise SystemExit(9)\n")
@@ -176,6 +207,25 @@ def test_verify_preflight_selects_explicit_qualifier(tmp_path: Path) -> None:
     assert result["qualifier"] == "node:web"
     assert result["command"] == web_command
     assert result["stdout_excerpt"] == "web"
+
+
+def test_verify_preflight_matches_long_qualifier_before_display_truncation(
+    tmp_path: Path,
+) -> None:
+    conn = _fixture_db(tmp_path)
+    script = _script(tmp_path, "long_qualifier.py", "print('long qualifier')\n")
+    qualifier = "node:" + ("very-long-scope-" * 30)
+    command = _python_command(script)
+    _insert_fact(conn, command, qualifier=qualifier)
+
+    result = verify.run_preflight(conn, tmp_path, qualifier=qualifier)
+
+    assert result["status"] == "passed"
+    assert result["reason_code"] == "passed"
+    assert result["selection_mode"] == "qualifier"
+    assert result["command"] == command
+    assert result["qualifier"].endswith("...[truncated]")
+    assert result["stdout_excerpt"] == "long qualifier"
 
 
 def test_verify_preflight_reports_unknown_for_missing_qualifier(tmp_path: Path) -> None:

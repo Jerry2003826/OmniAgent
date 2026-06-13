@@ -278,6 +278,9 @@ as `status`, `reason`, `command`, `qualifier`, `exit_code`, `timed_out`,
 `candidate_commands`, and `candidate_commands_omitted` remain present for
 compatibility. `outcome mark-from-verify` stores only the bounded safe verify
 summary in outcome evidence and still excludes stdout and stderr excerpts.
+Malformed configured commands report stable parse reason codes such as
+`parse_error_invalid_command` instead of being collapsed into empty-command
+failures.
 
 ## Stage Closeout Evidence
 
