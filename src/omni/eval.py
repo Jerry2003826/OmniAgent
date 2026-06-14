@@ -50,7 +50,8 @@ PACKAGE_MANAGERS = {"bun", "npm", "pnpm", "yarn"}
 def evaluate_run(root: Path | str, run_id: str) -> dict[str, Any]:
     """Classify whether one ingested run appears to use memory effectively."""
 
-    db_path = Path(root).resolve() / ".omni" / "omni.sqlite3"
+    project_root = Path(root).resolve()
+    db_path = project_root / ".omni" / "omni.sqlite3"
     if not db_path.exists():
         return _unknown_result(
             run_id,
@@ -71,14 +72,14 @@ def evaluate_run(root: Path | str, run_id: str) -> dict[str, Any]:
         conn.close()
 
     expected_norm = [
-        _normalize_command(command)
+        _normalize_command(command, project_root=project_root)
         for commands in expected_commands.values()
         for command in commands
     ]
-    observed_commands = _observed_commands(events)
+    observed_commands = _observed_commands(events, project_root=project_root)
     first_expected = _first_expected_command(observed_commands, expected_norm)
     first_expected_seq = None if first_expected is None else first_expected["seq"]
-    rediscovery = _rediscovery_before(events, first_expected_seq)
+    rediscovery = _rediscovery_before(events, first_expected_seq, project_root=project_root)
     claude_md_read = any(_mentions_path(event, "CLAUDE.md") for event in events)
     memory_md_read = any(_mentions_path(event, MEMORY_PATH) for event in events)
     memory_context_seen_but_no_expected = (
@@ -246,7 +247,9 @@ def _events_for_run(conn: sqlite3.Connection, run_id: str) -> list[dict[str, Any
     ]
 
 
-def _observed_commands(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _observed_commands(
+    events: list[dict[str, Any]], *, project_root: Path
+) -> list[dict[str, Any]]:
     observed: list[dict[str, Any]] = []
     for event in events:
         command = _nested_command(_input_metadata(event["meta"]))
@@ -256,7 +259,7 @@ def _observed_commands(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
             {
                 "seq": event["seq"],
                 "tool": event["tool"],
-                "command": _normalize_command(str(command)),
+                "command": _normalize_command(str(command), project_root=project_root),
             }
         )
     return observed
@@ -274,18 +277,20 @@ def _first_expected_command(
 
 
 def _rediscovery_before(
-    events: list[dict[str, Any]], first_expected_seq: int | None
+    events: list[dict[str, Any]], first_expected_seq: int | None, *, project_root: Path
 ) -> list[dict[str, Any]]:
     boundary = float("inf") if first_expected_seq is None else first_expected_seq
     rediscovery: list[dict[str, Any]] = []
     for event in events:
         if int(event["seq"]) >= boundary:
             continue
-        rediscovery.extend(_rediscovery_for_event(event))
+        rediscovery.extend(_rediscovery_for_event(event, project_root=project_root))
     return rediscovery
 
 
-def _rediscovery_for_event(event: dict[str, Any]) -> list[dict[str, Any]]:
+def _rediscovery_for_event(
+    event: dict[str, Any], *, project_root: Path
+) -> list[dict[str, Any]]:
     found: list[dict[str, Any]] = []
     input_meta = _input_metadata(event["meta"])
     strings = list(_nested_strings(input_meta))
@@ -294,10 +299,16 @@ def _rediscovery_for_event(event: dict[str, Any]) -> list[dict[str, Any]]:
     for filename in REDISCOVERY_FILES:
         if _contains_path(strings, filename):
             found.append(
-                _rediscovery_event(event, filename, _detail_for(event, filename, input_meta))
+                _rediscovery_event(
+                    event,
+                    filename,
+                    _detail_for(event, filename, input_meta, project_root=project_root),
+                )
             )
 
-    broad_detail = _broad_scan_detail(event, command, strings, input_meta)
+    broad_detail = _broad_scan_detail(
+        event, command, strings, input_meta, project_root=project_root
+    )
     if broad_detail is not None:
         found.append(_rediscovery_event(event, "broad_scan", broad_detail))
 
@@ -332,17 +343,24 @@ def _path_in_text(value: str, target: str) -> bool:
 
 
 def _broad_scan_detail(
-    event: dict[str, Any], command: Any | None, strings: list[str], input_meta: Any
+    event: dict[str, Any],
+    command: Any | None,
+    strings: list[str],
+    input_meta: Any,
+    *,
+    project_root: Path,
 ) -> str | None:
     tool = str(event["tool"] or "").lower()
     if tool == "glob":
         return _first_with_glob(strings) or "Glob"
     if tool == "ls":
-        return _detail_for(event, "LS", input_meta)
+        return _detail_for(event, "LS", input_meta, project_root=project_root)
 
     if command is None:
         return None
-    normalized = _normalize_command(str(command))
+    if _has_unresolved_directory_change_prefix(str(command), project_root):
+        return None
+    normalized = _normalize_command(str(command), project_root=project_root)
     lowered = normalized.lower()
     if (
         "get-childitem" in lowered
@@ -364,10 +382,12 @@ def _first_with_glob(values: list[str]) -> str | None:
     return None
 
 
-def _detail_for(event: dict[str, Any], target: str, input_meta: Any) -> str:
+def _detail_for(
+    event: dict[str, Any], target: str, input_meta: Any, *, project_root: Path
+) -> str:
     command = _nested_command(input_meta)
     if command is not None:
-        return f"command: {_normalize_command(str(command))}"
+        return f"command: {_normalize_command(str(command), project_root=project_root)}"
     for value in _nested_strings(input_meta):
         if target == "LS" or _path_in_text(value, target):
             return _target_detail(value, target)
@@ -511,27 +531,69 @@ def _nested_strings(value: Any) -> list[str]:
     return strings
 
 
-def _normalize_command(command: str) -> str:
-    return _strip_leading_directory_changes(" ".join(command.strip().split()))
+def _normalize_command(command: str, *, project_root: Path | None = None) -> str:
+    return _strip_leading_directory_changes(
+        " ".join(command.strip().split()), project_root=project_root
+    )
 
 
-def _strip_leading_directory_changes(command: str) -> str:
+def _strip_leading_directory_changes(
+    command: str, *, project_root: Path | None = None
+) -> str:
     current = command
     while "&&" in current:
         head, tail = current.split("&&", 1)
-        if not _is_directory_change_command(head):
+        target = _directory_change_target(head)
+        if target is None:
+            break
+        if project_root is None or not _directory_target_exists(target, project_root):
             break
         current = tail.strip()
     return current
 
 
-def _is_directory_change_command(command: str) -> bool:
-    lowered = command.strip().lower()
-    return (
-        lowered.startswith("cd ")
-        or lowered.startswith("chdir ")
-        or lowered.startswith("pushd ")
-    )
+def _directory_change_target(command: str) -> str | None:
+    stripped = command.strip()
+    if not stripped:
+        return None
+    parts = stripped.split(maxsplit=1)
+    if len(parts) != 2:
+        return None
+    verb, remainder = parts[0].lower(), parts[1].strip()
+    if verb not in {"cd", "chdir", "pushd"}:
+        return None
+    if verb in {"cd", "chdir"} and remainder.lower().startswith("/d "):
+        remainder = remainder[3:].strip()
+    if not remainder:
+        return None
+    if remainder[0] in {"'", '"'}:
+        quote = remainder[0]
+        end = remainder.find(quote, 1)
+        if end == -1:
+            return None
+        return remainder[1:end]
+    return remainder.split(maxsplit=1)[0]
+
+
+def _directory_target_exists(target: str, project_root: Path) -> bool:
+    if not target or any(marker in target for marker in ("$", "%", "`")):
+        return False
+    try:
+        candidate = Path(target)
+        if not candidate.is_absolute():
+            candidate = project_root / candidate
+        return candidate.is_dir()
+    except (OSError, ValueError):
+        return False
+
+
+def _has_unresolved_directory_change_prefix(command: str, project_root: Path) -> bool:
+    collapsed = " ".join(command.strip().split())
+    if "&&" not in collapsed:
+        return False
+    head, _tail = collapsed.split("&&", 1)
+    target = _directory_change_target(head)
+    return target is not None and not _directory_target_exists(target, project_root)
 
 
 def _matches_any_expected_command(observed: str, expected_commands: list[str]) -> bool:

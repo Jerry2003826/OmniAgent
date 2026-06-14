@@ -70,17 +70,20 @@ omni audit secrets
 omni status
 ```
 
-Record the new `run_id` from `omni status`, then inspect behavior:
+Record the new `run_id` from the `omni ingest` `run_ids=...` output, then
+inspect behavior:
 
 ```powershell
 omni eval run <run_id>
 omni verify
-omni outcome mark-from-verify <run_id> --task-type validation
+omni outcome mark-from-verify <run_id> --success --task-type validation
 omni outcome show <run_id>
 ```
 
 `omni verify` is read-only with respect to OmniMemory state. The write into the
-Outcome Log happens only through `omni outcome mark-from-verify`.
+Outcome Log happens only through `omni outcome mark-from-verify`. Use
+`--success` only after a passing verification command; use `--failed` or
+`--unknown` when the user has not confirmed task success.
 
 ## Review and Render Memory
 
