@@ -1,19 +1,21 @@
-# OmniMemory Stage Dogfood Acceptance v0
+# OmniMemory Verify v0.5 / outcome-from-verify hardening
 
 ## Goal
 
-Current phase: OmniMemory Stage Dogfood Acceptance v0.
+Current phase: OmniMemory Verify v0.5 / outcome-from-verify hardening.
 
 Build ONE closed loop:
 
 Claude Code run → redacted trace → deterministic facts → generated memory block → measurably changed behavior in the next run.
 
-Stage Dogfood Acceptance v0 keeps the v0.2-v0.4 loop intact and packages real
-project evidence for the implemented eval, outcome, experience, failure, and
-verify surfaces. This phase may add or refresh acceptance records, runbooks,
-and docs tests. It must not add runtime features, supersede, reactivation, new
-tables, migrations, automatic success inference, automatic failure memory, or
-automatic memory evolution.
+Verify v0.5 keeps the v0.2-v0.4 loop intact and hardens the read-only
+`omni verify` → explicit write `omni outcome mark-from-verify` bridge. This
+phase may clarify the verify JSON contract, tie `tests_status` to the stable
+verify `reason_code`, and document that `omni verify` writes no OmniMemory state
+while `omni outcome mark-from-verify` is the only write bridge. It must not add
+runtime features, supersede, reactivation, new memory types, new tables,
+migrations, automatic success inference, automatic failure memory, or automatic
+memory evolution.
 
 ## Non-goals, hard this week
 

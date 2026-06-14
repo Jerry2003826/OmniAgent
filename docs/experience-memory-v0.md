@@ -292,6 +292,44 @@ write boundary: `start_failed` remains `status=failed`, so `omni verify` exits
 distinguish this from a command that ran and failed by checking
 `reason_code=start_failed`.
 
+## Verify v0.5 / Outcome-from-Verify Hardening
+
+Verify v0.5 hardens the read-only `omni verify` → explicit write
+`omni outcome mark-from-verify` bridge without adding new memory types, tables,
+or automatic success inference.
+
+`omni verify` stays SQLite read-only: it opens the database read-only, runs no
+migrations, and writes no OmniMemory state. It may execute the selected
+project-level verification command and prints a stable redacted JSON contract
+with `status`, `reason_code`, `command`, `qualifier`, `predicate`,
+`selection_mode`, `selection_reason`, `exit_code`, `timed_out`, `duration_ms`,
+and the `stdout_truncated` / `stderr_truncated` flags. Unknown, ambiguous, and
+no-command selections return a clear `reason_code` and never execute a command.
+
+`omni outcome mark-from-verify` remains the only write bridge from verify output
+into the Outcome Log. It requires an existing `run_id`, runs the same preflight,
+and records a redacted, bounded verify summary in outcome evidence that excludes
+raw stdout and stderr excerpts.
+
+The bridge derives `tests_status` from the stable verify `reason_code` only, and
+never infers task `status`:
+
+- `reason_code=passed` → `tests_status=passed`
+- `reason_code=failed_exit_code` or `reason_code=timed_out` → `tests_status=failed`
+- `reason_code=start_failed`, and every selection or parse failure such as
+  `no_active_test_command`, `ambiguous_active_test_command`, `qualifier_not_found`,
+  `ambiguous_qualifier`, or any `parse_error_*` → `tests_status=unknown`
+
+Only a verification command that actually ran to a result sets `passed` or
+`failed`. A command that could not start, or a selection that never produced a
+command, stays `unknown` because verify cannot observe whether the user ran
+tests another way. Outcome `status` defaults to `unknown` and changes only when
+the user explicitly passes `--success`, `--failed`, or `--unknown`; v0.5 does
+not automatically infer task success from a passing verification command.
+Re-running `omni outcome mark-from-verify` for the same run is idempotent: it
+updates the outcome row in place, preserving `created_at` and advancing
+`updated_at`.
+
 ## Stage Closeout Evidence
 
 The first v0.2 Experience/Failure Memory foundation loop was closed against the

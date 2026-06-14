@@ -246,6 +246,27 @@ def test_experience_memory_v0_doc_covers_behavior_eval_v0() -> None:
         assert phrase in text
 
 
+def test_experience_memory_v0_doc_covers_verify_v05_hardening() -> None:
+    doc = REPO_ROOT / "docs" / "experience-memory-v0.md"
+
+    text = doc.read_text(encoding="utf-8")
+
+    for phrase in (
+        "Verify v0.5 / Outcome-from-Verify Hardening",
+        "stays SQLite read-only",
+        "only write bridge",
+        "requires an existing `run_id`",
+        "raw stdout and stderr excerpts",
+        "derives `tests_status` from the stable verify `reason_code`",
+        "`reason_code=passed` → `tests_status=passed`",
+        "`reason_code=start_failed`",
+        "automatically infer task success",
+        "idempotent",
+        "preserving `created_at`",
+    ):
+        assert phrase in text
+
+
 def test_failure_memory_v0_doc_covers_candidate_only_scope() -> None:
     doc = REPO_ROOT / "docs" / "failure-memory-v0.md"
 

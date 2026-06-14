@@ -411,6 +411,7 @@ def test_mark_outcome_from_verify_failed_marks_tests_failed_and_keeps_user_statu
     ) -> dict[str, object]:
         return {
             "status": "failed",
+            "reason_code": "failed_exit_code",
             "command": "pytest -q",
             "exit_code": 1,
             "timed_out": False,
@@ -458,6 +459,7 @@ def test_mark_outcome_from_verify_startup_failure_keeps_tests_unknown(
     ) -> dict[str, object]:
         return {
             "status": "failed",
+            "reason_code": "start_failed",
             "command": "missing-test-runner",
             "exit_code": None,
             "timed_out": False,
@@ -523,6 +525,7 @@ def test_mark_outcome_from_verify_redacts_evidence_and_omits_output_excerpts(
     ) -> dict[str, object]:
         return {
             "status": "failed",
+            "reason_code": "failed_exit_code",
             "command": f"curl -H 'X-Canary: {canary}'",
             "exit_code": 22,
             "timed_out": False,
@@ -554,6 +557,115 @@ def test_mark_outcome_from_verify_redacts_evidence_and_omits_output_excerpts(
     assert "stderr_excerpt" not in evidence["verify"]
 
 
+@pytest.mark.parametrize(
+    ("reason_code", "expected"),
+    [
+        ("passed", "passed"),
+        ("failed_exit_code", "failed"),
+        ("timed_out", "failed"),
+        ("start_failed", "unknown"),
+        ("no_active_test_command", "unknown"),
+        ("ambiguous_active_test_command", "unknown"),
+        ("qualifier_not_found", "unknown"),
+        ("ambiguous_qualifier", "unknown"),
+        ("parse_error_empty_command", "unknown"),
+        ("parse_error_shell_wrapper", "unknown"),
+        ("parse_error_invalid_command", "unknown"),
+    ],
+)
+def test_tests_status_from_verify_maps_each_reason_code(
+    reason_code: str, expected: str
+) -> None:
+    # Only a command that ran to a result is passed/failed; everything else stays
+    # conservative. This locks the v0.5 tests_status contract to the verify
+    # reason_code surface.
+    assert outcome._tests_status_from_verify({"reason_code": reason_code}) == expected
+
+
+def test_mark_outcome_from_verify_ambiguous_selection_stays_unknown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_run(conn, "run_verify_ambiguous")
+
+    def fake_run_preflight(
+        verify_conn: sqlite3.Connection,
+        root: Path | str,
+        *,
+        timeout_seconds: int,
+        qualifier: str | None = None,
+    ) -> dict[str, object]:
+        return {
+            "status": "unknown",
+            "reason_code": "ambiguous_active_test_command",
+            "command": None,
+            "exit_code": None,
+            "timed_out": False,
+            "reason": "ambiguous active uses_test_command facts",
+        }
+
+    monkeypatch.setattr(
+        outcome,
+        "verify",
+        SimpleNamespace(run_preflight=fake_run_preflight),
+        raising=False,
+    )
+
+    result = outcome.mark_outcome_from_verify(
+        conn, "run_verify_ambiguous", tmp_path, task_type="validation"
+    )
+
+    # No command ran, so tests_status is unknown and status is never inferred.
+    assert result["tests_status"] == "unknown"
+    assert result["status"] == "unknown"
+    assert result["final_command"] is None
+    assert result["evidence"]["verify"]["reason_code"] == "ambiguous_active_test_command"
+
+
+def test_mark_outcome_from_verify_is_idempotent_and_preserves_created_at(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_run(conn, "run_verify_idempotent")
+
+    def fake_run_preflight(
+        verify_conn: sqlite3.Connection,
+        root: Path | str,
+        *,
+        timeout_seconds: int,
+        qualifier: str | None = None,
+    ) -> dict[str, object]:
+        return {
+            "status": "passed",
+            "reason_code": "passed",
+            "command": "pytest -q",
+            "exit_code": 0,
+            "timed_out": False,
+            "reason": "verification command passed",
+        }
+
+    monkeypatch.setattr(
+        outcome,
+        "verify",
+        SimpleNamespace(run_preflight=fake_run_preflight),
+        raising=False,
+    )
+
+    first = outcome.mark_outcome_from_verify(conn, "run_verify_idempotent", tmp_path)
+    second = outcome.mark_outcome_from_verify(conn, "run_verify_idempotent", tmp_path)
+
+    assert first["tests_status"] == "passed"
+    assert second["tests_status"] == "passed"
+    assert second["created_at"] == first["created_at"]
+    assert second["updated_at"] >= first["updated_at"]
+    assert (
+        conn.execute(
+            "SELECT COUNT(*) FROM outcomes WHERE run_id = 'run_verify_idempotent'"
+        ).fetchone()[0]
+        == 1
+    )
+
+
 def test_cli_outcome_mark_from_verify_writes_json(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -573,6 +685,7 @@ def test_cli_outcome_mark_from_verify_writes_json(
     ) -> dict[str, object]:
         return {
             "status": "passed",
+            "reason_code": "passed",
             "command": "pytest -q",
             "exit_code": 0,
             "timed_out": False,
