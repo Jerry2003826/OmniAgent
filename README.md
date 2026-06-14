@@ -63,8 +63,15 @@ omni audit secrets
 omni status
 omni eval run <run_id>
 omni verify
-omni outcome mark-from-verify <run_id> --task-type validation
+omni outcome mark-from-verify <run_id> --success --task-type validation
 ```
+
+Record the new `run_id` from the `omni ingest` `run_ids=...` output, not from
+`omni status`. `omni verify` is read-only with respect to OmniMemory state; in
+the post-verify flow, the Outcome Log write happens through
+`omni outcome mark-from-verify`. Use
+`--success` only after a passing verification command and once you have confirmed
+the task succeeded; otherwise use `--failed` or `--unknown`.
 
 Review and render memory explicitly:
 
