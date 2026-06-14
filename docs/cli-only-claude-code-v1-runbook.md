@@ -80,8 +80,9 @@ omni outcome mark-from-verify <run_id> --success --task-type validation
 omni outcome show <run_id>
 ```
 
-`omni verify` is read-only with respect to OmniMemory state. The write into the
-Outcome Log happens only through `omni outcome mark-from-verify`. Use
+`omni verify` is read-only with respect to OmniMemory state. In the post-verify
+flow, the write into the Outcome Log happens through
+`omni outcome mark-from-verify`. Use
 `--success` only after a passing verification command; use `--failed` or
 `--unknown` when the user has not confirmed task success.
 
