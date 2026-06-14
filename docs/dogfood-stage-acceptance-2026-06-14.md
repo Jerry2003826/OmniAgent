@@ -366,7 +366,87 @@ The next real dogfood check should use the same neutral prompt and measure
 whether the first expected command returns to `pnpm run test` while
 `rediscovery_count` remains `0`.
 
-The first fresh run after adding only the Commands guard still chose
-`pnpm run build` before `pnpm run test` while keeping rediscovery at `0`.
-The follow-up wording therefore also demotes build and lint command facts into
-post-test checks when the same validation fast path is active.
+The first fresh run after adding only the Commands guard was
+`7a4cfff4-ce0d-410b-997e-e0bd9485296a`. It still chose `pnpm run build`
+before `pnpm run test` while keeping rediscovery at `0`. The follow-up wording
+therefore also demotes build and lint command facts into post-test checks when
+the same validation fast path is active.
+
+## Post-test Wording Fresh Warm Run
+
+After the post-test command wording retune was merged, the target project was
+rendered again from OmniMemory `main` at:
+
+```text
+main / origin/main: 2d6294a5d39a7ba86de6c1c622507904d3b2b67d
+```
+
+Target gates before the run:
+
+```text
+omni audit secrets: ok=true
+memory render diff: build/lint Commands lines changed to "After validation tests pass..."
+CLAUDE.md managed region: unchanged
+target git status: main...origin/main
+```
+
+Fresh warm run:
+
+```text
+run_id: 5bba6758-75e8-4643-bfae-8818bb84f982
+prompt: Please validate this project and tell me whether the current setup works. Use the project memory if available.
+permission mode: bypassPermissions
+```
+
+Observed eval result:
+
+```text
+memory_effect: neutral
+expected_verification_executed: true
+first_expected_command: pnpm run test
+first_expected_command_position: 17
+observed commands: pnpm run test, pnpm run build, pnpm run lint
+rediscovery_count: 0
+rediscovery_before_expected_command: none
+```
+
+Dogfood comparison against the old negative run:
+
+```text
+cold run: fcdefb4a-2d39-46ed-ab1e-a1cae466e861
+warm run: 5bba6758-75e8-4643-bfae-8818bb84f982
+cold_rediscovery_count: 10
+warm_rediscovery_count: 0
+cold_first_expected_command_position: null
+warm_first_expected_command_position: 17
+command_adopted: true
+improvement: true
+```
+
+Verify, outcome, and extraction:
+
+```text
+omni verify: status=passed, reason_code=passed, command=pnpm run test
+outcome status: success
+outcome tests_status: passed
+outcome memory_effect: neutral
+failure extract: created=0
+experience extract: created=0
+target audit after ingest/outcome: ok=true
+target git status after ingest/outcome: main...origin/main
+```
+
+Final fresh follow-up verdict: PASS
+
+Reasons:
+
+- The old negative run remains a clear `failed_to_help` baseline.
+- The final warm run ran `pnpm run test` as the first expected command.
+- Build and lint followed tests.
+- Rediscovery stayed at `0`.
+- Dogfood comparison still reported `improvement=true`.
+- Verify selected and passed the same test command.
+
+The single-run `memory_effect` remains `neutral` because this trace still does
+not expose an explicit `CLAUDE.md` or `memory.md` read event. The cold/warm
+behavior comparison is the stronger metric for this dogfood check.

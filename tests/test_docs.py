@@ -416,7 +416,15 @@ def test_dogfood_acceptance_pack_covers_real_project_loop_and_record_template() 
         "do not start with build or lint; first run `pnpm run test`",
         "post-test checks only",
         "After validation tests pass, use pnpm run build to build Node.",
+        "7a4cfff4-ce0d-410b-997e-e0bd9485296a",
         "still chose",
+        "Post-test Wording Fresh Warm Run",
+        "2d6294a5d39a7ba86de6c1c622507904d3b2b67d",
+        "5bba6758-75e8-4643-bfae-8818bb84f982",
+        "Final fresh follow-up verdict: PASS",
+        "observed commands: pnpm run test, pnpm run build, pnpm run lint",
+        "failure extract: created=0",
+        "experience extract: created=0",
         "not a universal proof",
     ):
         assert phrase in stage_text
