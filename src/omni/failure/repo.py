@@ -5,7 +5,12 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
-from omni._common import now_iso, validate_choice
+from omni._common import (
+    CANDIDATE_STATE_VALUES,
+    NOTE_STATUS_VALUES,
+    now_iso,
+    validate_choice,
+)
 from omni.dbaccess import ensure_run_exists, next_commit_seq
 from omni.ids import new_id
 from omni.jsonio import decode_json_dict, redact_mapping_str, redact_text
@@ -30,10 +35,10 @@ from omni.failure.meta import (
     _nested_command,
 )
 
-STATE_VALUES = {"pending", "approved", "rejected"}
-LIST_STATE_VALUES = STATE_VALUES | {"all"}
-PATTERN_STATUS_VALUES = {"active", "retired"}
-LIST_PATTERN_STATUS_VALUES = PATTERN_STATUS_VALUES | {"all"}
+STATE_VALUES = CANDIDATE_STATE_VALUES - {"all"}
+LIST_STATE_VALUES = CANDIDATE_STATE_VALUES
+PATTERN_STATUS_VALUES = NOTE_STATUS_VALUES - {"all"}
+LIST_PATTERN_STATUS_VALUES = NOTE_STATUS_VALUES
 
 
 def extract_candidates(conn: sqlite3.Connection, run_id: str) -> list[dict[str, Any]]:
@@ -51,25 +56,12 @@ def extract_candidates(conn: sqlite3.Connection, run_id: str) -> list[dict[str, 
 
 
 def list_candidates(conn: sqlite3.Connection, state: str = "pending") -> list[dict[str, Any]]:
-    validate_choice("state", state, LIST_STATE_VALUES)
-    if state == "all":
-        rows = conn.execute(
-            """
-            SELECT *
-            FROM failure_candidates
-            ORDER BY created_at, failure_cand_id
-            """
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            """
-            SELECT *
-            FROM failure_candidates
-            WHERE state = ?
-            ORDER BY created_at, failure_cand_id
-            """,
-            (state,),
-        ).fetchall()
+    validate_choice("state", state, CANDIDATE_STATE_VALUES)
+    where, params = ("", []) if state == "all" else ("WHERE state = ?", [state])
+    rows = conn.execute(
+        f"SELECT * FROM failure_candidates {where} ORDER BY created_at, failure_cand_id",
+        params,
+    ).fetchall()
     return [_candidate_from_row(row) for row in rows]
 
 
@@ -84,25 +76,12 @@ def show_candidate(conn: sqlite3.Connection, failure_cand_id: str) -> dict[str, 
 
 
 def list_patterns(conn: sqlite3.Connection, status: str = "active") -> list[dict[str, Any]]:
-    validate_choice("status", status, LIST_PATTERN_STATUS_VALUES)
-    if status == "all":
-        rows = conn.execute(
-            """
-            SELECT *
-            FROM failure_patterns
-            ORDER BY created_seq, pattern_id
-            """
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            """
-            SELECT *
-            FROM failure_patterns
-            WHERE status = ?
-            ORDER BY created_seq, pattern_id
-            """,
-            (status,),
-        ).fetchall()
+    validate_choice("status", status, NOTE_STATUS_VALUES)
+    where, params = ("", []) if status == "all" else ("WHERE status = ?", [status])
+    rows = conn.execute(
+        f"SELECT * FROM failure_patterns {where} ORDER BY created_seq, pattern_id",
+        params,
+    ).fetchall()
     return [_pattern_from_row(row) for row in rows]
 
 

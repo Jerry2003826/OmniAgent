@@ -7,16 +7,18 @@ import sqlite3
 import sys
 from typing import Any
 
-from omni._common import memory_cli_readonly, now_iso, validate_choice
+from omni._common import (
+    CANDIDATE_STATE_VALUES,
+    NOTE_STATUS_VALUES,
+    memory_cli_readonly,
+    now_iso,
+    validate_choice,
+)
 from omni.dbaccess import next_commit_seq
 from omni.ids import new_id
 from omni.jsonio import as_json, decode_json_dict, redact_mapping_str, redact_text
 
 KIND_VALUES = {"prefers", "avoids", "boundary"}
-STATE_VALUES = {"pending", "approved", "rejected"}
-LIST_STATE_VALUES = STATE_VALUES | {"all"}
-NOTE_STATUS_VALUES = {"active", "retired"}
-LIST_NOTE_STATUS_VALUES = NOTE_STATUS_VALUES | {"all"}
 BOUNDARY_PREDICATE_PREFIXES = ("prefers_", "avoids_", "boundary_")
 
 
@@ -73,25 +75,12 @@ def extract_candidates(conn: sqlite3.Connection) -> list[dict[str, Any]]:
 
 
 def list_candidates(conn: sqlite3.Connection, state: str = "pending") -> list[dict[str, Any]]:
-    validate_choice("state", state, LIST_STATE_VALUES)
-    if state == "all":
-        rows = conn.execute(
-            """
-            SELECT *
-            FROM preference_candidates
-            ORDER BY created_at, pref_cand_id
-            """
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            """
-            SELECT *
-            FROM preference_candidates
-            WHERE state = ?
-            ORDER BY created_at, pref_cand_id
-            """,
-            (state,),
-        ).fetchall()
+    validate_choice("state", state, CANDIDATE_STATE_VALUES)
+    where, params = ("", []) if state == "all" else ("WHERE state = ?", [state])
+    rows = conn.execute(
+        f"SELECT * FROM preference_candidates {where} ORDER BY created_at, pref_cand_id",
+        params,
+    ).fetchall()
     return [_candidate_from_row(row) for row in rows]
 
 
@@ -156,25 +145,13 @@ def reject_candidate(conn: sqlite3.Connection, pref_cand_id: str) -> dict[str, A
 
 
 def list_notes(conn: sqlite3.Connection, status: str = "active") -> list[dict[str, Any]]:
-    validate_choice("status", status, LIST_NOTE_STATUS_VALUES)
-    if status == "all":
-        rows = conn.execute(
-            """
-            SELECT note_id, scope, kind, body, suggested_action, status
-            FROM preference_notes
-            ORDER BY created_seq, note_id
-            """
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            """
-            SELECT note_id, scope, kind, body, suggested_action, status
-            FROM preference_notes
-            WHERE status = ?
-            ORDER BY created_seq, note_id
-            """,
-            (status,),
-        ).fetchall()
+    validate_choice("status", status, NOTE_STATUS_VALUES)
+    where, params = ("", []) if status == "all" else ("WHERE status = ?", [status])
+    rows = conn.execute(
+        f"SELECT note_id, scope, kind, body, suggested_action, status "
+        f"FROM preference_notes {where} ORDER BY created_seq, note_id",
+        params,
+    ).fetchall()
     return [dict(row) for row in rows]
 
 

@@ -9,7 +9,12 @@ from pathlib import Path
 from typing import Any
 
 from omni import eval as behavior_eval
-from omni._common import now_iso, validate_choice
+from omni._common import (
+    CANDIDATE_STATE_VALUES,
+    NOTE_STATUS_VALUES,
+    now_iso,
+    validate_choice,
+)
 from omni.dbaccess import ensure_run_exists, next_commit_seq, root_from_connection
 from omni.ids import new_id
 from omni.jsonio import as_json, decode_json_dict, redact_mapping_str, redact_text
@@ -20,10 +25,6 @@ KIND_VALUES = {
     "verification_hint",
     "project_workflow",
 }
-STATE_VALUES = {"pending", "approved", "rejected"}
-LIST_STATE_VALUES = STATE_VALUES | {"all"}
-NOTE_STATUS_VALUES = {"active", "retired"}
-LIST_NOTE_STATUS_VALUES = NOTE_STATUS_VALUES | {"all"}
 
 REDISCOVERY_WASTE_CLAIM = (
     "Memory context was available, but the run performed rediscovery and did not "
@@ -96,25 +97,12 @@ def extract_candidates(conn: sqlite3.Connection, run_id: str) -> list[dict[str, 
 
 
 def list_candidates(conn: sqlite3.Connection, state: str = "pending") -> list[dict[str, Any]]:
-    validate_choice("state", state, LIST_STATE_VALUES)
-    if state == "all":
-        rows = conn.execute(
-            """
-            SELECT *
-            FROM experience_candidates
-            ORDER BY created_at, exp_cand_id
-            """
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            """
-            SELECT *
-            FROM experience_candidates
-            WHERE state = ?
-            ORDER BY created_at, exp_cand_id
-            """,
-            (state,),
-        ).fetchall()
+    validate_choice("state", state, CANDIDATE_STATE_VALUES)
+    where, params = ("", []) if state == "all" else ("WHERE state = ?", [state])
+    rows = conn.execute(
+        f"SELECT * FROM experience_candidates {where} ORDER BY created_at, exp_cand_id",
+        params,
+    ).fetchall()
     return [_candidate_from_row(row) for row in rows]
 
 
@@ -146,7 +134,7 @@ def approve_candidate(conn: sqlite3.Connection, exp_cand_id: str) -> dict[str, A
     if candidate["state"] == "rejected":
         raise ValueError(f"rejected candidate cannot be approved in v0: {exp_cand_id}")
 
-    validate_choice("state", candidate["state"], STATE_VALUES)
+    validate_choice("state", candidate["state"], CANDIDATE_STATE_VALUES - {"all"})
     validate_choice("kind", candidate["kind"], KIND_VALUES)
     if note_id is None:
         try:
@@ -188,7 +176,7 @@ def reject_candidate(conn: sqlite3.Connection, exp_cand_id: str) -> dict[str, An
         raise ValueError(f"approved candidate cannot be rejected in v0: {exp_cand_id}")
     if candidate["state"] == "rejected":
         return show_candidate(conn, exp_cand_id)
-    validate_choice("state", candidate["state"], STATE_VALUES)
+    validate_choice("state", candidate["state"], CANDIDATE_STATE_VALUES - {"all"})
     updated = conn.execute(
         """
         UPDATE experience_candidates
@@ -215,25 +203,12 @@ def reject_candidate(conn: sqlite3.Connection, exp_cand_id: str) -> dict[str, An
 
 
 def list_notes(conn: sqlite3.Connection, status: str = "active") -> list[dict[str, Any]]:
-    validate_choice("status", status, LIST_NOTE_STATUS_VALUES)
-    if status == "all":
-        rows = conn.execute(
-            """
-            SELECT *
-            FROM experience_notes
-            ORDER BY created_seq, note_id
-            """
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            """
-            SELECT *
-            FROM experience_notes
-            WHERE status = ?
-            ORDER BY created_seq, note_id
-            """,
-            (status,),
-        ).fetchall()
+    validate_choice("status", status, NOTE_STATUS_VALUES)
+    where, params = ("", []) if status == "all" else ("WHERE status = ?", [status])
+    rows = conn.execute(
+        f"SELECT * FROM experience_notes {where} ORDER BY created_seq, note_id",
+        params,
+    ).fetchall()
     return [_note_from_row(row) for row in rows]
 
 
@@ -246,7 +221,7 @@ def retire_note(conn: sqlite3.Connection, note_id: str) -> dict[str, Any]:
         conn.execute("BEGIN")
         note = _note_row(conn, note_id)
         status = note["status"]
-        validate_choice("status", status, NOTE_STATUS_VALUES)
+        validate_choice("status", status, NOTE_STATUS_VALUES - {"all"})
         if status == "retired":
             # Idempotent: a retired note stays retired and the source candidate is
             # never touched.
@@ -435,7 +410,7 @@ def _note_from_row(row: sqlite3.Row) -> dict[str, Any]:
 
 
 def _note_lifecycle(status: str) -> dict[str, Any]:
-    validate_choice("status", status, NOTE_STATUS_VALUES)
+    validate_choice("status", status, NOTE_STATUS_VALUES - {"all"})
     if status == "active":
         return {
             "renders": True,
