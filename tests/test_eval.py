@@ -164,6 +164,10 @@ def test_eval_run_reports_neutral_when_expected_command_follows_rediscovery(
         ("pnpm run test", True),
         ("pnpm run test -- --watch=false", True),
         ("pnpm test", True),
+        ('cd "C:\\Users\\Jiarui Li\\Documents\\OmniDogfood\\unihack3-13" && pnpm run test', True),
+        ("cd /tmp/project && pnpm run test -- --watch=false", True),
+        ("cd /tmp/project && pnpm test", True),
+        ("cd /tmp/project && npm test", False),
         ("npm test", False),
     ],
 )
@@ -194,6 +198,7 @@ def test_eval_run_matches_expected_commands_conservatively(
         ("Bash", {"tool_input": {"command": "find . -maxdepth 2 -type f"}}, "broad_scan"),
         ("Bash", {"tool_input": {"command": "tree -L 2"}}, "broad_scan"),
         ("Bash", {"tool_input": {"command": "rg --files"}}, "broad_scan"),
+        ("Bash", {"tool_input": {"command": "cd /tmp/project && rg --files"}}, "broad_scan"),
     ],
 )
 def test_eval_run_counts_rediscovery_from_tool_input(

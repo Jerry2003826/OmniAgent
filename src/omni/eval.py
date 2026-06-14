@@ -512,7 +512,26 @@ def _nested_strings(value: Any) -> list[str]:
 
 
 def _normalize_command(command: str) -> str:
-    return " ".join(command.strip().split())
+    return _strip_leading_directory_changes(" ".join(command.strip().split()))
+
+
+def _strip_leading_directory_changes(command: str) -> str:
+    current = command
+    while "&&" in current:
+        head, tail = current.split("&&", 1)
+        if not _is_directory_change_command(head):
+            break
+        current = tail.strip()
+    return current
+
+
+def _is_directory_change_command(command: str) -> bool:
+    lowered = command.strip().lower()
+    return (
+        lowered.startswith("cd ")
+        or lowered.startswith("chdir ")
+        or lowered.startswith("pushd ")
+    )
 
 
 def _matches_any_expected_command(observed: str, expected_commands: list[str]) -> bool:

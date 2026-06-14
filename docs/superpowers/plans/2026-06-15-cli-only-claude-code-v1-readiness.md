@@ -338,7 +338,7 @@ git commit -m "cli-v1: add public command smoke"
 **Files:**
 - Create: `docs/cli-only-claude-code-v1-closeout-2026-06-15.md`
 
-- [ ] **Step 1: Run local verification**
+- [x] **Step 1: Run local verification**
 
 Run:
 
@@ -354,7 +354,7 @@ Expected result:
 - audit JSON contains `"ok": true`
 - diff check has no whitespace errors
 
-- [ ] **Step 2: Run one real Claude Code dogfood pass**
+- [x] **Step 2: Run one real Claude Code dogfood pass**
 
 In the target project, follow `docs/cli-only-claude-code-v1-runbook.md` and
 record:
@@ -367,7 +367,7 @@ omni eval dogfood --cold <cold_run_id> --warm <warm_run_id>
 omni audit secrets
 ```
 
-- [ ] **Step 3: Write closeout evidence**
+- [x] **Step 3: Write closeout evidence**
 
 Create `docs/cli-only-claude-code-v1-closeout-2026-06-15.md` with:
 
@@ -395,7 +395,7 @@ PARTIAL if the runbook was executable but behavior improvement was weak.
 FAIL if the runbook could not be completed safely.
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 Run:
 
