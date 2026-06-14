@@ -1,19 +1,20 @@
-# OmniMemory Experience Note Lifecycle v1
+# OmniMemory CLI-only Claude Code v1 Readiness
 
 ## Goal
 
-Current phase: OmniMemory Experience Note Lifecycle v1.
+Current phase: OmniMemory CLI-only Claude Code v1 Readiness.
 
 Build ONE closed loop:
 
 Claude Code run → redacted trace → deterministic facts → generated memory block → measurably changed behavior in the next run.
 
-Experience Note Lifecycle v1 keeps the v0.2-v0.5 loop intact and adds the
-smallest lifecycle control for approved experience notes: active notes can be
-listed, shown, and explicitly retired so they stop rendering into
-`.omni/generated/memory.md`. This phase must not add new memory types, new
-tables, migrations, supersede, reactivation, automatic success inference,
-automatic failure memory, or automatic memory evolution.
+CLI-only Claude Code v1 packages the existing v0.2-v0.5 loop into the first
+usable product shape: one local CLI for Claude Code users. This phase should
+make install, initialization, audit gating, hook capture, ingest, eval, outcome,
+experience/failure review, verify, render, injection, and lifecycle operations
+discoverable and explainable end to end. It must not add new memory types, new
+tables, migrations, services, adapters, supersede, reactivation, automatic
+success inference, automatic failure memory, or automatic memory evolution.
 
 ## Non-goals, hard this week
 
