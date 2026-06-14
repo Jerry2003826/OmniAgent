@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import sqlite3
 import sys
 from typing import Any
 
-from omni import eval as behavior_eval
-from omni._common import now_iso, validate_choice
-from omni.dbaccess import connect_project, connect_project_readonly
+from omni._common import memory_cli_readonly, now_iso, validate_choice
 from omni.ids import new_id
-from omni.jsonio import redact_mapping_str, redact_text
+from omni.jsonio import as_json, redact_mapping_str, redact_text
 
 KIND_VALUES = {"prefers", "avoids", "boundary"}
 STATE_VALUES = {"pending", "approved", "rejected"}
@@ -218,10 +217,6 @@ def retire_note(conn: sqlite3.Connection, note_id: str) -> dict[str, Any]:
     return show_note(conn, note_id)
 
 
-def as_json(value: dict[str, Any] | list[dict[str, Any]]) -> str:
-    return behavior_eval.as_json(value)
-
-
 def _candidate_spec(row: sqlite3.Row) -> dict[str, str] | None:
     predicate = row["predicate"]
     if predicate.startswith("prefers_"):
@@ -315,6 +310,47 @@ def _decode_evidence(raw: str | None) -> dict[str, Any]:
     except json.JSONDecodeError:
         return {}
     return decoded if isinstance(decoded, dict) else {}
+
+
+def cli_command_readonly(args: argparse.Namespace) -> bool:
+    return memory_cli_readonly(
+        args.preference_command,
+        getattr(args, "preference_note_command", None),
+        nested_parent="note",
+    )
+
+
+def handle_cli_action(
+    conn: sqlite3.Connection,
+    args: argparse.Namespace,
+    parser: argparse.ArgumentParser,
+) -> Any:
+    if args.preference_command == "extract":
+        candidates = extract_candidates(conn)
+        return {"created": len(candidates), "candidates": candidates}
+    if args.preference_command == "ls":
+        return {"candidates": list_candidates(conn, args.state)}
+    if args.preference_command == "show":
+        return show_candidate(conn, args.pref_cand_id)
+    if args.preference_command == "approve":
+        return approve_candidate(
+            conn,
+            args.pref_cand_id,
+            suggested_action=args.suggested_action,
+        )
+    if args.preference_command == "reject":
+        return reject_candidate(conn, args.pref_cand_id)
+    if args.preference_command == "note":
+        if args.preference_note_command == "ls":
+            return {"notes": list_notes(conn, status=args.status)}
+        if args.preference_note_command == "show":
+            return show_note(conn, args.note_id)
+        if args.preference_note_command == "retire":
+            return retire_note(conn, args.note_id)
+        parser.error(f"unknown preference note command: {args.preference_note_command}")
+        return 2
+    parser.error(f"unknown preference command: {args.preference_command}")
+    return 2
 
 
 if __name__ == "__main__":  # pragma: no cover

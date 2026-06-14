@@ -7,6 +7,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from omni._common import (
+    is_redaction_placeholder as _is_redaction_placeholder,
+    merge_redaction_status as _merge_redaction_status,
+    optional_int as _optional_int,
+)
 from omni.redact import redact
 
 KNOWN_EVENT_KEYS = {
@@ -224,32 +229,12 @@ def _redacted_optional_str(value: Any) -> tuple[str | None, str, tuple[str, ...]
     return _redacted_str(value)
 
 
-def _merge_redaction_status(*statuses: str) -> str:
-    for status in ("withheld", "truncated", "redacted"):
-        if status in statuses:
-            return status
-    return "clean"
-
-
-def _is_redaction_placeholder(value: str) -> bool:
-    return value.startswith("\u27e8REDACTED:") and value.endswith("\u27e9")
-
-
 def _event_type(row: dict[str, Any]) -> Any:
     return row.get("type") or row.get("event_type") or row.get("hook_event_name")
 
 
 def _optional_str(value: Any) -> str | None:
     return None if value is None else str(value)
-
-
-def _optional_int(value: Any) -> int | None:
-    if value is None:
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def _archive_record(

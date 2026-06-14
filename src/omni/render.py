@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from omni.dbaccess import connect_project as _db_connect_project
 from omni.jsonio import redact_text
 
 RENDER_VER = 1
@@ -38,10 +37,6 @@ class ManualEditError(RuntimeError):
     def __init__(self, diff: str) -> None:
         super().__init__("generated memory was manually edited; rerun with --force to overwrite")
         self.diff = diff
-
-
-def connect_project(root: Path | str | None = None) -> sqlite3.Connection:
-    return _db_connect_project(root, create_if_missing=True)
 
 
 def render_project(

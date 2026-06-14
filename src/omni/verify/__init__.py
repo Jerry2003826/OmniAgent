@@ -2,10 +2,6 @@
 
 from __future__ import annotations
 
-import sqlite3
-from pathlib import Path
-
-from omni.dbaccess import connect_project_readonly_verify
 from omni.verify import deps
 from omni.verify.command_safety import (
     REASON_CODE_PARSE_ERROR_BATCH_METACHARACTER,
@@ -67,10 +63,5 @@ __all__ = [
     "VERIFY_PREDICATE",
     "VerifyCommandError",
     "as_json",
-    "connect_project_readonly",
     "run_preflight",
 ]
-
-
-def connect_project_readonly(root: Path | str | None = None) -> sqlite3.Connection:
-    return connect_project_readonly_verify(root)

@@ -11,6 +11,7 @@ import pytest
 from omni import cli
 from omni import db
 from omni import verify
+from omni.dbaccess import connect_project_readonly_verify
 
 
 def test_verify_preflight_runs_selected_test_command(tmp_path: Path) -> None:
@@ -832,7 +833,7 @@ def test_connect_project_readonly_supports_verify_and_blocks_writes(tmp_path: Pa
     _insert_fact(conn, _python_command(script))
     conn.close()
 
-    readonly = verify.connect_project_readonly(tmp_path)
+    readonly = connect_project_readonly_verify(tmp_path)
     try:
         result = verify.run_preflight(readonly, tmp_path)
         with pytest.raises(sqlite3.OperationalError):

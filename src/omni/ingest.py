@@ -12,6 +12,11 @@ from typing import Any
 
 from omni import db
 from omni import gate
+from omni._common import (
+    is_redaction_placeholder as _is_redaction_placeholder,
+    merge_redaction_status as _merge_redaction_status,
+    optional_int as _optional_int,
+)
 from omni.config import ensure_project_layout
 from omni.ids import project_id_for_path
 from omni.parse import NormalizedEvent, parse_transcript
@@ -36,18 +41,62 @@ class IngestResult:
 
 @dataclass(frozen=True)
 class EventCandidate:
-    event_type: str
-    ts: str
-    tool: str | None
-    tool_use_id: str | None
-    exit_code: int | None
-    duration_ms: int | None
-    source: str
-    meta: dict[str, Any]
+    event: NormalizedEvent
     artifact_hash: str | None
     unique_key: str
-    redaction_status: str = "clean"
     sort_index: int = 0
+
+    @classmethod
+    def from_normalized(
+        cls,
+        event: NormalizedEvent,
+        *,
+        artifact_hash: str | None,
+        unique_key: str,
+        sort_index: int | None = None,
+    ) -> EventCandidate:
+        return cls(
+            event=event,
+            artifact_hash=artifact_hash,
+            unique_key=unique_key,
+            sort_index=event.seq if sort_index is None else sort_index,
+        )
+
+    @property
+    def event_type(self) -> str:
+        return self.event.event_type
+
+    @property
+    def ts(self) -> str:
+        return self.event.ts
+
+    @property
+    def tool(self) -> str | None:
+        return self.event.tool
+
+    @property
+    def tool_use_id(self) -> str | None:
+        return self.event.tool_use_id
+
+    @property
+    def exit_code(self) -> int | None:
+        return self.event.exit_code
+
+    @property
+    def duration_ms(self) -> int | None:
+        return self.event.duration_ms
+
+    @property
+    def source(self) -> str:
+        return self.event.source
+
+    @property
+    def meta(self) -> dict[str, Any]:
+        return self.event.meta
+
+    @property
+    def redaction_status(self) -> str:
+        return self.event.redaction_status
 
 
 def ingest(
@@ -282,19 +331,10 @@ def _candidate_from_transcript_event(
             ensure_ascii=False,
         ).encode("utf-8"),
     )
-    return EventCandidate(
-        event_type=event.event_type,
-        ts=event.ts,
-        tool=event.tool,
-        tool_use_id=event.tool_use_id,
-        exit_code=event.exit_code,
-        duration_ms=event.duration_ms,
-        source="transcript",
-        meta=event.meta,
+    return EventCandidate.from_normalized(
+        event,
         artifact_hash=artifact.hash,
         unique_key=unique_key,
-        redaction_status=event.redaction_status,
-        sort_index=event.seq,
     )
 
 
@@ -345,7 +385,7 @@ def _candidate_from_hook_group(
     candidate = _candidate_from_hook_record(conn, root, preferred, duration)
     return replace(
         candidate,
-        tool_use_id=tool_use_id,
+        event=replace(candidate.event, tool_use_id=tool_use_id),
         unique_key=f"hook:{tool_use_id}:{candidate.event_type}:{candidate.ts}",
     )
 
@@ -374,38 +414,43 @@ def _candidate_from_hook_record(
         ).encode("utf-8"),
     )
     return EventCandidate(
-        event_type=event_type,
-        ts=_timestamp(payload),
-        tool=tool,
-        tool_use_id=tool_use_id,
-        exit_code=_optional_int(payload.get("exit_code")),
-        duration_ms=_optional_int(payload.get("duration_ms")) or duration_ms,
-        source="hook",
-        meta={
-            "spool_path": str(record.path),
-            "spool_line": record.line_no,
-            **{
-                key: value
-                for key, value in payload.items()
-                if key
-                not in {
-                    "duration_ms",
-                    "exit_code",
-                    "hook_event_name",
-                    "id",
-                    "name",
-                    "timestamp",
-                    "tool",
-                    "tool_name",
-                    "tool_use_id",
-                    "ts",
-                    "type",
-                }
+        event=NormalizedEvent(
+            seq=record.line_no,
+            ts=_timestamp(payload),
+            event_type=event_type,
+            tool=tool,
+            tool_use_id=tool_use_id,
+            exit_code=_optional_int(payload.get("exit_code")),
+            duration_ms=_optional_int(payload.get("duration_ms")) or duration_ms,
+            source="hook",
+            meta={
+                "spool_path": str(record.path),
+                "spool_line": record.line_no,
+                **{
+                    key: value
+                    for key, value in payload.items()
+                    if key
+                    not in {
+                        "duration_ms",
+                        "exit_code",
+                        "hook_event_name",
+                        "id",
+                        "name",
+                        "timestamp",
+                        "tool",
+                        "tool_name",
+                        "tool_use_id",
+                        "ts",
+                        "type",
+                    }
+                },
             },
-        },
+            redaction_status=_merge_redaction_status(
+                record_status, event_status, tool_status, tool_id_status
+            ),
+        ),
         artifact_hash=artifact.hash,
         unique_key=f"hook:{record.path.name}:{record.line_no}",
-        redaction_status=_merge_redaction_status(record_status, event_status, tool_status, tool_id_status),
         sort_index=record.line_no,
     )
 
@@ -453,20 +498,31 @@ def _reconcile_candidates(
             continue
         reconciled.append(
             EventCandidate(
-                event_type=event.event_type,
-                ts=event.ts or hook_event.ts,
-                tool=event.tool or hook_event.tool,
-                tool_use_id=event.tool_use_id,
-                exit_code=event.exit_code if event.exit_code is not None else hook_event.exit_code,
-                duration_ms=event.duration_ms if event.duration_ms is not None else hook_event.duration_ms,
-                source="reconciled",
-                meta={"transcript": event.meta, "hook": hook_event.meta},
+                event=NormalizedEvent(
+                    seq=event.sort_index,
+                    ts=event.ts or hook_event.ts,
+                    event_type=event.event_type,
+                    tool=event.tool or hook_event.tool,
+                    tool_use_id=event.tool_use_id,
+                    exit_code=(
+                        event.exit_code
+                        if event.exit_code is not None
+                        else hook_event.exit_code
+                    ),
+                    duration_ms=(
+                        event.duration_ms
+                        if event.duration_ms is not None
+                        else hook_event.duration_ms
+                    ),
+                    source="reconciled",
+                    meta={"transcript": event.meta, "hook": hook_event.meta},
+                    redaction_status=_merge_redaction_status(
+                        event.redaction_status,
+                        hook_event.redaction_status,
+                    ),
+                ),
                 artifact_hash=event.artifact_hash or hook_event.artifact_hash,
                 unique_key=f"reconciled:{event.tool_use_id}:{event.event_type}:{event.ts}",
-                redaction_status=_merge_redaction_status(
-                    event.redaction_status,
-                    hook_event.redaction_status,
-                ),
                 sort_index=event.sort_index,
             )
         )
@@ -592,6 +648,8 @@ def _renumber_run_events(conn: sqlite3.Connection, run_id: str) -> None:
         """,
         (run_id,),
     ).fetchall()
+    # Two-pass renumber: seq must go negative first to avoid UNIQUE(run_id, seq)
+    # violations while reordering rows in place.
     for index, row in enumerate(rows, start=1):
         conn.execute(
             "UPDATE events SET seq = ? WHERE event_id = ?",
@@ -658,17 +716,6 @@ def _record_redaction_status(record: HookRecord) -> str:
     return str(status) if isinstance(status, str) else "clean"
 
 
-def _merge_redaction_status(*statuses: str) -> str:
-    for status in ("withheld", "truncated", "redacted"):
-        if status in statuses:
-            return status
-    return "clean"
-
-
-def _is_redaction_placeholder(value: str) -> bool:
-    return value.startswith("\u27e8REDACTED:") and value.endswith("\u27e9")
-
-
 def _command_preview(meta_json: str | None) -> str:
     if not meta_json:
         return ""
@@ -710,15 +757,6 @@ def _timestamp(payload: dict[str, Any]) -> str:
 
 def _optional_str(value: Any) -> str | None:
     return None if value is None else str(value)
-
-
-def _optional_int(value: Any) -> int | None:
-    if value is None:
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
 
 
 def _parse_ts(value: str) -> float | None:

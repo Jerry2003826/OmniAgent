@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import io
 import os
 import json
 import shutil
@@ -8,6 +10,7 @@ import sqlite3
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -31,20 +34,47 @@ def run_omni(
     *args: str,
     input_text: str | None = None,
     extra_env: dict[str, str] | None = None,
-) -> subprocess.CompletedProcess[str]:
+) -> SimpleNamespace:
     env = os.environ.copy()
     env["PYTHONPATH"] = str(REPO_ROOT / "src")
     if extra_env:
         env.update(extra_env)
-    return subprocess.run(
-        [sys.executable, "-m", "omni.cli", *args],
-        cwd=cwd,
-        env=env,
-        input=input_text,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+
+    argv = list(args)
+    stdin_backup = sys.stdin
+    cwd_backup = os.getcwd()
+    env_backup = dict(os.environ)
+    try:
+        os.chdir(cwd)
+        os.environ.clear()
+        os.environ.update(env)
+        if input_text is not None:
+            sys.stdin = io.TextIOWrapper(
+                io.BytesIO(input_text.encode("utf-8")),
+                encoding="utf-8",
+            )
+        out = io.StringIO()
+        err = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            try:
+                code = cli.main(argv)
+            except SystemExit as exc:
+                if isinstance(exc.code, int):
+                    code = exc.code
+                elif exc.code is None:
+                    code = 0
+                else:
+                    code = 2
+        return SimpleNamespace(
+            returncode=code,
+            stdout=out.getvalue(),
+            stderr=err.getvalue(),
+        )
+    finally:
+        os.chdir(cwd_backup)
+        os.environ.clear()
+        os.environ.update(env_backup)
+        sys.stdin = stdin_backup
 
 
 def test_init_creates_layout_and_is_idempotent(tmp_path: Path) -> None:

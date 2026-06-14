@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import sqlite3
 from pathlib import Path
@@ -10,9 +11,9 @@ from typing import Any
 from omni import eval as behavior_eval
 from omni import verify
 from omni._common import now_iso, validate_choice
-from omni.dbaccess import connect_project, connect_project_readonly, root_from_connection
+from omni.dbaccess import ensure_run_exists, root_from_connection
 from omni.ids import new_id
-from omni.jsonio import redact_text
+from omni.jsonio import as_json, redact_text
 from omni.redact import redact
 from omni.verify import (
     REASON_CODE_FAILED_EXIT_CODE,
@@ -39,7 +40,7 @@ def mark_outcome(
     note: str | None = None,
     evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    _ensure_run_exists(conn, run_id)
+    ensure_run_exists(conn, run_id)
     validate_choice("status", status, STATUS_VALUES)
     validate_choice("tests_status", tests_status, TESTS_STATUS_VALUES)
     validate_choice("task_type", task_type, TASK_TYPE_VALUES)
@@ -136,7 +137,7 @@ def mark_outcome_from_verify(
     qualifier: str | None = None,
     profile: str | None = None,
 ) -> dict[str, Any]:
-    _ensure_run_exists(conn, run_id)
+    ensure_run_exists(conn, run_id)
     validate_choice("status", status, STATUS_VALUES)
     validate_choice("task_type", task_type, TASK_TYPE_VALUES)
     if memory_effect is not None:
@@ -273,16 +274,6 @@ def _summarize_outcomes(outcomes: list[dict[str, Any]]) -> dict[str, dict[str, i
     return summary
 
 
-def as_json(value: dict[str, Any]) -> str:
-    return behavior_eval.as_json(value)
-
-
-def _ensure_run_exists(conn: sqlite3.Connection, run_id: str) -> None:
-    row = conn.execute("SELECT 1 FROM runs WHERE run_id = ?", (run_id,)).fetchone()
-    if row is None:
-        raise ValueError(f"unknown run: {run_id}")
-
-
 def _redact_json(value: Any) -> Any:
     if isinstance(value, dict):
         return {str(key): _redact_json(child) for key, child in value.items()}
@@ -363,3 +354,54 @@ def _verify_evidence(verify_result: dict[str, Any]) -> dict[str, Any]:
         "candidate_commands_omitted",
     )
     return {key: verify_result[key] for key in keys if key in verify_result}
+
+
+def cli_command_readonly(args: argparse.Namespace) -> bool:
+    return args.outcome_command in {"show", "ls"}
+
+
+def handle_cli_action(
+    conn: sqlite3.Connection,
+    args: argparse.Namespace,
+    parser: argparse.ArgumentParser,
+    *,
+    root: Path,
+) -> Any:
+    if args.outcome_command == "mark":
+        return mark_outcome(
+            conn,
+            args.run_id,
+            status=args.outcome_status or "unknown",
+            tests_status=args.tests_status or "unknown",
+            memory_effect=args.memory_effect,
+            task_type=args.task_type,
+            task_summary=args.task_summary,
+            final_command=args.final_command,
+            note=args.note,
+        )
+    if args.outcome_command == "mark-from-verify":
+        return mark_outcome_from_verify(
+            conn,
+            args.run_id,
+            root,
+            status=args.outcome_status or "unknown",
+            memory_effect=args.memory_effect,
+            task_type=args.task_type,
+            task_summary=args.task_summary,
+            note=args.note,
+            timeout_seconds=args.timeout_seconds,
+            qualifier=args.qualifier,
+            profile=args.profile,
+        )
+    if args.outcome_command == "show":
+        return show_outcome(conn, args.run_id)
+    if args.outcome_command == "ls":
+        return list_outcomes(
+            conn,
+            task_type=args.task_type,
+            status=args.status,
+            tests_status=args.tests_status,
+            memory_effect=args.memory_effect,
+        )
+    parser.error(f"unknown outcome command: {args.outcome_command}")
+    return 2

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import sqlite3
 import sys
@@ -10,9 +11,9 @@ from typing import Any
 
 from omni import eval as behavior_eval
 from omni._common import now_iso, validate_choice
-from omni.dbaccess import connect_project, connect_project_readonly, root_from_connection
+from omni.dbaccess import ensure_run_exists, root_from_connection
 from omni.ids import new_id
-from omni.jsonio import redact_mapping_str, redact_text
+from omni.jsonio import as_json, redact_mapping_str, redact_text
 
 KIND_VALUES = {
     "fast_path",
@@ -42,7 +43,7 @@ FAST_PATH_ACTION = (
 
 
 def extract_candidates(conn: sqlite3.Connection, run_id: str) -> list[dict[str, Any]]:
-    _ensure_run_exists(conn, run_id)
+    ensure_run_exists(conn, run_id)
     outcome_row = _outcome_for_run(conn, run_id)
     if outcome_row is None:
         return []
@@ -271,10 +272,6 @@ def retire_note(conn: sqlite3.Connection, note_id: str) -> dict[str, Any]:
         raise
 
 
-def as_json(value: dict[str, Any]) -> str:
-    return behavior_eval.as_json(value)
-
-
 def _candidate_spec(
     eval_result: dict[str, Any], outcome_row: sqlite3.Row
 ) -> dict[str, str] | None:
@@ -341,12 +338,6 @@ def _outcome_for_run(conn: sqlite3.Connection, run_id: str) -> sqlite3.Row | Non
         """,
         (run_id,),
     ).fetchone()
-
-
-def _ensure_run_exists(conn: sqlite3.Connection, run_id: str) -> None:
-    row = conn.execute("SELECT 1 FROM runs WHERE run_id = ?", (run_id,)).fetchone()
-    if row is None:
-        raise ValueError(f"unknown run: {run_id}")
 
 
 def _evaluate_run(conn: sqlite3.Connection, run_id: str) -> dict[str, Any]:
@@ -486,3 +477,42 @@ def _decode_json_object(value: str) -> dict[str, Any]:
     except json.JSONDecodeError:
         return {"decode_error": "invalid_json"}
     return decoded if isinstance(decoded, dict) else {"decode_error": "non_object"}
+
+
+def cli_command_readonly(args: argparse.Namespace) -> bool:
+    from omni._common import memory_cli_readonly
+
+    return memory_cli_readonly(
+        args.experience_command,
+        getattr(args, "experience_note_command", None),
+        nested_parent="note",
+    )
+
+
+def handle_cli_action(
+    conn: sqlite3.Connection,
+    args: argparse.Namespace,
+    parser: argparse.ArgumentParser,
+) -> Any:
+    if args.experience_command == "extract":
+        candidates = extract_candidates(conn, args.run_id)
+        return {"created": len(candidates), "candidates": candidates}
+    if args.experience_command == "ls":
+        return {"candidates": list_candidates(conn, args.state)}
+    if args.experience_command == "show":
+        return show_candidate(conn, args.exp_cand_id)
+    if args.experience_command == "approve":
+        return approve_candidate(conn, args.exp_cand_id)
+    if args.experience_command == "reject":
+        return reject_candidate(conn, args.exp_cand_id)
+    if args.experience_command == "note":
+        if args.experience_note_command == "ls":
+            return {"notes": list_notes(conn, status=args.status)}
+        if args.experience_note_command == "show":
+            return show_note(conn, args.note_id)
+        if args.experience_note_command == "retire":
+            return retire_note(conn, args.note_id)
+        parser.error(f"unknown experience note command: {args.experience_note_command}")
+        return 2
+    parser.error(f"unknown experience command: {args.experience_command}")
+    return 2

@@ -15,6 +15,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
+from omni.config import project_root
 from omni.redact import RedactionResult, is_skiplisted_path, redact, redact_minimal
 
 DEFAULT_HOOK_COMMAND = "omni hook"
@@ -311,14 +312,7 @@ def _hook_base(root: Path | str | None) -> Path:
     configured = root or os.environ.get("CLAUDE_PROJECT_DIR")
     if configured is not None:
         return Path(configured).resolve()
-    return _discover_project_root(Path.cwd().resolve())
-
-
-def _discover_project_root(start: Path) -> Path:
-    for candidate in (start, *start.parents):
-        if (candidate / ".omni").is_dir() or (candidate / ".git").exists():
-            return candidate
-    return start
+    return project_root()
 
 
 def _redact_skiplisted_payload(payload: bytes) -> RedactionResult | None:

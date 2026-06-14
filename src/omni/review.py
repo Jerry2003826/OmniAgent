@@ -6,10 +6,8 @@ import json
 import sqlite3
 from dataclasses import dataclass
 from typing import Callable
-from pathlib import Path
 
 from omni._common import now_iso
-from omni.dbaccess import connect_project as _db_connect_project
 from omni import gate
 
 
@@ -39,10 +37,6 @@ class ReviewSummary:
             },
             sort_keys=True,
         ) + "\n"
-
-
-def connect_project(root: Path | str | None = None) -> sqlite3.Connection:
-    return _db_connect_project(root, create_if_missing=True)
 
 
 def approve(conn: sqlite3.Connection, cand_id: str) -> ReviewResult:

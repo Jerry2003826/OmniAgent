@@ -26,6 +26,17 @@ def connect_project(
     return conn
 
 
+def connect_project_migrate(root: Path | str | None = None) -> sqlite3.Connection:
+    """Open project DB for approved write commands that may create or migrate schema."""
+    return connect_project(root, create_if_missing=True)
+
+
+def ensure_run_exists(conn: sqlite3.Connection, run_id: str) -> None:
+    row = conn.execute("SELECT 1 FROM runs WHERE run_id = ?", (run_id,)).fetchone()
+    if row is None:
+        raise ValueError(f"unknown run: {run_id}")
+
+
 def connect_project_readonly(root: Path | str | None = None) -> sqlite3.Connection:
     db_path = _project_db_path(root)
     if not db_path.exists():

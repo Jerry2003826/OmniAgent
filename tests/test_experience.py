@@ -9,6 +9,7 @@ import pytest
 from omni import cli
 from omni import db
 from omni import experience
+from omni.dbaccess import connect_project_readonly
 from omni import outcome
 
 
@@ -543,7 +544,7 @@ def test_connect_project_readonly_serves_reads_and_blocks_writes(tmp_path: Path)
     conn = _fixture_db(tmp_path)
     conn.close()
 
-    readonly = experience.connect_project_readonly(tmp_path)
+    readonly = connect_project_readonly(tmp_path)
     try:
         assert experience.list_candidates(readonly, state="all") == []
         with pytest.raises(sqlite3.OperationalError):
@@ -554,7 +555,7 @@ def test_connect_project_readonly_serves_reads_and_blocks_writes(tmp_path: Path)
 
 def test_connect_project_readonly_missing_db_raises_file_not_found(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError, match="OmniMemory database is missing"):
-        experience.connect_project_readonly(tmp_path)
+        connect_project_readonly(tmp_path)
 
 
 def test_reject_twice_is_idempotent_and_preserves_reviewed_at(
@@ -884,7 +885,7 @@ def test_note_lifecycle_adds_no_new_tables(tmp_path: Path) -> None:
 
 def test_note_readonly_ls_show_do_not_create_omni(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError, match="OmniMemory database is missing"):
-        experience.connect_project_readonly(tmp_path)
+        connect_project_readonly(tmp_path)
     assert not (tmp_path / ".omni").exists()
 
 
@@ -893,7 +894,7 @@ def test_note_readonly_serves_reads_and_blocks_writes(tmp_path: Path) -> None:
     _insert_note(conn, "note_ro", status="active")
     conn.close()
 
-    readonly = experience.connect_project_readonly(tmp_path)
+    readonly = connect_project_readonly(tmp_path)
     try:
         assert [note["note_id"] for note in experience.list_notes(readonly)] == ["note_ro"]
         assert experience.show_note(readonly, "note_ro")["status"] == "active"

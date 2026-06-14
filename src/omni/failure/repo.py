@@ -5,10 +5,10 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
-from omni import eval as behavior_eval
 from omni._common import now_iso, validate_choice
+from omni.dbaccess import ensure_run_exists
 from omni.ids import new_id
-from omni.jsonio import redact_mapping_str, redact_text
+from omni.jsonio import as_json, redact_mapping_str, redact_text
 
 from omni.failure._text import (
     MAX_EXCERPT_CHARS,
@@ -38,7 +38,7 @@ LIST_PATTERN_STATUS_VALUES = PATTERN_STATUS_VALUES | {"all"}
 
 
 def extract_candidates(conn: sqlite3.Connection, run_id: str) -> list[dict[str, Any]]:
-    _ensure_run_exists(conn, run_id)
+    ensure_run_exists(conn, run_id)
     created: list[dict[str, Any]] = []
     for event in _events_for_run(conn, run_id):
         spec = _candidate_spec(event)
@@ -218,10 +218,6 @@ def reject_candidate(conn: sqlite3.Connection, failure_cand_id: str) -> dict[str
     )
     conn.commit()
     return show_candidate(conn, failure_cand_id)
-
-
-def as_json(value: dict[str, Any]) -> str:
-    return behavior_eval.as_json(value)
 
 
 def _insert_candidate(
@@ -442,12 +438,6 @@ def _events_for_run(conn: sqlite3.Connection, run_id: str) -> list[sqlite3.Row]:
         """,
         (run_id,),
     ).fetchall()
-
-
-def _ensure_run_exists(conn: sqlite3.Connection, run_id: str) -> None:
-    row = conn.execute("SELECT 1 FROM runs WHERE run_id = ?", (run_id,)).fetchone()
-    if row is None:
-        raise ValueError(f"unknown run: {run_id}")
 
 
 def _candidate_from_row(row: sqlite3.Row) -> dict[str, Any]:

@@ -8,6 +8,8 @@ from typing import Any
 
 from omni.redact import redact
 
+DEFAULT_JSON_DETAIL_CHARS = 200
+
 
 def redact_text(value: str | None) -> str | None:
     if value is None:
@@ -29,6 +31,24 @@ def is_redaction_wrapper(value: str) -> bool:
         "payload_truncated",
         "redaction_failed",
     }
+
+
+def safe_json_string(value: str, max_chars: int = DEFAULT_JSON_DETAIL_CHARS) -> str:
+    redacted = redact(value.encode("utf-8")).data.decode("utf-8", errors="replace")
+    if len(redacted) <= max_chars:
+        return redacted
+    return redacted[: max_chars - 14].rstrip() + "...[truncated]"
+
+
+def as_json(
+    value: Any,
+    *,
+    max_detail_chars: int = DEFAULT_JSON_DETAIL_CHARS,
+) -> str:
+    return dump_json(
+        value,
+        string_sanitizer=lambda s: safe_json_string(s, max_detail_chars),
+    )
 
 
 def dump_json(

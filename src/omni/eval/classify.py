@@ -21,8 +21,7 @@ from omni.eval.meta import (
     _nested_command,
     _nested_strings,
 )
-from omni.jsonio import dump_json
-from omni.redact import redact
+from omni.jsonio import safe_json_string
 
 EXPECTED_PREDICATES = (
     "uses_test_command",
@@ -179,9 +178,10 @@ def review_dogfood(
 
     warm_outcome: dict[str, Any] | None = None
     from omni import outcome
+    from omni.dbaccess import connect_project_readonly
 
     try:
-        conn = outcome.connect_project_readonly(project_root)
+        conn = connect_project_readonly(project_root)
     except (FileNotFoundError, ValueError):
         warm_outcome = None
     else:
@@ -208,10 +208,6 @@ def review_dogfood(
         "warm_outcome": warm_outcome,
         "pairwise": pairwise,
     }
-
-
-def as_json(value: dict[str, Any]) -> str:
-    return dump_json(value, string_sanitizer=lambda s: _safe_string(s, MAX_DETAIL_CHARS))
 
 
 def _connect_readonly(db_path: Path) -> sqlite3.Connection:
@@ -470,14 +466,7 @@ def _safe_detail(detail: str) -> str:
 
 
 def _safe_command(command: str) -> str:
-    return _safe_string(_normalize_command(command), MAX_COMMAND_CHARS)
-
-
-def _safe_string(value: str, max_chars: int) -> str:
-    redacted = redact(value.encode("utf-8")).data.decode("utf-8", errors="replace")
-    if len(redacted) <= max_chars:
-        return redacted
-    return redacted[: max_chars - 14].rstrip() + "...[truncated]"
+    return safe_json_string(_normalize_command(command), MAX_COMMAND_CHARS)
 
 
 def _limit_observed_commands(

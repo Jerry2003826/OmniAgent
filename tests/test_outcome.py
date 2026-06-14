@@ -10,6 +10,7 @@ import pytest
 from omni import cli
 from omni import db
 from omni import outcome
+from omni.dbaccess import connect_project_readonly
 
 
 def test_mark_outcome_success_records_user_evidence(tmp_path: Path) -> None:
@@ -871,7 +872,7 @@ def test_connect_project_readonly_supports_show_and_blocks_writes(tmp_path: Path
     outcome.mark_outcome(conn, "run_ro_show", status="success")
     conn.close()
 
-    readonly = outcome.connect_project_readonly(tmp_path)
+    readonly = connect_project_readonly(tmp_path)
     try:
         shown = outcome.show_outcome(readonly, "run_ro_show")
         listed = outcome.list_outcomes(readonly)

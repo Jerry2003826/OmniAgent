@@ -427,14 +427,14 @@ def build_parser() -> argparse.ArgumentParser:
 def _run_db_command(
     *,
     readonly: bool,
-    connect_rw: Callable[..., Any],
-    connect_ro: Callable[..., Any],
     action: Callable[[Any], Any],
     render: Callable[[Any], str],
 ) -> int:
+    from omni.dbaccess import connect_project, connect_project_readonly
+
     root = project_root()
     try:
-        conn = connect_ro(root) if readonly else connect_rw(root)
+        conn = connect_project_readonly(root) if readonly else connect_project(root)
     except (FileNotFoundError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         return 2
@@ -448,17 +448,6 @@ def _run_db_command(
         conn.close()
     _print_diff(render(result))
     return 0
-
-
-def _memory_command_readonly(
-    command: str,
-    nested_command: str | None,
-    *,
-    nested_parent: str,
-) -> bool:
-    if command in ("ls", "show"):
-        return True
-    return command == nested_parent and nested_command in ("ls", "show")
 
 
 def _cmd_init(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
@@ -567,8 +556,9 @@ def _cmd_audit(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int
 def _cmd_review(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     from omni import gate
     from omni import review
+    from omni.dbaccess import connect_project_migrate
 
-    conn = review.connect_project(project_root())
+    conn = connect_project_migrate(project_root())
     try:
         if args.review_command == "approve":
             try:
@@ -598,9 +588,10 @@ def _cmd_review(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
 
 def _cmd_render(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     from omni import render
+    from omni.dbaccess import connect_project_migrate
 
     root = project_root()
-    conn = render.connect_project(root)
+    conn = connect_project_migrate(root)
     try:
         try:
             result = render.render_project(conn, root, diff=args.diff, force=args.force)
@@ -635,10 +626,11 @@ def _cmd_inject(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
 
 def _cmd_verify(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     from omni import verify
+    from omni.dbaccess import connect_project_readonly_verify
 
     root = project_root()
     try:
-        conn = verify.connect_project_readonly(root)
+        conn = connect_project_readonly_verify(root)
     except (FileNotFoundError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         return 2
@@ -698,53 +690,11 @@ def _cmd_eval(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
 def _cmd_outcome(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     from omni import outcome
 
-    root = project_root()
-
-    def action(conn):
-        if args.outcome_command == "mark":
-            return outcome.mark_outcome(
-                conn,
-                args.run_id,
-                status=args.outcome_status or "unknown",
-                tests_status=args.tests_status or "unknown",
-                memory_effect=args.memory_effect,
-                task_type=args.task_type,
-                task_summary=args.task_summary,
-                final_command=args.final_command,
-                note=args.note,
-            )
-        if args.outcome_command == "mark-from-verify":
-            return outcome.mark_outcome_from_verify(
-                conn,
-                args.run_id,
-                root,
-                status=args.outcome_status or "unknown",
-                memory_effect=args.memory_effect,
-                task_type=args.task_type,
-                task_summary=args.task_summary,
-                note=args.note,
-                timeout_seconds=args.timeout_seconds,
-                qualifier=args.qualifier,
-                profile=args.profile,
-            )
-        if args.outcome_command == "show":
-            return outcome.show_outcome(conn, args.run_id)
-        if args.outcome_command == "ls":
-            return outcome.list_outcomes(
-                conn,
-                task_type=args.task_type,
-                status=args.status,
-                tests_status=args.tests_status,
-                memory_effect=args.memory_effect,
-            )
-        parser.error(f"unknown outcome command: {args.outcome_command}")
-        return 2
-
     return _run_db_command(
-        readonly=args.outcome_command in {"show", "ls"},
-        connect_rw=outcome.connect_project,
-        connect_ro=outcome.connect_project_readonly,
-        action=action,
+        readonly=outcome.cli_command_readonly(args),
+        action=lambda conn: outcome.handle_cli_action(
+            conn, args, parser, root=project_root()
+        ),
         render=outcome.as_json,
     )
 
@@ -752,39 +702,9 @@ def _cmd_outcome(args: argparse.Namespace, parser: argparse.ArgumentParser) -> i
 def _cmd_experience(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     from omni import experience
 
-    def action(conn):
-        if args.experience_command == "extract":
-            candidates = experience.extract_candidates(conn, args.run_id)
-            return {"created": len(candidates), "candidates": candidates}
-        if args.experience_command == "ls":
-            return {"candidates": experience.list_candidates(conn, args.state)}
-        if args.experience_command == "show":
-            return experience.show_candidate(conn, args.exp_cand_id)
-        if args.experience_command == "approve":
-            return experience.approve_candidate(conn, args.exp_cand_id)
-        if args.experience_command == "reject":
-            return experience.reject_candidate(conn, args.exp_cand_id)
-        if args.experience_command == "note":
-            if args.experience_note_command == "ls":
-                return {"notes": experience.list_notes(conn, status=args.status)}
-            if args.experience_note_command == "show":
-                return experience.show_note(conn, args.note_id)
-            if args.experience_note_command == "retire":
-                return experience.retire_note(conn, args.note_id)
-            parser.error(f"unknown experience note command: {args.experience_note_command}")
-            return 2
-        parser.error(f"unknown experience command: {args.experience_command}")
-        return 2
-
     return _run_db_command(
-        readonly=_memory_command_readonly(
-            args.experience_command,
-            getattr(args, "experience_note_command", None),
-            nested_parent="note",
-        ),
-        connect_rw=experience.connect_project,
-        connect_ro=experience.connect_project_readonly,
-        action=action,
+        readonly=experience.cli_command_readonly(args),
+        action=lambda conn: experience.handle_cli_action(conn, args, parser),
         render=experience.as_json,
     )
 
@@ -792,49 +712,9 @@ def _cmd_experience(args: argparse.Namespace, parser: argparse.ArgumentParser) -
 def _cmd_failure(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     from omni import failure
 
-    def action(conn):
-        if args.failure_command == "extract":
-            candidates = failure.extract_candidates(conn, args.run_id)
-            return {"created": len(candidates), "candidates": candidates}
-        if args.failure_command == "ls":
-            return {"candidates": failure.list_candidates(conn, args.state)}
-        if args.failure_command == "show":
-            return failure.show_candidate(conn, args.failure_cand_id)
-        if args.failure_command == "approve":
-            return failure.approve_candidate(
-                conn,
-                args.failure_cand_id,
-                summary=args.summary,
-                suggested_action=args.suggested_action,
-            )
-        if args.failure_command == "reject":
-            return failure.reject_candidate(conn, args.failure_cand_id)
-        if args.failure_command == "pattern":
-            if args.failure_pattern_command == "ls":
-                return {
-                    "patterns": failure.list_patterns(
-                        conn,
-                        status=args.status,
-                    )
-                }
-            if args.failure_pattern_command == "show":
-                return failure.show_pattern(conn, args.pattern_id)
-            if args.failure_pattern_command == "retire":
-                return failure.retire_pattern(conn, args.pattern_id)
-            parser.error(f"unknown failure pattern command: {args.failure_pattern_command}")
-            return 2
-        parser.error(f"unknown failure command: {args.failure_command}")
-        return 2
-
     return _run_db_command(
-        readonly=_memory_command_readonly(
-            args.failure_command,
-            getattr(args, "failure_pattern_command", None),
-            nested_parent="pattern",
-        ),
-        connect_rw=failure.connect_project,
-        connect_ro=failure.connect_project_readonly,
-        action=action,
+        readonly=failure.cli_command_readonly(args),
+        action=lambda conn: failure.handle_cli_action(conn, args, parser),
         render=failure.as_json,
     )
 
@@ -842,43 +722,9 @@ def _cmd_failure(args: argparse.Namespace, parser: argparse.ArgumentParser) -> i
 def _cmd_preference(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     from omni import preference
 
-    def action(conn):
-        if args.preference_command == "extract":
-            candidates = preference.extract_candidates(conn)
-            return {"created": len(candidates), "candidates": candidates}
-        if args.preference_command == "ls":
-            return {"candidates": preference.list_candidates(conn, args.state)}
-        if args.preference_command == "show":
-            return preference.show_candidate(conn, args.pref_cand_id)
-        if args.preference_command == "approve":
-            return preference.approve_candidate(
-                conn,
-                args.pref_cand_id,
-                suggested_action=args.suggested_action,
-            )
-        if args.preference_command == "reject":
-            return preference.reject_candidate(conn, args.pref_cand_id)
-        if args.preference_command == "note":
-            if args.preference_note_command == "ls":
-                return {"notes": preference.list_notes(conn, status=args.status)}
-            if args.preference_note_command == "show":
-                return preference.show_note(conn, args.note_id)
-            if args.preference_note_command == "retire":
-                return preference.retire_note(conn, args.note_id)
-            parser.error(f"unknown preference note command: {args.preference_note_command}")
-            return 2
-        parser.error(f"unknown preference command: {args.preference_command}")
-        return 2
-
     return _run_db_command(
-        readonly=_memory_command_readonly(
-            args.preference_command,
-            getattr(args, "preference_note_command", None),
-            nested_parent="note",
-        ),
-        connect_rw=preference.connect_project,
-        connect_ro=preference.connect_project_readonly,
-        action=action,
+        readonly=preference.cli_command_readonly(args),
+        action=lambda conn: preference.handle_cli_action(conn, args, parser),
         render=preference.as_json,
     )
 
