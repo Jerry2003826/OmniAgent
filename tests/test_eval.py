@@ -164,10 +164,6 @@ def test_eval_run_reports_neutral_when_expected_command_follows_rediscovery(
         ("pnpm run test", True),
         ("pnpm run test -- --watch=false", True),
         ("pnpm test", True),
-        ('cd "C:\\Users\\Jiarui Li\\Documents\\OmniDogfood\\unihack3-13" && pnpm run test', True),
-        ("cd /tmp/project && pnpm run test -- --watch=false", True),
-        ("cd /tmp/project && pnpm test", True),
-        ("cd /tmp/project && npm test", False),
         ("npm test", False),
     ],
 )
@@ -188,6 +184,73 @@ def test_eval_run_matches_expected_commands_conservatively(
 
 
 @pytest.mark.parametrize(
+    ("tail", "matches"),
+    [
+        ("pnpm run test", True),
+        ("pnpm run test -- --watch=false", True),
+        ("pnpm test", True),
+        ("npm test", False),
+    ],
+)
+def test_eval_run_matches_expected_commands_after_existing_cd_wrapper(
+    tmp_path: Path, tail: str, matches: bool
+) -> None:
+    conn = _fixture_db(tmp_path)
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    _insert_fact(conn, "uses_test_command", "pnpm run test")
+    _insert_event(
+        conn,
+        "match_run",
+        1,
+        tool="Read",
+        meta={"tool_input": {"file_path": "CLAUDE.md"}},
+    )
+    _insert_event(
+        conn,
+        "match_run",
+        2,
+        tool="Bash",
+        meta={"tool_input": {"command": f'cd "{project_dir}" && {tail}'}},
+    )
+    conn.commit()
+
+    result = eval_module.evaluate_run(tmp_path, "match_run")
+
+    assert result["expected_verification_executed"] is matches
+    assert result["first_expected_command_position"] == (2 if matches else None)
+
+
+def test_eval_run_does_not_match_expected_command_after_missing_cd_wrapper(
+    tmp_path: Path,
+) -> None:
+    conn = _fixture_db(tmp_path)
+    missing_dir = tmp_path / "missing"
+    _insert_fact(conn, "uses_test_command", "pnpm run test")
+    _insert_event(
+        conn,
+        "missing_cd_run",
+        1,
+        tool="Read",
+        meta={"tool_input": {"file_path": "CLAUDE.md"}},
+    )
+    _insert_event(
+        conn,
+        "missing_cd_run",
+        2,
+        tool="Bash",
+        meta={"tool_input": {"command": f'cd "{missing_dir}" && pnpm run test'}},
+    )
+    conn.commit()
+
+    result = eval_module.evaluate_run(tmp_path, "missing_cd_run")
+
+    assert result["expected_verification_executed"] is False
+    assert result["first_expected_command_position"] is None
+    assert result["observed_commands"][0]["command"].endswith("&& pnpm run test")
+
+
+@pytest.mark.parametrize(
     ("tool", "meta", "expected_kind"),
     [
         ("Read", {"tool_input": {"file_path": "package.json"}}, "package.json"),
@@ -198,7 +261,6 @@ def test_eval_run_matches_expected_commands_conservatively(
         ("Bash", {"tool_input": {"command": "find . -maxdepth 2 -type f"}}, "broad_scan"),
         ("Bash", {"tool_input": {"command": "tree -L 2"}}, "broad_scan"),
         ("Bash", {"tool_input": {"command": "rg --files"}}, "broad_scan"),
-        ("Bash", {"tool_input": {"command": "cd /tmp/project && rg --files"}}, "broad_scan"),
     ],
 )
 def test_eval_run_counts_rediscovery_from_tool_input(
@@ -214,6 +276,46 @@ def test_eval_run_counts_rediscovery_from_tool_input(
     assert [event["kind"] for event in result["rediscovery_events_before_first_expected_command"]] == [
         expected_kind
     ]
+
+
+def test_eval_run_counts_broad_scan_after_existing_cd_wrapper(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    project_dir = tmp_path / "project"
+    project_dir.mkdir()
+    _insert_fact(conn, "uses_test_command", "pnpm run test")
+    _insert_event(
+        conn,
+        "rediscovery_run",
+        1,
+        tool="Bash",
+        meta={"tool_input": {"command": f'cd "{project_dir}" && rg --files'}},
+    )
+    conn.commit()
+
+    result = eval_module.evaluate_run(tmp_path, "rediscovery_run")
+
+    assert [
+        event["kind"]
+        for event in result["rediscovery_events_before_first_expected_command"]
+    ] == ["broad_scan"]
+
+
+def test_eval_run_does_not_count_broad_scan_after_missing_cd_wrapper(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    missing_dir = tmp_path / "missing"
+    _insert_fact(conn, "uses_test_command", "pnpm run test")
+    _insert_event(
+        conn,
+        "rediscovery_run",
+        1,
+        tool="Bash",
+        meta={"tool_input": {"command": f'cd "{missing_dir}" && rg --files'}},
+    )
+    conn.commit()
+
+    result = eval_module.evaluate_run(tmp_path, "rediscovery_run")
+
+    assert result["rediscovery_events_before_first_expected_command"] == []
 
 
 def test_eval_run_ignores_rediscovery_mentions_from_tool_output_alone(

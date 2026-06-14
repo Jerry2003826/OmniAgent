@@ -2,6 +2,14 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Status note:** This is a completed implementation plan, not the current
+> operator runbook. The final CLI-only Claude Code v1 commands and validation
+> evidence live in `docs/cli-only-claude-code-v1-runbook.md`,
+> `docs/cli-only-claude-code-v1-release-notes.md`, and
+> `docs/cli-only-claude-code-v1-closeout-2026-06-15.md`. Do not copy the
+> historical commit snippets or intermediate test examples from this plan for
+> new work; use the current AGENTS.md commit/test rules.
+
 **Goal:** Make OmniMemory usable as a first CLI-only Claude Code product path without adding new memory types or runtime services.
 
 **Architecture:** Keep the current local SQLite and `.omni/` architecture. Improve discoverability, runbooks, and public-command smoke coverage around the existing loop instead of adding MCP, adapters, services, dashboards, or new tables.

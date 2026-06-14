@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -12,13 +13,20 @@ from typing import Any
 
 def main() -> int:
     root = Path(tempfile.mkdtemp(prefix="omni-cli-v1-smoke-"))
+    repo_root = Path(__file__).resolve().parents[1]
     env = os.environ.copy()
+    env["PYTHONPATH"] = (
+        str(repo_root)
+        if not env.get("PYTHONPATH")
+        else str(repo_root) + os.pathsep + env["PYTHONPATH"]
+    )
+    omni = [sys.executable, "-m", "omni.cli"]
     commands = [
-        ["omni", "init"],
-        ["omni", "audit", "secrets"],
-        ["omni", "status"],
-        ["omni", "render", "--diff"],
-        ["omni", "render"],
+        [*omni, "init"],
+        [*omni, "audit", "secrets"],
+        [*omni, "status"],
+        [*omni, "render", "--diff"],
+        [*omni, "render"],
     ]
     results: list[dict[str, Any]] = []
     for command in commands:
