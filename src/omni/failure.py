@@ -24,6 +24,10 @@ MAX_ERROR_CHARS = 300
 MAX_EXCERPT_CHARS = 300
 MAX_COMMAND_CHARS = 200
 MAX_REVIEW_TEXT_CHARS = 800
+# Exit 127 means "command not found". On hosts without a given shell (for example
+# Windows without bash), an agent's failed shell or command probe reports 127.
+# That is environment noise, not a project failure, so those candidates are skipped.
+COMMAND_NOT_FOUND_EXIT_CODE = 127
 INPUT_CONTAINER_KEYS = ("tool_input", "input", "parameters", "args")
 OUTPUT_CONTAINER_KEYS = ("tool_response", "toolUseResult")
 ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
@@ -527,6 +531,8 @@ def _candidate_spec(event: sqlite3.Row) -> dict[str, Any] | None:
     exit_code = _event_exit_code(event, meta)
     failure_kind = _failure_kind(event, meta, exit_code)
     if failure_kind is None:
+        return None
+    if exit_code == COMMAND_NOT_FOUND_EXIT_CODE:
         return None
     error_line = _first_error_line(meta)
     if error_line is None:

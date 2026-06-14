@@ -1022,6 +1022,60 @@ def test_cli_unknown_pattern_exits_2(
     assert retire_captured.out == ""
 
 
+def test_command_not_found_exit_127_is_skipped(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_run(conn, "run_127")
+    _insert_event(
+        conn,
+        "run_127",
+        1,
+        event_type="PostToolUseFailure",
+        tool="Bash",
+        tool_use_id="toolu_probe",
+        exit_code=127,
+        meta={
+            "tool_input": {"command": "bash -lc 'pnpm run test'"},
+            "tool_response": {"stderr": "bash: command not found"},
+        },
+    )
+    _insert_event(
+        conn,
+        "run_127",
+        2,
+        tool="Bash",
+        tool_use_id="toolu_real",
+        exit_code=1,
+        meta={
+            "tool_input": {"command": "pnpm run test"},
+            "tool_response": {"stderr": "1 test failed"},
+        },
+    )
+
+    candidates = failure.extract_candidates(conn, "run_127")
+
+    assert [candidate["exit_code"] for candidate in candidates] == [1]
+
+
+def test_only_command_not_found_yields_no_candidates(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_run(conn, "run_127_only")
+    _insert_event(
+        conn,
+        "run_127_only",
+        1,
+        event_type="PostToolUseFailure",
+        tool="Bash",
+        tool_use_id="toolu_probe",
+        exit_code=127,
+        meta={
+            "tool_input": {"command": "bash -lc 'pnpm run test'"},
+            "tool_response": {"stderr": "bash: command not found"},
+        },
+    )
+
+    assert failure.extract_candidates(conn, "run_127_only") == []
+
+
 def _create_failure_candidate(
     conn: sqlite3.Connection,
     *,

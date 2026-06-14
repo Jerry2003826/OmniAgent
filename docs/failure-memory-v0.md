@@ -34,6 +34,10 @@ Failure Candidate v0 extracts these deterministic signals:
 - Bash or shell tool events with non-zero exit codes as `command_failed`
 - visible interrupted tool results as `interrupted`
 
+Command-not-found failures (exit code 127) are skipped. On hosts without a given
+shell (for example Windows without `bash`), an agent's failed shell or command
+probe reports exit 127, which is environment noise rather than a project failure.
+
 Each candidate has a deterministic `error_signature` and
 `error_signature_hash`. The signature is based on the normalized command, exit
 code, and first meaningful error line after ANSI stripping, whitespace
