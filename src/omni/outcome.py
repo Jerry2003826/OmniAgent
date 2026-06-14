@@ -209,16 +209,58 @@ def show_outcome(conn: sqlite3.Connection, run_id: str) -> dict[str, Any]:
     return result
 
 
-def list_outcomes(conn: sqlite3.Connection) -> dict[str, Any]:
-    """Return all recorded outcomes plus a per-field tally (read-only)."""
+def list_outcomes(
+    conn: sqlite3.Connection,
+    *,
+    task_type: str | None = None,
+    status: str | None = None,
+    tests_status: str | None = None,
+    memory_effect: str | None = None,
+) -> dict[str, Any]:
+    """Return recorded outcomes plus a per-field tally (read-only)."""
+
+    filters: dict[str, str] = {}
+    if task_type is not None:
+        _validate_choice("task_type", task_type, TASK_TYPE_VALUES)
+        filters["task_type"] = task_type
+    if status is not None:
+        _validate_choice("status", status, STATUS_VALUES)
+        filters["status"] = status
+    if tests_status is not None:
+        _validate_choice("tests_status", tests_status, TESTS_STATUS_VALUES)
+        filters["tests_status"] = tests_status
+    if memory_effect is not None:
+        _validate_choice("memory_effect", memory_effect, MEMORY_EFFECT_VALUES)
+        filters["memory_effect"] = memory_effect
+
+    where_clauses: list[str] = []
+    params: list[str] = []
+    if task_type is not None:
+        where_clauses.append("task_type = ?")
+        params.append(task_type)
+    if status is not None:
+        where_clauses.append("status = ?")
+        params.append(status)
+    if tests_status is not None:
+        where_clauses.append("tests_status = ?")
+        params.append(tests_status)
+    if memory_effect is not None:
+        where_clauses.append("memory_effect = ?")
+        params.append(memory_effect)
+
+    where_sql = ""
+    if where_clauses:
+        where_sql = "WHERE " + " AND ".join(where_clauses)
 
     rows = conn.execute(
-        """
+        f"""
         SELECT run_id, task_type, status, tests_status, memory_effect,
                final_command, created_at, updated_at
         FROM outcomes
+        {where_sql}
         ORDER BY updated_at DESC, run_id
-        """
+        """,
+        params,
     ).fetchall()
     outcomes = [
         {
@@ -235,6 +277,7 @@ def list_outcomes(conn: sqlite3.Connection) -> dict[str, Any]:
     ]
     return {
         "count": len(outcomes),
+        "filters": filters,
         "summary": _summarize_outcomes(outcomes),
         "outcomes": outcomes,
     }

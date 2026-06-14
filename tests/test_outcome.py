@@ -839,6 +839,7 @@ def test_list_outcomes_returns_rows_summary_and_count(tmp_path: Path) -> None:
     result = outcome.list_outcomes(conn)
 
     assert result["count"] == 2
+    assert result["filters"] == {}
     assert {row["run_id"] for row in result["outcomes"]} == {"run_a", "run_b"}
     assert result["summary"]["status"] == {"success": 1, "failed": 1}
     assert result["summary"]["tests_status"] == {"passed": 1, "failed": 1}
@@ -856,8 +857,86 @@ def test_list_outcomes_empty_is_zero_count(tmp_path: Path) -> None:
     result = outcome.list_outcomes(conn)
 
     assert result["count"] == 0
+    assert result["filters"] == {}
     assert result["outcomes"] == []
     assert result["summary"]["status"] == {}
+
+
+def test_list_outcomes_filter_by_task_type(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_run(conn, "run_a")
+    _insert_run(conn, "run_b")
+    outcome.mark_outcome(
+        conn, "run_a", status="success", tests_status="passed",
+        memory_effect="neutral", task_type="validation",
+    )
+    outcome.mark_outcome(
+        conn, "run_b", status="failed", tests_status="failed",
+        memory_effect="failed_to_help", task_type="bugfix",
+    )
+
+    result = outcome.list_outcomes(conn, task_type="validation")
+
+    assert result["count"] == 1
+    assert result["filters"] == {"task_type": "validation"}
+    assert result["outcomes"][0]["run_id"] == "run_a"
+    assert result["summary"]["task_type"] == {"validation": 1}
+
+
+def test_list_outcomes_combined_filters(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_run(conn, "run_a")
+    _insert_run(conn, "run_b")
+    _insert_run(conn, "run_c")
+    outcome.mark_outcome(
+        conn, "run_a", status="success", tests_status="passed",
+        memory_effect="helped", task_type="validation",
+    )
+    outcome.mark_outcome(
+        conn, "run_b", status="success", tests_status="failed",
+        memory_effect="neutral", task_type="validation",
+    )
+    outcome.mark_outcome(
+        conn, "run_c", status="failed", tests_status="failed",
+        memory_effect="failed_to_help", task_type="bugfix",
+    )
+
+    result = outcome.list_outcomes(
+        conn,
+        task_type="validation",
+        status="success",
+        memory_effect="helped",
+    )
+
+    assert result["count"] == 1
+    assert result["filters"] == {
+        "task_type": "validation",
+        "status": "success",
+        "memory_effect": "helped",
+    }
+    assert result["outcomes"][0]["run_id"] == "run_a"
+
+
+def test_list_outcomes_filter_empty_result(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_run(conn, "run_a")
+    outcome.mark_outcome(
+        conn, "run_a", status="success", tests_status="passed", task_type="validation",
+    )
+
+    result = outcome.list_outcomes(conn, status="failed")
+
+    assert result["count"] == 0
+    assert result["filters"] == {"status": "failed"}
+    assert result["outcomes"] == []
+    assert result["summary"]["status"] == {}
+
+
+def test_list_outcomes_invalid_filter_raises(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+
+    with pytest.raises(ValueError, match="invalid status"):
+        outcome.list_outcomes(conn, status="bogus")
 
 
 def test_cli_outcome_ls_outputs_json(
