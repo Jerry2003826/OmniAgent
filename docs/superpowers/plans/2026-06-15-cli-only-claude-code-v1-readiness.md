@@ -243,7 +243,7 @@ git commit -m "docs: add cli-only Claude Code v1 runbook"
 - Create: `scripts/cli_only_smoke.py`
 - Create: `tests/test_cli_only_smoke.py`
 
-- [ ] **Step 1: Create a public-command smoke script**
+- [x] **Step 1: Create a public-command smoke script**
 
 Create `scripts/cli_only_smoke.py` that:
 
@@ -290,7 +290,7 @@ if __name__ == "__main__":
     raise SystemExit(main())
 ```
 
-- [ ] **Step 2: Add a pytest wrapper**
+- [x] **Step 2: Add a pytest wrapper**
 
 Create `tests/test_cli_only_smoke.py` with:
 
@@ -314,7 +314,7 @@ def test_cli_only_smoke_script_passes():
     assert [item["returncode"] for item in result["results"]] == [0, 0, 0, 0, 0]
 ```
 
-- [ ] **Step 3: Run smoke tests**
+- [x] **Step 3: Run smoke tests**
 
 Run:
 
@@ -324,7 +324,7 @@ pytest -q tests/test_cli_only_smoke.py
 
 Expected result: pass.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 Run:
 
