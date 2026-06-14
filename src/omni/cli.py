@@ -173,7 +173,7 @@ def build_parser() -> argparse.ArgumentParser:
     experience_subcommands = experience_parser.add_subparsers(
         dest="experience_command",
         required=True,
-        metavar="{extract,ls,show,approve,reject}",
+        metavar="{extract,ls,show,approve,reject,note}",
     )
     experience_extract_parser = experience_subcommands.add_parser("extract")
     experience_extract_parser.add_argument("run_id")
@@ -188,6 +188,22 @@ def build_parser() -> argparse.ArgumentParser:
     for command in ("approve", "reject"):
         experience_review_parser = experience_subcommands.add_parser(command)
         experience_review_parser.add_argument("exp_cand_id")
+    experience_note_parser = experience_subcommands.add_parser("note")
+    experience_note_subcommands = experience_note_parser.add_subparsers(
+        dest="experience_note_command",
+        required=True,
+        metavar="{ls,show,retire}",
+    )
+    experience_note_ls_parser = experience_note_subcommands.add_parser("ls")
+    experience_note_ls_parser.add_argument(
+        "--status",
+        choices=("active", "retired", "all"),
+        default="active",
+    )
+    experience_note_show_parser = experience_note_subcommands.add_parser("show")
+    experience_note_show_parser.add_argument("note_id")
+    experience_note_retire_parser = experience_note_subcommands.add_parser("retire")
+    experience_note_retire_parser.add_argument("note_id")
     failure_parser = subcommands.add_parser("failure")
     failure_subcommands = failure_parser.add_subparsers(
         dest="failure_command",
@@ -485,7 +501,11 @@ def main(argv: list[str] | None = None) -> int:
         from omni import experience
 
         try:
-            if args.experience_command in ("ls", "show"):
+            experience_readonly = args.experience_command in ("ls", "show") or (
+                args.experience_command == "note"
+                and args.experience_note_command in ("ls", "show")
+            )
+            if experience_readonly:
                 conn = experience.connect_project_readonly(project_root())
             else:
                 conn = experience.connect_project(project_root())
@@ -505,6 +525,18 @@ def main(argv: list[str] | None = None) -> int:
                     result = experience.approve_candidate(conn, args.exp_cand_id)
                 elif args.experience_command == "reject":
                     result = experience.reject_candidate(conn, args.exp_cand_id)
+                elif args.experience_command == "note":
+                    if args.experience_note_command == "ls":
+                        result = {"notes": experience.list_notes(conn, status=args.status)}
+                    elif args.experience_note_command == "show":
+                        result = experience.show_note(conn, args.note_id)
+                    elif args.experience_note_command == "retire":
+                        result = experience.retire_note(conn, args.note_id)
+                    else:
+                        parser.error(
+                            f"unknown experience note command: {args.experience_note_command}"
+                        )
+                        return 2
                 else:
                     parser.error(f"unknown experience command: {args.experience_command}")
                     return 2

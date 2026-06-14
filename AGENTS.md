@@ -1,22 +1,19 @@
-# OmniMemory Acceptance Pack v0
+# OmniMemory Experience Note Lifecycle v1
 
 ## Goal
 
-Current phase: OmniMemory Acceptance Pack v0.
+Current phase: OmniMemory Experience Note Lifecycle v1.
 
 Build ONE closed loop:
 
 Claude Code run → redacted trace → deterministic facts → generated memory block → measurably changed behavior in the next run.
 
-Acceptance Pack v0 keeps the v0.2-v0.5 loop intact and adds a deterministic,
-docs-only runbook for packaging the existing redacted evidence of an
-already-ingested run. It documents the exact read-only commands and the two
-already-approved write steps (`omni outcome mark-from-verify`, plus the
-explicit `omni experience extract` / `omni failure extract` writers), with an
-explicit read-only vs writer boundary. This phase is evidence packaging, not
-causal proof. It must not add runtime features, new memory types, new tables,
-migrations, supersede, reactivation, automatic success inference, automatic
-failure memory, or automatic memory evolution.
+Experience Note Lifecycle v1 keeps the v0.2-v0.5 loop intact and adds the
+smallest lifecycle control for approved experience notes: active notes can be
+listed, shown, and explicitly retired so they stop rendering into
+`.omni/generated/memory.md`. This phase must not add new memory types, new
+tables, migrations, supersede, reactivation, automatic success inference,
+automatic failure memory, or automatic memory evolution.
 
 ## Non-goals, hard this week
 
@@ -76,6 +73,7 @@ Violations require reverting the commit.
    - `omni experience extract`
    - `omni experience approve`
    - `omni experience reject`
+   - `omni experience note retire`
    - `omni failure extract`
    - `omni failure approve`
    - `omni failure reject`
@@ -90,6 +88,8 @@ Violations require reverting the commit.
    - `omni outcome show`
    - `omni experience ls`
    - `omni experience show`
+   - `omni experience note ls`
+   - `omni experience note show`
    - `omni failure ls`
    - `omni failure show`
    - `omni failure pattern ls`

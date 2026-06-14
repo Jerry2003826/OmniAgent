@@ -22,6 +22,8 @@ KIND_VALUES = {
 }
 STATE_VALUES = {"pending", "approved", "rejected"}
 LIST_STATE_VALUES = STATE_VALUES | {"all"}
+NOTE_STATUS_VALUES = {"active", "retired"}
+LIST_NOTE_STATUS_VALUES = NOTE_STATUS_VALUES | {"all"}
 
 REDISCOVERY_WASTE_CLAIM = (
     "Memory context was available, but the run performed rediscovery and did not "
@@ -239,6 +241,63 @@ def reject_candidate(conn: sqlite3.Connection, exp_cand_id: str) -> dict[str, An
     return show_candidate(conn, exp_cand_id)
 
 
+def list_notes(conn: sqlite3.Connection, status: str = "active") -> list[dict[str, Any]]:
+    _validate_choice("status", status, LIST_NOTE_STATUS_VALUES)
+    if status == "all":
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM experience_notes
+            ORDER BY created_seq, note_id
+            """
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM experience_notes
+            WHERE status = ?
+            ORDER BY created_seq, note_id
+            """,
+            (status,),
+        ).fetchall()
+    return [_note_from_row(row) for row in rows]
+
+
+def show_note(conn: sqlite3.Connection, note_id: str) -> dict[str, Any]:
+    return _note_from_row(_note_row(conn, note_id))
+
+
+def retire_note(conn: sqlite3.Connection, note_id: str) -> dict[str, Any]:
+    try:
+        conn.execute("BEGIN")
+        note = _note_row(conn, note_id)
+        status = note["status"]
+        _validate_choice("status", status, NOTE_STATUS_VALUES)
+        if status == "retired":
+            # Idempotent: a retired note stays retired and the source candidate is
+            # never touched.
+            conn.commit()
+            return show_note(conn, note_id)
+
+        updated = conn.execute(
+            """
+            UPDATE experience_notes
+            SET status = 'retired', retired_seq = ?, updated_at = ?
+            WHERE note_id = ? AND status = 'active'
+            """,
+            (_next_commit_seq(conn), _now(), note_id),
+        )
+        if updated.rowcount != 1:
+            raise ValueError(f"experience note could not be retired: {note_id}")
+        conn.commit()
+        return show_note(conn, note_id)
+    except Exception:
+        if conn.in_transaction:
+            conn.rollback()
+        raise
+
+
 def as_json(value: dict[str, Any]) -> str:
     return behavior_eval.as_json(value)
 
@@ -407,6 +466,45 @@ def _candidate_from_row(row: sqlite3.Row) -> dict[str, Any]:
     result = dict(row)
     result["evidence"] = _decode_json_object(result["evidence"])
     return result
+
+
+def _note_row(conn: sqlite3.Connection, note_id: str) -> sqlite3.Row:
+    row = conn.execute(
+        "SELECT * FROM experience_notes WHERE note_id = ?",
+        (note_id,),
+    ).fetchone()
+    if row is None:
+        raise ValueError(f"unknown experience note: {note_id}")
+    return row
+
+
+def _note_from_row(row: sqlite3.Row) -> dict[str, Any]:
+    result = dict(row)
+    result["evidence"] = _decode_json_object(result["evidence"])
+    result["lifecycle"] = _note_lifecycle(result["status"])
+    return result
+
+
+def _note_lifecycle(status: str) -> dict[str, Any]:
+    _validate_choice("status", status, NOTE_STATUS_VALUES)
+    if status == "active":
+        return {
+            "renders": True,
+            "can_retire": True,
+            "can_reactivate": False,
+            "supersede_supported": False,
+            "message": "active note renders into memory.md; retire it to stop rendering",
+        }
+    return {
+        "renders": False,
+        "can_retire": False,
+        "can_reactivate": False,
+        "supersede_supported": False,
+        "message": (
+            "retired note does not render into memory.md; "
+            "v1 does not reactivate retired notes"
+        ),
+    }
 
 
 def _redact_text(value: str | None) -> str | None:

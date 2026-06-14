@@ -669,6 +669,37 @@ def test_approved_experience_note_render_is_byte_stable(tmp_path: Path) -> None:
     assert first == second
 
 
+def test_retired_experience_note_no_longer_renders_but_active_still_does(
+    tmp_path: Path,
+) -> None:
+    conn = connect(tmp_path)
+    add_experience_candidate(
+        conn,
+        exp_cand_id="exp_cand_retire_render",
+        run_id="run_retire_render",
+        kind="fast_path",
+    )
+    note_id = experience.approve_candidate(conn, "exp_cand_retire_render")["note_id"]
+
+    active = render.render_project(conn, tmp_path).path.read_text(encoding="utf-8")
+    assert "## Fast Path" in active
+    assert "For validation tasks, prefer the known verification command early." in active
+
+    retired = experience.retire_note(conn, note_id)
+    assert retired["status"] == "retired"
+    after = render.render_project(conn, tmp_path).path.read_text(encoding="utf-8")
+
+    # A retired note must stop rendering, and memory.md still leaks no internals.
+    assert "## Fast Path" not in after
+    assert "For validation tasks, prefer the known verification command early." not in after
+    assert note_id not in after
+    assert "run_retire_render" not in after
+    assert "exp_cand_retire_render" not in after
+    assert "evidence" not in after.lower()
+    assert "created_at" not in after.lower()
+    assert "confidence" not in after.lower()
+
+
 def test_approved_note_still_renders_after_reject_attempt(tmp_path: Path) -> None:
     conn = connect(tmp_path)
     add_experience_candidate(

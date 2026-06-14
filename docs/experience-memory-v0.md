@@ -209,6 +209,28 @@ memory evolution, LLM extraction, MCP, vector search, dashboard work, or an
 adapter layer. Experience notes are a small reviewed bridge from eval/outcome
 evidence into deterministic rendered behavior guidance.
 
+## Experience Note Lifecycle v1
+
+Experience Note Lifecycle v1 adds explicit review controls for already-approved
+experience notes without changing the note schema or renderer semantics:
+
+```bash
+omni experience note ls
+omni experience note show <note_id>
+omni experience note retire <note_id>
+```
+
+`note ls` and `note show` are SQLite read-only. `note retire` is an approved
+SQLite writer that changes an active note to `retired`; retired notes no longer
+render into `.omni/generated/memory.md`. Retiring a note does not change the
+source candidate state, does not delete evidence, and is idempotent when the
+note is already retired.
+
+This lifecycle is intentionally narrow. It does not implement unretire,
+supersede, automatic replacement, automatic confidence changes, or any new
+tables. The purpose is to make rendered experience guidance withdrawable while
+keeping future lifecycle decisions explicit.
+
 ## Failure Memory v0 Pointer
 
 Failure Memory v0 starts after the real unihack experience loop reached behavior

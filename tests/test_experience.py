@@ -778,6 +778,273 @@ def test_extract_warns_on_stderr_when_eval_crashes(
     assert "warning: eval unavailable for run_eval_crash: RuntimeError" in captured.err
 
 
+def test_note_ls_lists_active_by_default(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_note(conn, "note_active", status="active")
+    _insert_note(conn, "note_retired", status="retired")
+
+    listed = experience.list_notes(conn)
+
+    assert [note["note_id"] for note in listed] == ["note_active"]
+    assert listed[0]["status"] == "active"
+    assert listed[0]["lifecycle"]["renders"] is True
+
+
+def test_note_ls_status_retired_and_all(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_note(conn, "note_active", status="active")
+    _insert_note(conn, "note_retired", status="retired")
+
+    retired = experience.list_notes(conn, status="retired")
+    everything = experience.list_notes(conn, status="all")
+
+    assert [note["note_id"] for note in retired] == ["note_retired"]
+    assert {note["note_id"] for note in everything} == {"note_active", "note_retired"}
+
+
+def test_note_show_returns_note_with_lifecycle(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_note(conn, "note_show", status="active")
+
+    shown = experience.show_note(conn, "note_show")
+
+    assert shown["note_id"] == "note_show"
+    assert shown["status"] == "active"
+    assert shown["lifecycle"] == {
+        "renders": True,
+        "can_retire": True,
+        "can_reactivate": False,
+        "supersede_supported": False,
+        "message": "active note renders into memory.md; retire it to stop rendering",
+    }
+
+
+def test_note_show_unknown_raises_clear_value_error(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    with pytest.raises(ValueError, match="unknown experience note: missing_note"):
+        experience.show_note(conn, "missing_note")
+
+
+def test_retire_active_note_sets_retired_status(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_note(conn, "note_retire", status="active")
+
+    retired = experience.retire_note(conn, "note_retire")
+
+    assert retired["status"] == "retired"
+    assert retired["retired_seq"] is not None
+    assert retired["lifecycle"]["renders"] is False
+    assert retired["lifecycle"]["can_reactivate"] is False
+    assert experience.list_notes(conn) == []
+
+
+def test_retire_note_is_idempotent(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_note(conn, "note_idem", status="active")
+
+    first = experience.retire_note(conn, "note_idem")
+    second = experience.retire_note(conn, "note_idem")
+
+    assert first["status"] == "retired"
+    assert second == first
+    assert second["retired_seq"] == first["retired_seq"]
+    assert second["updated_at"] == first["updated_at"]
+
+
+def test_retire_unknown_note_raises_clear_value_error(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    with pytest.raises(ValueError, match="unknown experience note: missing_note"):
+        experience.retire_note(conn, "missing_note")
+
+
+def test_retire_note_does_not_change_source_candidate_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    conn = _fixture_db(tmp_path)
+    exp_cand_id, note_id = _approve_active_note(conn, monkeypatch)
+    assert experience.show_candidate(conn, exp_cand_id)["state"] == "approved"
+
+    experience.retire_note(conn, note_id)
+
+    candidate = experience.show_candidate(conn, exp_cand_id)
+    assert candidate["state"] == "approved"
+    assert candidate["reviewed_at"]
+
+
+def test_note_lifecycle_adds_no_new_tables(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    tables_before = _table_names(conn)
+    _insert_note(conn, "note_tables", status="active")
+    experience.retire_note(conn, "note_tables")
+
+    assert db.schema_version(conn) == db.LATEST_SCHEMA_VERSION
+    assert db.schema_version(conn) == "6"
+    assert _table_names(conn) == tables_before
+
+
+def test_note_readonly_ls_show_do_not_create_omni(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError, match="OmniMemory database is missing"):
+        experience.connect_project_readonly(tmp_path)
+    assert not (tmp_path / ".omni").exists()
+
+
+def test_note_readonly_serves_reads_and_blocks_writes(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_note(conn, "note_ro", status="active")
+    conn.close()
+
+    readonly = experience.connect_project_readonly(tmp_path)
+    try:
+        assert [note["note_id"] for note in experience.list_notes(readonly)] == ["note_ro"]
+        assert experience.show_note(readonly, "note_ro")["status"] == "active"
+        assert db.schema_version(readonly) == db.LATEST_SCHEMA_VERSION
+        with pytest.raises(sqlite3.OperationalError):
+            readonly.execute(
+                "UPDATE experience_notes SET status = 'retired' WHERE note_id = 'note_ro'"
+            )
+    finally:
+        readonly.close()
+
+
+def test_note_json_output_redacts_secret_and_omits_raw_payload(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    raw_secret = "ghp_abcdefghijklmnopqrstuvwxyz1234567890"
+    _insert_note(
+        conn,
+        "note_secret",
+        status="active",
+        body=f"never print {raw_secret}",
+        evidence=json.dumps({"run_id": "run_secret", "leak": raw_secret}),
+    )
+
+    encoded = experience.as_json(experience.show_note(conn, "note_secret"))
+
+    assert raw_secret not in encoded
+    assert "REDACTED:github_token:" in encoded
+
+
+def test_cli_note_ls_show_retire_work(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _, note_id = _approve_active_note(conn, monkeypatch)
+    conn.close()
+    monkeypatch.chdir(tmp_path)
+
+    ls_code = cli.main(["experience", "note", "ls"])
+    listed = json.loads(capsys.readouterr().out)
+    show_code = cli.main(["experience", "note", "show", note_id])
+    shown = json.loads(capsys.readouterr().out)
+    retire_code = cli.main(["experience", "note", "retire", note_id])
+    retired = json.loads(capsys.readouterr().out)
+    retired_ls_code = cli.main(["experience", "note", "ls", "--status", "retired"])
+    retired_listed = json.loads(capsys.readouterr().out)
+
+    assert ls_code == 0
+    assert [note["note_id"] for note in listed["notes"]] == [note_id]
+    assert show_code == 0
+    assert shown["note_id"] == note_id
+    assert retire_code == 0
+    assert retired["status"] == "retired"
+    assert retired_ls_code == 0
+    assert [note["note_id"] for note in retired_listed["notes"]] == [note_id]
+
+
+def test_cli_note_unknown_show_and_retire_exit_two(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    conn = _fixture_db(tmp_path)
+    conn.close()
+    monkeypatch.chdir(tmp_path)
+
+    show_code = cli.main(["experience", "note", "show", "missing_note"])
+    show_err = capsys.readouterr().err
+    retire_code = cli.main(["experience", "note", "retire", "missing_note"])
+    retire_err = capsys.readouterr().err
+
+    assert show_code == 2
+    assert "unknown experience note: missing_note" in show_err
+    assert retire_code == 2
+    assert "unknown experience note: missing_note" in retire_err
+
+
+def test_cli_note_ls_missing_db_does_not_create_omni(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    code = cli.main(["experience", "note", "ls"])
+
+    assert code == 2
+    assert "OmniMemory database is missing" in capsys.readouterr().err
+    assert not (tmp_path / ".omni").exists()
+
+
+def _insert_note(
+    conn: sqlite3.Connection,
+    note_id: str,
+    *,
+    status: str = "active",
+    body: str = "note body",
+    evidence: str = "{}",
+    source_cand_id: str | None = None,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO experience_notes(
+          note_id, source_cand_id, scope, task_type, kind, trigger,
+          body, suggested_action, trust, status, evidence, created_seq,
+          retired_seq, superseded_by, created_at, updated_at
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            note_id,
+            source_cand_id,
+            "project",
+            "validation",
+            "fast_path",
+            None,
+            body,
+            "prefer the known verification command early",
+            2,
+            status,
+            evidence,
+            1,
+            None,
+            None,
+            "2026-06-15T00:00:00+00:00",
+            "2026-06-15T00:00:00+00:00",
+        ),
+    )
+    conn.commit()
+
+
+def _approve_active_note(
+    conn: sqlite3.Connection,
+    monkeypatch: pytest.MonkeyPatch,
+    run_id: str = "run_note_lifecycle",
+) -> tuple[str, str]:
+    _insert_outcome(
+        conn,
+        run_id,
+        status="success",
+        tests_status="passed",
+        memory_effect="helped",
+        task_type="validation",
+    )
+    _fake_eval(monkeypatch, memory_effect="helped", first_expected_command="pnpm run test")
+    [candidate] = experience.extract_candidates(conn, run_id)
+    approved = experience.approve_candidate(conn, candidate["exp_cand_id"])
+    return candidate["exp_cand_id"], approved["note_id"]
+
+
+def _table_names(conn: sqlite3.Connection) -> set[str]:
+    return {
+        row[0]
+        for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+    }
+
+
 def _fixture_db(root: Path) -> sqlite3.Connection:
     (root / ".omni").mkdir()
     conn = db.connect(root / ".omni" / "omni.sqlite3")
