@@ -147,11 +147,28 @@ def _render_body(
         seen_lines.add((section, line))
         sections[section].append((dep, line))
 
-    for fact in facts:
-        append_unique(("fact", fact["fact_id"]), _render_fact_line(fact))
+    def prepend_unique(dep: Dependency, rendered: tuple[str, str] | None) -> None:
+        if rendered is None:
+            return
+        section, line = rendered
+        if (section, line) in seen_lines:
+            return
+        seen_lines.add((section, line))
+        sections[section].insert(0, (dep, line))
 
     test_command = _known_test_command(facts)
     post_test_commands = _known_post_test_commands(facts)
+
+    for fact in facts:
+        append_unique(("fact", fact["fact_id"]), _render_fact_line(fact))
+
+    guard_note_id = _validation_rediscovery_waste_note_id(notes)
+    if guard_note_id is not None:
+        prepend_unique(
+            ("experience_note", f"{guard_note_id}:commands_guard"),
+            _validation_test_first_commands_line(test_command, post_test_commands),
+        )
+
     for note in notes:
         append_unique(
             ("experience_note", note["note_id"]),
@@ -252,6 +269,38 @@ def _render_experience_note_line(
     if not action:
         return None
     return ("Experience Notes", f"- {action}")
+
+
+def _validation_rediscovery_waste_note_id(notes: list[sqlite3.Row]) -> str | None:
+    for note in notes:
+        if note["task_type"] == "validation" and note["kind"] == "rediscovery_waste":
+            return str(note["note_id"])
+    return None
+
+
+def _validation_test_first_commands_line(
+    command: str | None,
+    post_test_commands: tuple[str, ...],
+) -> tuple[str, str] | None:
+    if not command:
+        return None
+    if post_test_commands:
+        return (
+            "Commands",
+            (
+                f"- For validation tasks, do not start with build or lint; first run "
+                f"{_inline_code(command)}. Treat "
+                f"{_inline_command_list(post_test_commands, conjunction='and')} "
+                "as post-test checks only."
+            ),
+        )
+    return (
+        "Commands",
+        (
+            f"- For validation tasks, do not start with build or lint; first run "
+            f"{_inline_code(command)}."
+        ),
+    )
 
 
 def _render_failure_pattern_line(pattern: sqlite3.Row) -> tuple[str, str] | None:

@@ -343,3 +343,25 @@ test-first ordering is not stable across fresh runs. If the next product stage
 depends on test-first behavior rather than only reduced rediscovery, retune the
 renderer wording/order before adding new memory features.
 ```
+
+## Test-first Renderer Retune
+
+The follow-up retune is intentionally narrow. It does not add schema, eval,
+outcome, experience, failure, or verify features.
+
+The renderer now duplicates the validation test-first rule into the first
+`Commands` line whenever an active validation `rediscovery_waste` note has a
+single known test command. The `Fast Path` section still leads the file, but
+`Commands` no longer presents build and lint as peer first actions:
+
+```text
+## Commands
+- For validation tasks, do not start with build or lint; first run `pnpm run test`. Treat `pnpm run build` and `pnpm run lint` as post-test checks only.
+- Use pnpm run test for Node tests.
+- Use pnpm run build to build Node.
+- Use pnpm run lint to lint Node.
+```
+
+The next real dogfood check should use the same neutral prompt and measure
+whether the first expected command returns to `pnpm run test` while
+`rediscovery_count` remains `0`.

@@ -412,6 +412,9 @@ def test_dogfood_acceptance_pack_covers_real_project_loop_and_record_template() 
         "omni verify: status=passed, reason_code=passed, command=pnpm run test",
         "Fresh follow-up verdict: PARTIAL",
         "test-first ordering is not stable",
+        "Test-first Renderer Retune",
+        "do not start with build or lint; first run `pnpm run test`",
+        "post-test checks only",
         "not a universal proof",
     ):
         assert phrase in stage_text

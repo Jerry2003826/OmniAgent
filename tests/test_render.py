@@ -727,6 +727,11 @@ def test_fast_path_uses_test_command_when_fact_exists(tmp_path: Path) -> None:
         "asks for configuration-first exploration. After tests pass, run build and "
         "lint if broader validation is needed."
     ) in text
+    assert (
+        "- For validation tasks, do not start with build or lint; first run "
+        "`pnpm run test`."
+    ) in text
+    assert text.index("first run `pnpm run test`.") < text.index("Use pnpm run test")
 
 
 def test_rediscovery_waste_fast_path_blocks_broad_scans_before_command(
@@ -783,6 +788,14 @@ def test_rediscovery_waste_fast_path_requires_test_before_build_or_lint(
     assert "For validation tasks, the first shell command must be `pnpm run test`." in text
     assert "Do not run `pnpm run build` or `pnpm run lint` before `pnpm run test`." in text
     assert (
+        "- For validation tasks, do not start with build or lint; first run "
+        "`pnpm run test`. Treat `pnpm run build` and `pnpm run lint` as "
+        "post-test checks only."
+    ) in text
+    assert text.index("do not start with build or lint") < text.index("Use pnpm run test")
+    assert text.index("do not start with build or lint") < text.index("Use pnpm run build")
+    assert text.index("do not start with build or lint") < text.index("Use pnpm run lint")
+    assert (
         "After tests pass, run `pnpm run build` and `pnpm run lint` "
         "if broader validation is needed."
     ) in text
@@ -812,6 +825,11 @@ def test_rediscovery_waste_fast_path_uses_active_build_lint_facts(
     text = result.path.read_text(encoding="utf-8")
 
     assert "Do not run `pnpm run build:ci` or `pnpm run lint:ci` before `pnpm test`." in text
+    assert (
+        "- For validation tasks, do not start with build or lint; first run "
+        "`pnpm test`. Treat `pnpm run build:ci` and `pnpm run lint:ci` as "
+        "post-test checks only."
+    ) in text
     assert (
         "After tests pass, run `pnpm run build:ci` and `pnpm run lint:ci` "
         "if broader validation is needed."
