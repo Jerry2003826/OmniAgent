@@ -538,12 +538,13 @@ def test_acceptance_pack_v0_doc_covers_readonly_writer_and_semantics() -> None:
 
 
 def test_acceptance_pack_v0_closeout_records_scope_and_validation() -> None:
-    doc = REPO_ROOT / "docs" / "acceptance-pack-v0-closeout-2026-06-14.md"
+    doc = REPO_ROOT / "docs" / "acceptance-pack-v0-closeout-2026-06-15.md"
 
     text = doc.read_text(encoding="utf-8")
 
     for phrase in (
         "Acceptance Pack v0 Closeout",
+        "Date: 2026-06-15 local",
         "Scope A (docs-only)",
         "adds no runtime code",
         "evidence packaging, not causal proof",

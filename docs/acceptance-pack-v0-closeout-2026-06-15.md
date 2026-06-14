@@ -1,6 +1,6 @@
 # Acceptance Pack v0 Closeout
 
-Date: 2026-06-14 local
+Date: 2026-06-15 local
 
 ## Scope decision
 
@@ -9,7 +9,7 @@ This stage chose **Scope A (docs-only)**. It adds no runtime code.
 All acceptance evidence for an already-ingested run is already obtainable from
 existing read-only commands (`omni status`, `omni eval run`,
 `omni eval dogfood`, `omni verify`, `omni outcome show`) and the two
-already-approved write bridges (`omni outcome mark-from-verify`,
+already-approved write steps (`omni outcome mark-from-verify`,
 `omni experience extract`, `omni failure extract`). A new
 `omni acceptance` CLI (Scope B) was not added because it would introduce runtime
 code without exposing any state the existing read-only commands do not already

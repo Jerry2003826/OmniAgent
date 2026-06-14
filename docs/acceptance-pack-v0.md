@@ -3,8 +3,8 @@
 Acceptance Pack v0 is a small, deterministic procedure for packaging the existing
 evidence of an **already-ingested** run. It does not start a new Claude Code
 session, add runtime features, add new memory types, or add new database tables.
-It only replays existing read-only commands and the two already-approved write
-bridges, then records redacted, bounded fields.
+It only replays existing read-only commands and explicitly run approved writer
+steps, then records redacted, bounded fields.
 
 Acceptance Pack v0 is **evidence packaging, not causal proof**. A single run is
 evidence about observed behavior. The strongest claim comes from a comparable

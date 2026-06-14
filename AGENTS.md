@@ -11,7 +11,7 @@ Claude Code run → redacted trace → deterministic facts → generated memory 
 Acceptance Pack v0 keeps the v0.2-v0.5 loop intact and adds a deterministic,
 docs-only runbook for packaging the existing redacted evidence of an
 already-ingested run. It documents the exact read-only commands and the two
-already-approved write bridges (`omni outcome mark-from-verify`, plus the
+already-approved write steps (`omni outcome mark-from-verify`, plus the
 explicit `omni experience extract` / `omni failure extract` writers), with an
 explicit read-only vs writer boundary. This phase is evidence packaging, not
 causal proof. It must not add runtime features, new memory types, new tables,
