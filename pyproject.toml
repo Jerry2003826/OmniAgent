@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Local CLI-only memory loop for Claude Code"
 readme = "README.md"
 requires-python = ">=3.11"
+license = "MIT OR Apache-2.0"
 dependencies = []
 
 [project.optional-dependencies]

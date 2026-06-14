@@ -262,5 +262,5 @@ CI runs the suite on Python 3.11 and 3.12 for every push and pull request.
 
 ## 📄 License
 
-No license file is currently included; treat the project as all-rights-reserved
-until one is added.
+Licensed under **MIT OR Apache-2.0** at your option. See [LICENSE](LICENSE),
+[LICENSE-MIT](LICENSE-MIT), and [LICENSE-APACHE](LICENSE-APACHE).
