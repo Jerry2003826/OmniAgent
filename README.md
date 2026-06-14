@@ -11,6 +11,8 @@ The first milestone of the [OmniAgent](https://github.com/Jerry2003826/OmniAgent
 ![Runtime deps](https://img.shields.io/badge/runtime%20deps-0-success.svg)
 ![Release](https://img.shields.io/badge/release-CLI--only%20Claude%20Code%20v1-blueviolet.svg)
 
+**English** · [简体中文](README.zh-CN.md)
+
 </div>
 
 ---
