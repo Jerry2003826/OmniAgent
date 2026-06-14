@@ -483,6 +483,87 @@ def test_dogfood_acceptance_pack_covers_real_project_loop_and_record_template() 
     assert "Jiarui" not in stage_text
 
 
+def test_acceptance_pack_v0_doc_covers_readonly_writer_and_semantics() -> None:
+    doc = REPO_ROOT / "docs" / "acceptance-pack-v0.md"
+
+    text = doc.read_text(encoding="utf-8")
+
+    # Documented commands for an already-ingested run.
+    for command in (
+        "omni audit secrets",
+        "omni status",
+        "omni eval run <run_id>",
+        "omni eval dogfood --cold <cold_run_id> --warm <warm_run_id>",
+        "omni verify",
+        "omni outcome mark-from-verify <run_id> --task-type validation",
+        "omni outcome show <run_id>",
+        "omni experience extract <run_id>",
+        "omni failure extract <run_id>",
+    ):
+        assert command in text
+
+    for phrase in (
+        # read-only vs writer classification
+        "Read-only vs writer commands",
+        "approved writer",
+        "read-only for OmniMemory state but executes",
+        # dogfood comparison fields
+        "cold_comparable",
+        "command_adopted",
+        "improvement",
+        "memory_effect_summary",
+        "stronger behavior metric",
+        # verify/outcome bridge
+        "verify->outcome write bridge",
+        "`reason_code=passed` -> `tests_status=passed`",
+        "`start_failed` and every selection/parse failure -> `tests_status=unknown`",
+        # experience/failure extract explicit write status
+        "approved writers",
+        "must be run explicitly by a human",
+        "reviewable candidate rows",
+        # neutral memory_effect caveat
+        "can remain `neutral`",
+        # no causal overclaim
+        "evidence packaging, not causal proof",
+        # safety / redaction boundaries
+        "no raw stdout/stderr or artifact payloads",
+        # no new tables / features
+        "No new tables, no new memory types",
+    ):
+        assert phrase in text
+
+    # The runbook itself must not leak local paths or identities.
+    assert "C:\\Users" not in text
+    assert "Jiarui" not in text
+
+
+def test_acceptance_pack_v0_closeout_records_scope_and_validation() -> None:
+    doc = REPO_ROOT / "docs" / "acceptance-pack-v0-closeout-2026-06-14.md"
+
+    text = doc.read_text(encoding="utf-8")
+
+    for phrase in (
+        "Acceptance Pack v0 Closeout",
+        "Scope A (docs-only)",
+        "adds no runtime code",
+        "evidence packaging, not causal proof",
+        "Read-only vs writer confirmation",
+        "Approved writers, run explicitly by a human",
+        "no automatic task success inference",
+        "still 001-006",
+        "No new memory types",
+        "No Behavior Eval classification change",
+        "pytest -q",
+        "omni audit secrets",
+        "git diff --check",
+        "ready to close",
+    ):
+        assert phrase in text
+
+    assert "C:\\Users" not in text
+    assert "Jiarui" not in text
+
+
 def test_minimal_linux_ci_workflow_runs_pytest_on_311_and_312() -> None:
     workflow = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 

@@ -1,21 +1,22 @@
-# OmniMemory Verify v0.5 / outcome-from-verify hardening
+# OmniMemory Acceptance Pack v0
 
 ## Goal
 
-Current phase: OmniMemory Verify v0.5 / outcome-from-verify hardening.
+Current phase: OmniMemory Acceptance Pack v0.
 
 Build ONE closed loop:
 
 Claude Code run → redacted trace → deterministic facts → generated memory block → measurably changed behavior in the next run.
 
-Verify v0.5 keeps the v0.2-v0.4 loop intact and hardens the read-only
-`omni verify` → explicit write `omni outcome mark-from-verify` bridge. This
-phase may clarify the verify JSON contract, tie `tests_status` to the stable
-verify `reason_code`, and document that `omni verify` writes no OmniMemory state
-while `omni outcome mark-from-verify` is the only write bridge. It must not add
-runtime features, supersede, reactivation, new memory types, new tables,
-migrations, automatic success inference, automatic failure memory, or automatic
-memory evolution.
+Acceptance Pack v0 keeps the v0.2-v0.5 loop intact and adds a deterministic,
+docs-only runbook for packaging the existing redacted evidence of an
+already-ingested run. It documents the exact read-only commands and the two
+already-approved write bridges (`omni outcome mark-from-verify`, plus the
+explicit `omni experience extract` / `omni failure extract` writers), with an
+explicit read-only vs writer boundary. This phase is evidence packaging, not
+causal proof. It must not add runtime features, new memory types, new tables,
+migrations, supersede, reactivation, automatic success inference, automatic
+failure memory, or automatic memory evolution.
 
 ## Non-goals, hard this week
 
