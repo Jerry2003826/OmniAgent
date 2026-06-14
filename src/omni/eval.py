@@ -166,6 +166,50 @@ def evaluate_dogfood(
     }
 
 
+def review_dogfood(
+    root: Path | str,
+    *,
+    warm_run_id: str,
+    cold_run_id: str | None = None,
+) -> dict[str, Any]:
+    """Read-only consolidated dogfood review for one warm run."""
+
+    project_root = Path(root).resolve()
+    warm_eval = evaluate_run(project_root, warm_run_id)
+
+    warm_outcome: dict[str, Any] | None = None
+    from omni import outcome
+
+    try:
+        conn = outcome.connect_project_readonly(project_root)
+    except (FileNotFoundError, ValueError):
+        warm_outcome = None
+    else:
+        try:
+            try:
+                warm_outcome = outcome.show_outcome(conn, warm_run_id)
+            except ValueError:
+                warm_outcome = None
+        finally:
+            conn.close()
+
+    pairwise = None
+    if cold_run_id is not None:
+        pairwise = evaluate_dogfood(
+            project_root,
+            cold_run_id=cold_run_id,
+            warm_run_id=warm_run_id,
+        )
+
+    return {
+        "warm_run_id": warm_run_id,
+        "cold_run_id": cold_run_id,
+        "warm_eval": warm_eval,
+        "warm_outcome": warm_outcome,
+        "pairwise": pairwise,
+    }
+
+
 def as_json(value: dict[str, Any]) -> str:
     sanitized = _sanitize_for_json(value)
     encoded = json.dumps(sanitized, indent=2, sort_keys=True).encode("utf-8")

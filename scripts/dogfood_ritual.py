@@ -7,6 +7,9 @@ JSON report:
     ingest -> audit secrets -> eval run -> verify -> outcome mark-from-verify
     -> eval dogfood
 
+For a read-only summary without writes, prefer ``omni dogfood --warm <id>``
+(optional ``--cold <id>``) instead of re-chaining eval/outcome commands.
+
 It only calls existing CLI commands. It never passes ``--success`` (task success
 stays user-marked), adds no new state or tables, and writes only through the
 already-approved ``ingest`` and ``outcome mark-from-verify`` commands. Run it from
