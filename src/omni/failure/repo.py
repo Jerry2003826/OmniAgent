@@ -8,7 +8,7 @@ from typing import Any
 from omni._common import now_iso, validate_choice
 from omni.dbaccess import ensure_run_exists
 from omni.ids import new_id
-from omni.jsonio import as_json, redact_mapping_str, redact_text
+from omni.jsonio import redact_mapping_str, redact_text
 
 from omni.failure._text import (
     MAX_EXCERPT_CHARS,

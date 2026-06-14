@@ -98,6 +98,4 @@ def handle_cli_action(
         if args.failure_pattern_command == "retire":
             return retire_pattern(conn, args.pattern_id)
         parser.error(f"unknown failure pattern command: {args.failure_pattern_command}")
-        return 2
     parser.error(f"unknown failure command: {args.failure_command}")
-    return 2

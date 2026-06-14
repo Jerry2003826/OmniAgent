@@ -404,4 +404,3 @@ def handle_cli_action(
             memory_effect=args.memory_effect,
         )
     parser.error(f"unknown outcome command: {args.outcome_command}")
-    return 2
