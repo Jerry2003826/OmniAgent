@@ -172,7 +172,23 @@ def build_parser() -> argparse.ArgumentParser:
     outcome_mark_from_verify_parser.add_argument("--qualifier")
     outcome_show_parser = outcome_subcommands.add_parser("show")
     outcome_show_parser.add_argument("run_id")
-    outcome_subcommands.add_parser("ls")
+    outcome_ls_parser = outcome_subcommands.add_parser("ls")
+    outcome_ls_parser.add_argument(
+        "--task-type",
+        choices=("validation", "bugfix", "docs", "refactor", "exploration", "unknown"),
+    )
+    outcome_ls_parser.add_argument(
+        "--status",
+        choices=("success", "failed", "unknown"),
+    )
+    outcome_ls_parser.add_argument(
+        "--tests-status",
+        choices=("passed", "failed", "not_run", "unknown"),
+    )
+    outcome_ls_parser.add_argument(
+        "--memory-effect",
+        choices=("helped", "neutral", "failed_to_help", "unknown"),
+    )
     experience_parser = subcommands.add_parser("experience", help="Review experience memory")
     experience_subcommands = experience_parser.add_subparsers(
         dest="experience_command",
@@ -491,7 +507,13 @@ def main(argv: list[str] | None = None) -> int:
                 elif args.outcome_command == "show":
                     result = outcome.show_outcome(conn, args.run_id)
                 elif args.outcome_command == "ls":
-                    result = outcome.list_outcomes(conn)
+                    result = outcome.list_outcomes(
+                        conn,
+                        task_type=args.task_type,
+                        status=args.status,
+                        tests_status=args.tests_status,
+                        memory_effect=args.memory_effect,
+                    )
                 else:
                     parser.error(f"unknown outcome command: {args.outcome_command}")
                     return 2
