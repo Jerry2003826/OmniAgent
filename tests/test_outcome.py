@@ -812,12 +812,74 @@ def test_connect_project_readonly_supports_show_and_blocks_writes(tmp_path: Path
     readonly = outcome.connect_project_readonly(tmp_path)
     try:
         shown = outcome.show_outcome(readonly, "run_ro_show")
+        listed = outcome.list_outcomes(readonly)
         with pytest.raises(sqlite3.OperationalError):
             readonly.execute("INSERT INTO meta(key, value) VALUES('probe', '1')")
     finally:
         readonly.close()
 
     assert shown["status"] == "success"
+    assert listed["count"] == 1
+    assert listed["outcomes"][0]["run_id"] == "run_ro_show"
+
+
+def test_list_outcomes_returns_rows_summary_and_count(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_run(conn, "run_a")
+    _insert_run(conn, "run_b")
+    outcome.mark_outcome(
+        conn, "run_a", status="success", tests_status="passed",
+        memory_effect="neutral", task_type="validation",
+    )
+    outcome.mark_outcome(
+        conn, "run_b", status="failed", tests_status="failed",
+        memory_effect="failed_to_help", task_type="bugfix",
+    )
+
+    result = outcome.list_outcomes(conn)
+
+    assert result["count"] == 2
+    assert {row["run_id"] for row in result["outcomes"]} == {"run_a", "run_b"}
+    assert result["summary"]["status"] == {"success": 1, "failed": 1}
+    assert result["summary"]["tests_status"] == {"passed": 1, "failed": 1}
+    assert result["summary"]["memory_effect"] == {"neutral": 1, "failed_to_help": 1}
+    assert result["summary"]["task_type"] == {"validation": 1, "bugfix": 1}
+    first = result["outcomes"][0]
+    assert "evidence" not in first
+    assert "note" not in first
+    assert "task_summary" not in first
+
+
+def test_list_outcomes_empty_is_zero_count(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+
+    result = outcome.list_outcomes(conn)
+
+    assert result["count"] == 0
+    assert result["outcomes"] == []
+    assert result["summary"]["status"] == {}
+
+
+def test_cli_outcome_ls_outputs_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_run(conn, "run_ls")
+    outcome.mark_outcome(
+        conn, "run_ls", status="success", tests_status="passed", task_type="validation",
+    )
+    conn.close()
+    monkeypatch.chdir(tmp_path)
+
+    code = cli.main(["outcome", "ls"])
+    captured = capsys.readouterr()
+    output = json.loads(captured.out)
+
+    assert code == 0
+    assert captured.err == ""
+    assert output["count"] == 1
+    assert output["outcomes"][0]["run_id"] == "run_ls"
+    assert output["summary"]["status"] == {"success": 1}
 
 
 def _fixture_db(root: Path) -> sqlite3.Connection:

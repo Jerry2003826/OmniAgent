@@ -78,6 +78,7 @@ omni eval run <run_id>
 omni verify
 omni outcome mark-from-verify <run_id> --success --task-type validation
 omni outcome show <run_id>
+omni outcome ls
 ```
 
 `omni verify` is read-only with respect to OmniMemory state. In the post-verify
@@ -85,6 +86,10 @@ flow, the write into the Outcome Log happens through
 `omni outcome mark-from-verify`. Use
 `--success` only after a passing verification command; use `--failed` or
 `--unknown` when the user has not confirmed task success.
+
+`omni outcome show <run_id>` shows one run; `omni outcome ls` lists every
+recorded outcome with a per-field tally (status, tests_status, memory_effect,
+task_type). Both are read-only with respect to OmniMemory state.
 
 ## Review and Render Memory
 
