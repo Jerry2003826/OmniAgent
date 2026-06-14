@@ -13,6 +13,11 @@ from omni import eval as behavior_eval
 from omni import verify
 from omni.ids import new_id
 from omni.redact import redact
+from omni.verify import (
+    REASON_CODE_FAILED_EXIT_CODE,
+    REASON_CODE_PASSED,
+    REASON_CODE_TIMED_OUT,
+)
 
 STATUS_VALUES = {"success", "failed", "unknown"}
 TESTS_STATUS_VALUES = {"passed", "failed", "not_run", "unknown"}
@@ -283,13 +288,17 @@ def _now() -> str:
 
 
 def _tests_status_from_verify(verify_result: dict[str, Any]) -> str:
-    status = verify_result.get("status")
-    if status == "passed":
+    # Tie tests_status to the stable verify reason_code rather than re-deriving it
+    # from field shapes. Only a verification command that actually ran to a result
+    # is passed or failed. A command that could not start (start_failed), a
+    # missing/ambiguous selection, or a parse error stays "unknown" because verify
+    # cannot observe whether the user ran tests another way. This never infers task
+    # success and never sets status from the verify result.
+    reason_code = verify_result.get("reason_code")
+    if reason_code == REASON_CODE_PASSED:
         return "passed"
-    if status == "failed":
-        if isinstance(verify_result.get("exit_code"), int) or verify_result.get("timed_out") is True:
-            return "failed"
-        return "unknown"
+    if reason_code in (REASON_CODE_FAILED_EXIT_CODE, REASON_CODE_TIMED_OUT):
+        return "failed"
     return "unknown"
 
 

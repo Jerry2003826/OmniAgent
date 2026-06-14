@@ -246,6 +246,57 @@ def test_experience_memory_v0_doc_covers_behavior_eval_v0() -> None:
         assert phrase in text
 
 
+def test_experience_memory_v0_doc_covers_verify_v05_hardening() -> None:
+    doc = REPO_ROOT / "docs" / "experience-memory-v0.md"
+
+    text = doc.read_text(encoding="utf-8")
+
+    for phrase in (
+        "Verify v0.5 / Outcome-from-Verify Hardening",
+        "stays SQLite read-only",
+        "only write bridge",
+        "requires an existing `run_id`",
+        "raw stdout and stderr excerpts",
+        "derives `tests_status` from the stable verify `reason_code`",
+        "`reason_code=passed` → `tests_status=passed`",
+        "`reason_code=start_failed`",
+        "automatically infer task success",
+        "idempotent",
+        "preserving `created_at`",
+    ):
+        assert phrase in text
+
+
+def test_verify_v05_closeout_records_audit_and_dogfood_bridge() -> None:
+    doc = REPO_ROOT / "docs" / "v05-closeout-audit-2026-06-14.md"
+
+    text = doc.read_text(encoding="utf-8")
+
+    for phrase in (
+        "Verify v0.5 Closeout Audit - 2026-06-14",
+        "outcome-from-verify hardening",
+        "`omni verify` remains SQLite read-only",
+        "`omni outcome mark-from-verify` remains the explicit write bridge",
+        "No new tables",
+        "reason_code=passed",
+        "tests_status=passed",
+        "reason_code=start_failed",
+        "tests_status=unknown",
+        "Outcome `status` is not inferred from verify",
+        "Stored verify evidence excludes stdout and stderr excerpts",
+        "pytest -q: 457 passed, 3 skipped",
+        "5bba6758-75e8-4643-bfae-8818bb84f982",
+        "status: success",
+        "evidence.verify.reason_code: passed",
+        "does not include stdout or stderr excerpts",
+        "READY_TO_CLOSE",
+    ):
+        assert phrase in text
+
+    assert "C:\\Users" not in text
+    assert "Jiarui" not in text
+
+
 def test_failure_memory_v0_doc_covers_candidate_only_scope() -> None:
     doc = REPO_ROOT / "docs" / "failure-memory-v0.md"
 
