@@ -793,8 +793,16 @@ def test_rediscovery_waste_fast_path_requires_test_before_build_or_lint(
         "post-test checks only."
     ) in text
     assert text.index("do not start with build or lint") < text.index("Use pnpm run test")
-    assert text.index("do not start with build or lint") < text.index("Use pnpm run build")
-    assert text.index("do not start with build or lint") < text.index("Use pnpm run lint")
+    assert (
+        "- After validation tests pass, use pnpm run build to build Node."
+    ) in text
+    assert "- After validation tests pass, use pnpm run lint to lint Node." in text
+    assert text.index("Use pnpm run test") < text.index(
+        "After validation tests pass, use pnpm run build"
+    )
+    assert text.index("Use pnpm run test") < text.index(
+        "After validation tests pass, use pnpm run lint"
+    )
     assert (
         "After tests pass, run `pnpm run build` and `pnpm run lint` "
         "if broader validation is needed."
@@ -831,6 +839,10 @@ def test_rediscovery_waste_fast_path_uses_active_build_lint_facts(
         "post-test checks only."
     ) in text
     assert (
+        "- After validation tests pass, use pnpm run build:ci to build Node."
+    ) in text
+    assert "- After validation tests pass, use pnpm run lint:ci to lint Node." in text
+    assert (
         "After tests pass, run `pnpm run build:ci` and `pnpm run lint:ci` "
         "if broader validation is needed."
     ) in text
@@ -863,6 +875,7 @@ def test_rediscovery_waste_fast_path_uses_single_post_test_fact_in_followup(
         "Do not run `pnpm run build:ci` or any other build/lint command "
         "before `pnpm test`."
     ) in text
+    assert "- After validation tests pass, use pnpm run build:ci to build Node." in text
     assert "After tests pass, run `pnpm run build:ci` if broader validation is needed." in text
     assert "After tests pass, run build and lint if broader validation is needed." not in text
 
@@ -893,6 +906,7 @@ def test_rediscovery_waste_fast_path_blocks_build_when_only_lint_fact_exists(
         "Do not run `pnpm run lint:ci` or any other build/lint command "
         "before `pnpm test`."
     ) in text
+    assert "- After validation tests pass, use pnpm run lint:ci to lint Node." in text
     assert "After tests pass, run `pnpm run lint:ci` if broader validation is needed." in text
 
 

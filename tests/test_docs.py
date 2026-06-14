@@ -415,6 +415,8 @@ def test_dogfood_acceptance_pack_covers_real_project_loop_and_record_template() 
         "Test-first Renderer Retune",
         "do not start with build or lint; first run `pnpm run test`",
         "post-test checks only",
+        "After validation tests pass, use pnpm run build to build Node.",
+        "still chose",
         "not a universal proof",
     ):
         assert phrase in stage_text

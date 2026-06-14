@@ -159,10 +159,15 @@ def _render_body(
     test_command = _known_test_command(facts)
     post_test_commands = _known_post_test_commands(facts)
 
-    for fact in facts:
-        append_unique(("fact", fact["fact_id"]), _render_fact_line(fact))
-
     guard_note_id = _validation_rediscovery_waste_note_id(notes)
+    validation_test_first = guard_note_id is not None and test_command is not None
+
+    for fact in facts:
+        append_unique(
+            ("fact", fact["fact_id"]),
+            _render_fact_line(fact, validation_test_first=validation_test_first),
+        )
+
     if guard_note_id is not None:
         prepend_unique(
             ("experience_note", f"{guard_note_id}:commands_guard"),
@@ -222,13 +227,22 @@ def _render_body(
     return body, line_hashes
 
 
-def _render_fact_line(fact: sqlite3.Row) -> tuple[str, str] | None:
+def _render_fact_line(
+    fact: sqlite3.Row,
+    *,
+    validation_test_first: bool = False,
+) -> tuple[str, str] | None:
     predicate = fact["predicate"]
     qualifier = fact["qualifier"]
     object_norm = fact["object_norm"]
 
     if predicate.startswith("uses_") and predicate.endswith("_command"):
         command_kind = predicate.removeprefix("uses_").removesuffix("_command").replace("_", " ")
+        if validation_test_first and command_kind in {"build", "lint"}:
+            return (
+                "Commands",
+                f"- {_post_test_command_instruction(command_kind, qualifier, object_norm)}",
+            )
         return ("Commands", f"- {_command_instruction(command_kind, qualifier, object_norm)}")
 
     if predicate == "uses_package_manager":
@@ -345,6 +359,15 @@ def _command_instruction(command_kind: str, qualifier: str, object_norm: str) ->
     if command_kind == "dev":
         return f"Use {object_norm} to start {label} development."
     return f"Use {object_norm} for {label} {command_kind}."
+
+
+def _post_test_command_instruction(command_kind: str, qualifier: str, object_norm: str) -> str:
+    label = _qualifier_label(qualifier)
+    if command_kind == "build":
+        return f"After validation tests pass, use {object_norm} to build {label}."
+    if command_kind == "lint":
+        return f"After validation tests pass, use {object_norm} to lint {label}."
+    return f"After validation tests pass, use {object_norm} for {label} {command_kind}."
 
 
 def _known_test_command(facts: list[sqlite3.Row]) -> str | None:

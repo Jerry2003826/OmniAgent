@@ -358,10 +358,15 @@ single known test command. The `Fast Path` section still leads the file, but
 ## Commands
 - For validation tasks, do not start with build or lint; first run `pnpm run test`. Treat `pnpm run build` and `pnpm run lint` as post-test checks only.
 - Use pnpm run test for Node tests.
-- Use pnpm run build to build Node.
-- Use pnpm run lint to lint Node.
+- After validation tests pass, use pnpm run build to build Node.
+- After validation tests pass, use pnpm run lint to lint Node.
 ```
 
 The next real dogfood check should use the same neutral prompt and measure
 whether the first expected command returns to `pnpm run test` while
 `rediscovery_count` remains `0`.
+
+The first fresh run after adding only the Commands guard still chose
+`pnpm run build` before `pnpm run test` while keeping rediscovery at `0`.
+The follow-up wording therefore also demotes build and lint command facts into
+post-test checks when the same validation fast path is active.
