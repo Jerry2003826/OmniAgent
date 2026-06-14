@@ -27,6 +27,7 @@ Claude Code run
 - Safety gate through `omni audit secrets`.
 - Ingestion through `omni ingest`.
 - Behavior evaluation through `omni eval run` and `omni eval dogfood`.
+- Read-only consolidated dogfood review through `omni dogfood`.
 - User-marked outcomes through `omni outcome mark` and
   `omni outcome mark-from-verify`.
 - Reviewable experience candidates and active experience notes.

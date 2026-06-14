@@ -627,6 +627,135 @@ def test_eval_dogfood_reports_no_improvement_when_warm_fails_to_run_expected_com
     }
 
 
+def test_review_dogfood_warm_only_includes_eval_and_tolerates_missing_outcome(
+    tmp_path: Path,
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_fact(conn, "uses_test_command", "pnpm run test")
+    _insert_event(
+        conn,
+        "warm_run",
+        1,
+        tool="Bash",
+        meta={"tool_input": {"command": "pnpm run test"}},
+    )
+    conn.commit()
+
+    result = eval_module.review_dogfood(tmp_path, warm_run_id="warm_run")
+
+    assert result["warm_run_id"] == "warm_run"
+    assert result["cold_run_id"] is None
+    assert result["warm_eval"]["run_id"] == "warm_run"
+    assert result["warm_outcome"] is None
+    assert result["pairwise"] is None
+
+
+def test_review_dogfood_warm_only_includes_outcome_when_present(
+    tmp_path: Path,
+) -> None:
+    from omni import outcome
+
+    conn = _fixture_db(tmp_path)
+    _insert_run(conn, "warm_run")
+    _insert_fact(conn, "uses_test_command", "pnpm run test")
+    _insert_event(
+        conn,
+        "warm_run",
+        1,
+        tool="Bash",
+        meta={"tool_input": {"command": "pnpm run test"}},
+    )
+    outcome.mark_outcome(
+        conn,
+        "warm_run",
+        status="success",
+        tests_status="passed",
+        task_type="validation",
+    )
+    conn.commit()
+
+    result = eval_module.review_dogfood(tmp_path, warm_run_id="warm_run")
+
+    assert result["warm_outcome"]["run_id"] == "warm_run"
+    assert result["warm_outcome"]["status"] == "success"
+    assert result["pairwise"] is None
+
+
+def test_review_dogfood_warm_and_cold_includes_pairwise(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_fact(conn, "uses_test_command", "pnpm run test")
+    _insert_event(
+        conn, "cold_run", 1, tool="Read", meta={"tool_input": {"file_path": "README.md"}}
+    )
+    _insert_event(
+        conn,
+        "cold_run",
+        2,
+        tool="Read",
+        meta={"tool_input": {"file_path": "package.json"}},
+    )
+    _insert_event(
+        conn,
+        "cold_run",
+        3,
+        tool="Bash",
+        meta={"tool_input": {"command": "pnpm run test"}},
+    )
+    _insert_event(
+        conn, "warm_run", 1, tool="Read", meta={"tool_input": {"file_path": "README.md"}}
+    )
+    _insert_event(
+        conn,
+        "warm_run",
+        2,
+        tool="Bash",
+        meta={"tool_input": {"command": "pnpm run test"}},
+    )
+    conn.commit()
+
+    result = eval_module.review_dogfood(
+        tmp_path,
+        warm_run_id="warm_run",
+        cold_run_id="cold_run",
+    )
+
+    assert result["cold_run_id"] == "cold_run"
+    assert result["pairwise"]["improvement"] is True
+
+
+def test_review_dogfood_missing_run_reports_unknown_eval(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    conn.commit()
+
+    result = eval_module.review_dogfood(tmp_path, warm_run_id="missing_run")
+
+    assert result["warm_eval"]["memory_effect"] == "unknown"
+    assert "insufficient evidence" in result["warm_eval"]["reason"]
+
+
+def test_cli_dogfood_outputs_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_fact(conn, "uses_test_command", "pnpm run test")
+    _insert_event(
+        conn,
+        "warm_run",
+        1,
+        tool="Bash",
+        meta={"tool_input": {"command": "pnpm run test"}},
+    )
+    conn.commit()
+    monkeypatch.chdir(tmp_path)
+
+    assert cli.main(["dogfood", "--warm", "warm_run"]) == 0
+    output = json.loads(capsys.readouterr().out)
+
+    assert output["warm_run_id"] == "warm_run"
+    assert output["warm_eval"]["run_id"] == "warm_run"
+    assert output["pairwise"] is None
+
+
 def test_eval_run_cli_outputs_json(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
     conn = _fixture_db(tmp_path)
     _insert_fact(conn, "uses_test_command", "pnpm run test")

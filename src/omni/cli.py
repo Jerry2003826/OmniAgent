@@ -29,7 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
         dest="command",
         required=True,
         metavar=(
-            "{init,audit,ingest,status,render,inject,eval,outcome,"
+            "{init,audit,ingest,status,render,inject,dogfood,eval,outcome,"
             "experience,failure,verify}"
         ),
     )
@@ -80,6 +80,18 @@ def build_parser() -> argparse.ArgumentParser:
     verify_parser = subcommands.add_parser("verify", help="Run the known verification command")
     verify_parser.add_argument("--timeout-seconds", type=int, default=120)
     verify_parser.add_argument("--qualifier")
+    dogfood_parser = subcommands.add_parser(
+        "dogfood",
+        help=(
+            "Read-only consolidated dogfood summary "
+            "(eval run + outcome + optional cold/warm compare)"
+        ),
+    )
+    dogfood_parser.add_argument("--warm", required=True, help="warm run id to review")
+    dogfood_parser.add_argument(
+        "--cold",
+        help="optional cold baseline run id for pairwise compare",
+    )
     eval_parser = subcommands.add_parser("eval", help="Evaluate run behavior")
     eval_subcommands = eval_parser.add_subparsers(dest="eval_command", required=True)
     eval_run_parser = eval_subcommands.add_parser("run")
@@ -447,6 +459,17 @@ def main(argv: list[str] | None = None) -> int:
         if result["status"] == "failed":
             return 1
         return 2
+
+    if args.command == "dogfood":
+        from omni import eval as behavior_eval
+
+        result = behavior_eval.review_dogfood(
+            project_root(),
+            warm_run_id=args.warm,
+            cold_run_id=args.cold,
+        )
+        _print_diff(behavior_eval.as_json(result))
+        return 0
 
     if args.command == "eval":
         from omni import eval as behavior_eval

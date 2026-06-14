@@ -86,6 +86,7 @@ Violations require reverting the commit.
    - `omni status`
    - `omni eval run`
    - `omni eval dogfood`
+   - `omni dogfood`
    - `omni outcome show`
    - `omni outcome ls`
    - `omni experience ls`

@@ -153,6 +153,18 @@ Compare a cold or older run against a warm run:
 omni eval dogfood --cold <old_run_id> --warm <new_run_id>
 ```
 
+For a read-only consolidated review of one warm run (behavior eval, recorded
+outcome when present, and optional cold/warm pairwise compare), use the
+top-level command instead of chaining the low-level eval/outcome commands:
+
+```powershell
+omni dogfood --warm <new_run_id>
+omni dogfood --warm <new_run_id> --cold <old_run_id>
+```
+
+`omni dogfood` does not ingest, verify, or mark outcomes. Use
+`scripts/dogfood_ritual.py` when you need the full write-path governance ritual.
+
 Treat cold/warm comparison as stronger evidence than a single-run
 `memory_effect`, especially when Claude Code imports memory without emitting an
 explicit `Read` event for `CLAUDE.md` or `.omni/generated/memory.md`.
