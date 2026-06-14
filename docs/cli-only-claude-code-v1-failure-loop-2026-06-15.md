@@ -80,9 +80,11 @@ patterns do not render.
   test-driven extractor de-noise for exit-127 / command-not-found could reduce the
   noise. It is not urgent and is not an LLM extractor, so it stays within the v1
   boundary.
-- The candidate `kind` was `tool_failed` (via a `PostToolUseFailure` event) rather
-  than `command_failed`, because Claude ran `node test.js` directly instead of
-  through the package manager. This is a classification detail, not a defect.
+- The candidate `kind` was `tool_failed` because Claude Code surfaced the failure
+  as a `PostToolUseFailure` event. The extractor maps `PostToolUseFailure` to
+  `tool_failed` and only classifies a shell-tool event with a non-zero exit as
+  `command_failed`, so the kind reflects the event path, not whether the command
+  ran through the package manager. This is a classification detail, not a defect.
 
 ## Status
 
