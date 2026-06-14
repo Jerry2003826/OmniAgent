@@ -209,6 +209,47 @@ def show_outcome(conn: sqlite3.Connection, run_id: str) -> dict[str, Any]:
     return result
 
 
+def list_outcomes(conn: sqlite3.Connection) -> dict[str, Any]:
+    """Return all recorded outcomes plus a per-field tally (read-only)."""
+
+    rows = conn.execute(
+        """
+        SELECT run_id, task_type, status, tests_status, memory_effect,
+               final_command, created_at, updated_at
+        FROM outcomes
+        ORDER BY updated_at DESC, run_id
+        """
+    ).fetchall()
+    outcomes = [
+        {
+            "run_id": row["run_id"],
+            "task_type": row["task_type"],
+            "status": row["status"],
+            "tests_status": row["tests_status"],
+            "memory_effect": row["memory_effect"],
+            "final_command": row["final_command"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+        for row in rows
+    ]
+    return {
+        "count": len(outcomes),
+        "summary": _summarize_outcomes(outcomes),
+        "outcomes": outcomes,
+    }
+
+
+def _summarize_outcomes(outcomes: list[dict[str, Any]]) -> dict[str, dict[str, int]]:
+    fields = ("status", "tests_status", "memory_effect", "task_type")
+    summary: dict[str, dict[str, int]] = {field: {} for field in fields}
+    for row in outcomes:
+        for field in fields:
+            value = str(row[field])
+            summary[field][value] = summary[field].get(value, 0) + 1
+    return summary
+
+
 def as_json(value: dict[str, Any]) -> str:
     return behavior_eval.as_json(value)
 

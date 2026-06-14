@@ -91,7 +91,7 @@ def build_parser() -> argparse.ArgumentParser:
     outcome_subcommands = outcome_parser.add_subparsers(
         dest="outcome_command",
         required=True,
-        metavar="{mark,mark-from-verify,show}",
+        metavar="{mark,mark-from-verify,show,ls}",
     )
     outcome_mark_parser = outcome_subcommands.add_parser("mark")
     outcome_mark_parser.add_argument("run_id")
@@ -172,6 +172,7 @@ def build_parser() -> argparse.ArgumentParser:
     outcome_mark_from_verify_parser.add_argument("--qualifier")
     outcome_show_parser = outcome_subcommands.add_parser("show")
     outcome_show_parser.add_argument("run_id")
+    outcome_subcommands.add_parser("ls")
     experience_parser = subcommands.add_parser("experience", help="Review experience memory")
     experience_subcommands = experience_parser.add_subparsers(
         dest="experience_command",
@@ -453,7 +454,7 @@ def main(argv: list[str] | None = None) -> int:
 
         root = project_root()
         try:
-            if args.outcome_command == "show":
+            if args.outcome_command in {"show", "ls"}:
                 conn = outcome.connect_project_readonly(root)
             else:
                 conn = outcome.connect_project(root)
@@ -489,6 +490,8 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 elif args.outcome_command == "show":
                     result = outcome.show_outcome(conn, args.run_id)
+                elif args.outcome_command == "ls":
+                    result = outcome.list_outcomes(conn)
                 else:
                     parser.error(f"unknown outcome command: {args.outcome_command}")
                     return 2
