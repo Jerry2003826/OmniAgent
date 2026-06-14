@@ -32,7 +32,29 @@ def test_doctor_reports_initialized_project(tmp_path: Path) -> None:
     assert names["omni_dir"] is True
     assert names["database"] is True
     assert names["database_schema"] is True
+    assert names["schema_version"] is True
     assert names["generated_memory"] is False
+
+
+def test_doctor_reports_outdated_schema_version(tmp_path: Path) -> None:
+    (tmp_path / ".omni").mkdir()
+    (tmp_path / ".omni" / "config.toml").write_text("", encoding="utf-8")
+    conn = db.connect(tmp_path / ".omni" / "omni.sqlite3")
+    db.migrate(conn)
+    conn.execute(
+        "UPDATE meta SET value = ? WHERE key = 'schema_version'",
+        ("6",),
+    )
+    conn.commit()
+    conn.close()
+
+    result = doctor.run(tmp_path)
+    names = {check.name: check for check in result.checks}
+
+    assert result.ok is False
+    assert names["database_schema"].ok is True
+    assert names["schema_version"].ok is False
+    assert "schema_version '6' != expected '7'" in names["schema_version"].message
 
 
 def test_cli_doctor_outputs_json(

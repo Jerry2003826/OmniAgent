@@ -411,6 +411,7 @@ def _verify_evidence(verify_result: dict[str, Any]) -> dict[str, Any]:
         "timeout_seconds",
         "predicate",
         "qualifier",
+        "profile",
         "candidate_commands",
         "candidate_commands_omitted",
     )

@@ -115,7 +115,12 @@ def interactive(
         except EOFError:
             break
         if decision in {"a", "approve"}:
-            approve(conn, str(candidate.cand_id))
+            try:
+                approve(conn, str(candidate.cand_id))
+            except gate.ConflictRequiresSupersede as exc:
+                output_fn(f"conflict requires supersede: {exc}")
+                skipped += 1
+                continue
             approved += 1
         elif decision in {"r", "reject"}:
             reject(conn, str(candidate.cand_id))

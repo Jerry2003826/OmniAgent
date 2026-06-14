@@ -8,6 +8,7 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
+from omni import db
 from omni.inject import MANAGED_REGION
 from omni.render import HEADER_RE
 
@@ -16,9 +17,16 @@ REQUIRED_TABLES = {
     "block_deps",
     "blocks",
     "events",
+    "experience_candidates",
+    "experience_notes",
+    "failure_candidates",
+    "failure_patterns",
     "fact_candidates",
     "facts",
     "meta",
+    "outcomes",
+    "preference_candidates",
+    "preference_notes",
     "runs",
     "suppressions",
 }
@@ -61,6 +69,7 @@ def run(root: Path | str | None = None) -> DoctorResult:
         _check_path("config", omni_dir / "config.toml"),
         _check_path("database", omni_dir / "omni.sqlite3"),
         _check_database_schema(omni_dir / "omni.sqlite3"),
+        _check_schema_version(omni_dir / "omni.sqlite3"),
         _check_generated_memory(memory),
         _check_claude_link(claude),
         _check_path("audit_passed", omni_dir / "audit" / "secrets.passed"),
@@ -107,6 +116,32 @@ def _check_database_schema(path: Path) -> DoctorCheck:
     if missing:
         return DoctorCheck("database_schema", False, f"missing tables: {', '.join(missing)}")
     return DoctorCheck("database_schema", True, "required tables present")
+
+
+def _check_schema_version(path: Path) -> DoctorCheck:
+    if not path.is_file():
+        return DoctorCheck("schema_version", False, f"missing file: {path}")
+    try:
+        conn = sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True)
+        try:
+            row = conn.execute(
+                "SELECT value FROM meta WHERE key = 'schema_version'"
+            ).fetchone()
+        finally:
+            conn.close()
+    except sqlite3.Error as exc:
+        return DoctorCheck("schema_version", False, f"database unreadable: {exc}")
+    if row is None:
+        return DoctorCheck("schema_version", False, "schema_version meta key missing")
+    current = row[0]
+    expected = db.LATEST_SCHEMA_VERSION
+    if current != expected:
+        return DoctorCheck(
+            "schema_version",
+            False,
+            f"schema_version {current!r} != expected {expected!r}",
+        )
+    return DoctorCheck("schema_version", True, f"schema_version is {expected}")
 
 
 def _check_claude_link(path: Path) -> DoctorCheck:

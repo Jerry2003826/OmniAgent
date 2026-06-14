@@ -833,10 +833,5 @@ def _hide_subcommands(subparsers: argparse._SubParsersAction, names: set[str]) -
     ]
 
 
-def _experimental_disabled() -> int:
-    print("experimental disabled in Week-1", file=sys.stderr)
-    return 2
-
-
 if __name__ == "__main__":
     sys.exit(main())

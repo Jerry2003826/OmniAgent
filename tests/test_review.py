@@ -338,6 +338,42 @@ def test_review_interactive_approves_rejects_and_summarizes(tmp_path: Path) -> N
     assert suppression["object_norm"] == "interactive-reject"
 
 
+def test_review_interactive_skips_conflict_requires_supersede(tmp_path: Path) -> None:
+    conn = connect(tmp_path)
+    gate.insert_fact(conn, candidate("pnpm run test", qualifier="node"))
+    pending = gate.stage_candidate(conn, candidate("npm test", qualifier="node"))
+    output: list[str] = []
+
+    result = review.interactive(
+        conn,
+        input_fn=lambda _prompt: "a",
+        output_fn=output.append,
+    )
+    candidate_row = conn.execute(
+        "SELECT state, review_note FROM fact_candidates WHERE cand_id = ?",
+        (pending.cand_id,),
+    ).fetchone()
+    facts = conn.execute(
+        """
+        SELECT object_norm FROM facts
+        WHERE predicate = 'uses_test_command' AND qualifier = 'node'
+        """
+    ).fetchall()
+    joined = "\n".join(output)
+
+    assert result == review.ReviewSummary(
+        approved=0,
+        rejected=0,
+        skipped=1,
+        remaining=1,
+    )
+    assert "conflict requires supersede" in joined
+    assert "pnpm run test" in joined
+    assert candidate_row["state"] == "pending"
+    assert "conflict requires supersede" in candidate_row["review_note"]
+    assert [row["object_norm"] for row in facts] == ["pnpm run test"]
+
+
 def test_review_interactive_no_pending_candidates(tmp_path: Path) -> None:
     conn = connect(tmp_path)
 

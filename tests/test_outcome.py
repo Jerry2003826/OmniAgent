@@ -788,6 +788,58 @@ def test_cli_outcome_mark_from_verify_accepts_qualifier(
     assert marked["evidence"]["verify"]["qualifier"] == "node:web"
 
 
+def test_cli_outcome_mark_from_verify_accepts_profile(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_run(conn, "run_cli_verify_profile")
+    conn.close()
+    monkeypatch.chdir(tmp_path)
+
+    def fake_run_preflight(
+        verify_conn: sqlite3.Connection,
+        root: Path | str,
+        *,
+        timeout_seconds: int,
+        qualifier: str | None = None,
+        profile: str | None = None,
+        **kwargs: object,
+    ) -> dict[str, object]:
+        assert profile == "release"
+        return {
+            "status": "passed",
+            "reason_code": "passed",
+            "command": "pnpm run release-check",
+            "exit_code": 0,
+            "timed_out": False,
+            "reason": "verification command passed",
+            "selection_mode": "profile",
+            "selection_reason": "selected release profile verification command",
+            "profile": "release",
+        }
+
+    monkeypatch.setattr(outcome.verify, "run_preflight", fake_run_preflight)
+
+    code = cli.main(
+        [
+            "outcome",
+            "mark-from-verify",
+            "run_cli_verify_profile",
+            "--profile",
+            "release",
+        ]
+    )
+    marked = json.loads(capsys.readouterr().out)
+
+    assert code == 0
+    assert marked["tests_status"] == "passed"
+    assert marked["final_command"] == "pnpm run release-check"
+    assert marked["evidence"]["verify"]["selection_mode"] == "profile"
+    assert marked["evidence"]["verify"]["profile"] == "release"
+
+
 def test_cli_outcome_show_on_outdated_schema_is_read_only_and_exits_clearly(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -86,6 +86,54 @@ def test_preference_approve_render_and_retire(tmp_path: Path) -> None:
     assert "Keep pull requests small." not in rerendered.body
 
 
+def test_approved_preference_note_renders_without_internal_metadata(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    conn.execute(
+        """
+        INSERT INTO preference_candidates(
+          pref_cand_id, source_cand_id, scope, kind, predicate, qualifier,
+          body, suggested_action, evidence, state, created_at
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+        """,
+        (
+            "pref_cand_render_meta",
+            "cand_source_render",
+            "project",
+            "prefers",
+            "prefers_small_prs",
+            "default",
+            "prefers small prs: true",
+            "Keep pull requests small and reviewable.",
+            '{"run_id":"run_pref_render","outcome_id":"outcome_pref_render"}',
+            "pending",
+            "2026-06-15T00:00:00+00:00",
+        ),
+    )
+    conn.commit()
+
+    note = preference.approve_candidate(conn, "pref_cand_render_meta")
+    text = render.render_project(conn, tmp_path, force=True).body
+    db_note = conn.execute(
+        "SELECT created_at, updated_at FROM preference_notes WHERE note_id = ?",
+        (note["note_id"],),
+    ).fetchone()
+
+    assert "## Preferences" in text
+    assert "Keep pull requests small and reviewable." in text
+    assert "pref_cand_render_meta" not in text
+    assert "cand_source_render" not in text
+    assert note["note_id"] not in text
+    assert "run_pref_render" not in text
+    assert "outcome_pref_render" not in text
+    assert "evidence" not in text.lower()
+    assert "created_at" not in text.lower()
+    assert "updated_at" not in text.lower()
+    assert "confidence" not in text.lower()
+    assert "2026-06-15T00:00:00+00:00" not in text
+    assert db_note["created_at"] not in text
+    assert db_note["updated_at"] not in text
+
+
 def test_cli_preference_extract_outputs_json(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
