@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from omni import db
+from omni import dbaccess
 from omni import gate
 from omni._common import (
     is_redaction_placeholder as _is_redaction_placeholder,
@@ -107,7 +107,7 @@ def ingest(
 ) -> IngestResult:
     base = Path(root or Path.cwd()).resolve()
     ensure_project_layout(base)
-    conn = _connect_project_db(base)
+    conn = dbaccess.connect_project_migrate(base)
     try:
         total_inserted = 0
         run_ids: list[str] = []
@@ -212,7 +212,7 @@ def close_stale_runs(
 
 def run_show(root: Path | str | None, run_id: str, seq: int | None = None) -> str:
     base = Path(root or Path.cwd()).resolve()
-    conn = _connect_project_db_readonly(base)
+    conn = dbaccess.connect_project_readonly(base, check_schema=False)
     try:
         if seq is not None:
             row = conn.execute(
@@ -272,19 +272,6 @@ def _ingest_one(
     _renumber_run_events(conn, run_id)
     _update_run_bounds(conn, run_id)
     return inserted, hook_paths
-
-
-def _connect_project_db(root: Path) -> sqlite3.Connection:
-    conn = db.connect(root / ".omni" / "omni.sqlite3")
-    db.migrate(conn)
-    return conn
-
-
-def _connect_project_db_readonly(root: Path) -> sqlite3.Connection:
-    db_path = root / ".omni" / "omni.sqlite3"
-    if not db_path.exists():
-        raise FileNotFoundError(f"OmniMemory database is missing: {db_path}")
-    return db.connect_readonly(db_path)
 
 
 def _ensure_run(conn: sqlite3.Connection, root: Path, run_id: str, transcript: Path | None) -> None:

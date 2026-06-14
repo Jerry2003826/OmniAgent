@@ -37,19 +37,24 @@ def ensure_run_exists(conn: sqlite3.Connection, run_id: str) -> None:
         raise ValueError(f"unknown run: {run_id}")
 
 
-def connect_project_readonly(root: Path | str | None = None) -> sqlite3.Connection:
+def connect_project_readonly(
+    root: Path | str | None = None,
+    *,
+    check_schema: bool = True,
+) -> sqlite3.Connection:
     db_path = _project_db_path(root)
     if not db_path.exists():
         raise FileNotFoundError(f"OmniMemory database is missing: {db_path}")
     conn = db.connect_readonly(db_path)
-    version = db.schema_version(conn)
-    if version != db.LATEST_SCHEMA_VERSION:
-        conn.close()
-        raise ValueError(
-            f"OmniMemory schema is outdated (found {version or 'none'}, need "
-            f"{db.LATEST_SCHEMA_VERSION}); run an approved write command such as "
-            "'omni render' to migrate"
-        )
+    if check_schema:
+        version = db.schema_version(conn)
+        if version != db.LATEST_SCHEMA_VERSION:
+            conn.close()
+            raise ValueError(
+                f"OmniMemory schema is outdated (found {version or 'none'}, need "
+                f"{db.LATEST_SCHEMA_VERSION}); run an approved write command such as "
+                "'omni render' to migrate"
+            )
     return conn
 
 
