@@ -709,6 +709,32 @@ def test_cli_verify_unknown_command_returns_two(
     assert output["reason"] == "no active uses_test_command facts"
 
 
+def test_cli_verify_ambiguous_qualifier_returns_two(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    conn = _fixture_db(tmp_path)
+    _insert_fact(conn, "echo web unit", qualifier="node:web")
+    _insert_fact(conn, "echo web e2e", qualifier="node:web")
+    conn.close()
+    monkeypatch.chdir(tmp_path)
+
+    code = cli.main(["verify", "--qualifier", "node:web"])
+    captured = capsys.readouterr()
+    output = json.loads(captured.out)
+
+    assert code == 2
+    assert captured.err == ""
+    assert output["status"] == "unknown"
+    assert output["reason_code"] == "ambiguous_qualifier"
+    assert output["selection_mode"] == "qualifier"
+    assert output["candidate_commands"] == [
+        {"qualifier": "node:web", "command": "echo web e2e"},
+        {"qualifier": "node:web", "command": "echo web unit"},
+    ]
+
+
 def test_cli_verify_invalid_command_still_outputs_json(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
