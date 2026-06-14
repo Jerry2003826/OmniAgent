@@ -131,7 +131,7 @@ git commit -m "cli-v1: expose supported help surface"
 - Create: `docs/cli-only-claude-code-v1-runbook.md`
 - Modify: `docs/cli-only-claude-code-v1-readiness.md`
 
-- [ ] **Step 1: Create the runbook**
+- [x] **Step 1: Create the runbook**
 
 Create `docs/cli-only-claude-code-v1-runbook.md` with these sections:
 
@@ -209,7 +209,7 @@ omni eval dogfood --cold <old_run_id> --warm <new_run_id>
 ```
 ````
 
-- [ ] **Step 2: Link the runbook from readiness docs**
+- [x] **Step 2: Link the runbook from readiness docs**
 
 Append this line to `docs/cli-only-claude-code-v1-readiness.md`:
 
@@ -218,7 +218,7 @@ The operator-facing command sequence is maintained in
 `docs/cli-only-claude-code-v1-runbook.md`.
 ```
 
-- [ ] **Step 3: Verify docs are clean**
+- [x] **Step 3: Verify docs are clean**
 
 Run:
 
@@ -228,7 +228,7 @@ git diff --check
 
 Expected result: no whitespace errors.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 Run:
 

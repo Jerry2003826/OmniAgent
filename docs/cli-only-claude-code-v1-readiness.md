@@ -59,6 +59,9 @@ from top-level help until they have a deliberate user-facing shape.
 
 ## First-run Path
 
+The operator-facing command sequence is maintained in
+`docs/cli-only-claude-code-v1-runbook.md`.
+
 For the OmniMemory checkout:
 
 ```powershell
