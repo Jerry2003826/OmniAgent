@@ -401,6 +401,17 @@ def test_dogfood_acceptance_pack_covers_real_project_loop_and_record_template() 
         "lifecycle.renders: true",
         "lifecycle.can_reactivate: false",
         "Verdict: PASS",
+        "Fresh Follow-up Warm Run",
+        "6ecbde84-e13f-4d75-97bd-3e3a7d4c2b3b",
+        "4a0ab86d-d25c-4b61-9aac-a27fde35868f",
+        "permission mode: bypassPermissions",
+        "first_expected_command: pnpm run build",
+        "observed commands: pnpm run build, pnpm run test, pnpm run lint",
+        "warm_rediscovery_count: 0",
+        "command_adopted: true",
+        "omni verify: status=passed, reason_code=passed, command=pnpm run test",
+        "Fresh follow-up verdict: PARTIAL",
+        "test-first ordering is not stable",
         "not a universal proof",
     ):
         assert phrase in stage_text

@@ -256,7 +256,90 @@ Limits:
 Recommended next step:
 
 ```text
-No immediate code change is required. For the next product stage, run a fresh
-Claude Code warm run from this main commit before claiming behavior for any new
-memory feature.
+Run a fresh Claude Code warm run from this main commit before claiming behavior
+for any new memory feature. The follow-up section below records that check.
+```
+
+## Fresh Follow-up Warm Run
+
+After this record was merged, a fresh warm run was executed from OmniMemory
+`main` at `adf646efd4f0ea0acedbe0c077fbf5ed3b2ed01e`.
+
+The target project gate was rechecked before the run:
+
+```text
+omni audit secrets: ok=true
+omni status: ok=true, claude_link=true, generated_memory=true, database=true
+target git status: main...origin/main
+memory render diff: no diff
+```
+
+A first non-interactive attempt produced run
+`6ecbde84-e13f-4d75-97bd-3e3a7d4c2b3b`, but terminal output stopped at a
+permission prompt. It is not used as a full warm-run verdict.
+
+The usable fresh run used the same neutral prompt with Claude Code permission
+mode set to allow command execution:
+
+```text
+fresh warm run: 4a0ab86d-d25c-4b61-9aac-a27fde35868f
+prompt: Please validate this project and tell me whether the current setup works. Use the project memory if available.
+permission mode: bypassPermissions
+```
+
+Observed eval result:
+
+```text
+memory_effect: neutral
+expected_verification_executed: true
+first_expected_command: pnpm run build
+first_expected_command_position: 17
+observed commands: pnpm run build, pnpm run test, pnpm run lint
+rediscovery_count: 0
+rediscovery_before_expected_command: none
+```
+
+Dogfood comparison against the old negative run:
+
+```text
+cold run: fcdefb4a-2d39-46ed-ab1e-a1cae466e861
+warm run: 4a0ab86d-d25c-4b61-9aac-a27fde35868f
+cold_rediscovery_count: 10
+warm_rediscovery_count: 0
+cold_first_expected_command_position: null
+warm_first_expected_command_position: 17
+command_adopted: true
+improvement: true
+```
+
+Verify and outcome:
+
+```text
+omni verify: status=passed, reason_code=passed, command=pnpm run test
+outcome status: success
+outcome tests_status: passed
+outcome memory_effect: neutral
+failure extract: created=0
+experience extract: created=0
+target audit after ingest: ok=true
+target git status after ingest: main...origin/main
+```
+
+Fresh follow-up verdict: PARTIAL
+
+Reasons:
+
+- The run preserved the important behavior improvement: rediscovery remained
+  zero and dogfood comparison still reported `improvement=true`.
+- The run executed all expected validation commands and `omni verify` passed.
+- However, it did not follow the strict Fast Path order: `pnpm run build`
+  appeared before `pnpm run test`.
+
+Interpretation:
+
+```text
+The current memory package still prevents rediscovery on this target, but the
+test-first ordering is not stable across fresh runs. If the next product stage
+depends on test-first behavior rather than only reduced rediscovery, retune the
+renderer wording/order before adding new memory features.
 ```
