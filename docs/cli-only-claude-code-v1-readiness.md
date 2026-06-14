@@ -52,11 +52,10 @@ The runtime already has the pieces needed for the loop:
 - `omni verify`
 - `omni render`
 
-Several necessary commands are intentionally hidden from `omni --help` today,
-including `audit`, `ingest`, `run`, and `review`. That was acceptable during
-spike and hardening work, but it is not acceptable for CLI-only v1. The first
-readiness implementation task is to make the v1 path discoverable without
-exposing abandoned or unsafe commands.
+CLI-only v1 starts by making the required safety and ingestion commands
+discoverable in `omni --help`: `audit` and `ingest` are public commands.
+Lower-level debug or review internals such as `run` and `review` remain hidden
+from top-level help until they have a deliberate user-facing shape.
 
 ## First-run Path
 

@@ -28,7 +28,10 @@ def build_parser() -> argparse.ArgumentParser:
     subcommands = parser.add_subparsers(
         dest="command",
         required=True,
-        metavar="{init,status,render,inject,eval,outcome,experience,failure,verify}",
+        metavar=(
+            "{init,audit,ingest,status,render,inject,eval,outcome,"
+            "experience,failure,verify}"
+        ),
     )
     init_parser = subcommands.add_parser("init", help="Create a project-local .omni layout")
     init_parser.add_argument("--install-claude-hooks", action="store_true")
@@ -40,12 +43,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     init_parser.add_argument("--yes", action="store_true")
 
-    subcommands.add_parser("status")
+    subcommands.add_parser("status", help="Show OmniMemory project status")
     subcommands.add_parser("doctor", help=argparse.SUPPRESS)
     subcommands.add_parser("hook", help=argparse.SUPPRESS)
     parse_parser = subcommands.add_parser("parse", help=argparse.SUPPRESS)
     parse_parser.add_argument("transcript")
-    ingest_parser = subcommands.add_parser("ingest", help=argparse.SUPPRESS)
+    ingest_parser = subcommands.add_parser("ingest", help="Ingest redacted Claude Code traces")
     ingest_parser.add_argument("run_id", nargs="?")
     ingest_parser.add_argument("--run-id", dest="run_id_option")
     ingest_parser.add_argument("--transcript")
@@ -54,7 +57,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_show_parser = run_subcommands.add_parser("show")
     run_show_parser.add_argument("run_id")
     run_show_parser.add_argument("--seq", type=int)
-    audit_parser = subcommands.add_parser("audit", help=argparse.SUPPRESS)
+    audit_parser = subcommands.add_parser("audit", help="Run safety audits")
     audit_subcommands = audit_parser.add_subparsers(dest="audit_command", required=True)
     audit_subcommands.add_parser("secrets")
     review_parser = subcommands.add_parser("review", help=argparse.SUPPRESS)
@@ -67,24 +70,24 @@ def build_parser() -> argparse.ArgumentParser:
         review_command = review_subcommands.add_parser(command)
         review_command.add_argument("cand_id")
     review_subcommands.add_parser("interactive", help=argparse.SUPPRESS)
-    render_parser = subcommands.add_parser("render")
+    render_parser = subcommands.add_parser("render", help="Render generated memory")
     render_parser.add_argument("--diff", action="store_true")
     render_parser.add_argument("--force", action="store_true")
-    inject_parser = subcommands.add_parser("inject")
+    inject_parser = subcommands.add_parser("inject", help="Manage agent memory injection")
     inject_subcommands = inject_parser.add_subparsers(dest="inject_command", required=True)
     inject_claude_parser = inject_subcommands.add_parser("claude")
     inject_claude_parser.add_argument("--mode", choices=("preview", "link"), required=True)
-    verify_parser = subcommands.add_parser("verify")
+    verify_parser = subcommands.add_parser("verify", help="Run the known verification command")
     verify_parser.add_argument("--timeout-seconds", type=int, default=120)
     verify_parser.add_argument("--qualifier")
-    eval_parser = subcommands.add_parser("eval")
+    eval_parser = subcommands.add_parser("eval", help="Evaluate run behavior")
     eval_subcommands = eval_parser.add_subparsers(dest="eval_command", required=True)
     eval_run_parser = eval_subcommands.add_parser("run")
     eval_run_parser.add_argument("run_id")
     eval_dogfood_parser = eval_subcommands.add_parser("dogfood")
     eval_dogfood_parser.add_argument("--cold", required=True)
     eval_dogfood_parser.add_argument("--warm", required=True)
-    outcome_parser = subcommands.add_parser("outcome")
+    outcome_parser = subcommands.add_parser("outcome", help="Record or show run outcomes")
     outcome_subcommands = outcome_parser.add_subparsers(
         dest="outcome_command",
         required=True,
@@ -169,7 +172,7 @@ def build_parser() -> argparse.ArgumentParser:
     outcome_mark_from_verify_parser.add_argument("--qualifier")
     outcome_show_parser = outcome_subcommands.add_parser("show")
     outcome_show_parser.add_argument("run_id")
-    experience_parser = subcommands.add_parser("experience")
+    experience_parser = subcommands.add_parser("experience", help="Review experience memory")
     experience_subcommands = experience_parser.add_subparsers(
         dest="experience_command",
         required=True,
@@ -204,7 +207,7 @@ def build_parser() -> argparse.ArgumentParser:
     experience_note_show_parser.add_argument("note_id")
     experience_note_retire_parser = experience_note_subcommands.add_parser("retire")
     experience_note_retire_parser.add_argument("note_id")
-    failure_parser = subcommands.add_parser("failure")
+    failure_parser = subcommands.add_parser("failure", help="Review known failure memory")
     failure_subcommands = failure_parser.add_subparsers(
         dest="failure_command",
         required=True,
@@ -245,7 +248,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     _hide_subcommands(
         subcommands,
-        {"doctor", "hook", "parse", "ingest", "run", "audit", "review"},
+        {"doctor", "hook", "parse", "run", "review"},
     )
     _hide_subcommands(review_subcommands, {"interactive"})
 

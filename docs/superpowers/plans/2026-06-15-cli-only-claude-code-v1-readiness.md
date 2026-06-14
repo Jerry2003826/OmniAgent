@@ -33,7 +33,7 @@
 - Modify: `src/omni/cli.py`
 - Create: `tests/test_cli_help.py`
 
-- [ ] **Step 1: Write tests for discoverable commands**
+- [x] **Step 1: Write tests for discoverable commands**
 
 Create `tests/test_cli_help.py` with:
 
@@ -80,7 +80,7 @@ def test_top_level_help_keeps_internal_commands_hidden(capsys):
     assert "hook" not in captured.out
 ```
 
-- [ ] **Step 2: Run the tests and verify they fail**
+- [x] **Step 2: Run the tests and verify they fail**
 
 Run:
 
@@ -91,7 +91,7 @@ pytest -q tests/test_cli_help.py
 Expected result: failure because `audit` and `ingest` are still hidden from
 top-level help.
 
-- [ ] **Step 3: Update CLI help visibility**
+- [x] **Step 3: Update CLI help visibility**
 
 In `src/omni/cli.py`, remove `audit` and `ingest` from the `_hide_subcommands`
 set. Keep `doctor`, `hook`, `parse`, `run`, and `review` hidden unless a later
@@ -106,7 +106,7 @@ _hide_subcommands(
 )
 ```
 
-- [ ] **Step 4: Verify help tests pass**
+- [x] **Step 4: Verify help tests pass**
 
 Run:
 
@@ -116,7 +116,7 @@ pytest -q tests/test_cli_help.py
 
 Expected result: all tests pass.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 Run:
 
