@@ -1,36 +1,40 @@
-"""Reviewable failure candidates derived from redacted event evidence."""
+"""Failure candidate and pattern CRUD."""
 
 from __future__ import annotations
 
-import hashlib
-import json
-import re
-import shlex
 import sqlite3
-from typing import Any, Callable, Iterable
+from typing import Any
 
 from omni import eval as behavior_eval
 from omni._common import now_iso, validate_choice
-from omni.dbaccess import connect_project, connect_project_readonly
 from omni.ids import new_id
 from omni.jsonio import redact_mapping_str, redact_text
+
+from omni.failure._text import (
+    MAX_EXCERPT_CHARS,
+    _required_redacted_text,
+    _safe_text,
+)
+from omni.failure.command_norm import normalize_command
+from omni.failure.error_lines import (
+    _first_error_line,
+    _normalize_error_line,
+    _signature_hash,
+)
+from omni.failure.exit_code import COMMAND_NOT_FOUND_EXIT_CODE, _event_exit_code
+from omni.failure.meta import (
+    _decode_json_object,
+    _decode_meta,
+    _input_metadata,
+    _interrupted,
+    _is_shell_tool,
+    _nested_command,
+)
 
 STATE_VALUES = {"pending", "approved", "rejected"}
 LIST_STATE_VALUES = STATE_VALUES | {"all"}
 PATTERN_STATUS_VALUES = {"active", "retired"}
 LIST_PATTERN_STATUS_VALUES = PATTERN_STATUS_VALUES | {"all"}
-MAX_ERROR_CHARS = 300
-MAX_EXCERPT_CHARS = 300
-MAX_COMMAND_CHARS = 200
-MAX_REVIEW_TEXT_CHARS = 800
-# Exit 127 means "command not found". On hosts without a given shell (for example
-# Windows without bash), an agent's failed shell or command probe reports 127.
-# That is environment noise, not a project failure, so those candidates are skipped.
-COMMAND_NOT_FOUND_EXIT_CODE = 127
-INPUT_CONTAINER_KEYS = ("tool_input", "input", "parameters", "args")
-OUTPUT_CONTAINER_KEYS = ("tool_response", "toolUseResult")
-ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
-WINDOWS_ABS_PATH_RE = re.compile(r"(?i)\b[A-Z]:[\\/][^\s\"']+")
 
 
 def extract_candidates(conn: sqlite3.Connection, run_id: str) -> list[dict[str, Any]]:
@@ -218,132 +222,6 @@ def reject_candidate(conn: sqlite3.Connection, failure_cand_id: str) -> dict[str
 
 def as_json(value: dict[str, Any]) -> str:
     return behavior_eval.as_json(value)
-
-
-def normalize_command(command: str | None) -> str | None:
-    collapsed = _normalizable_command(command)
-    if collapsed is None:
-        return None
-    tokens = _shell_tokens(collapsed)
-    if not tokens:
-        return None
-    lowered = [token.lower() for token in tokens]
-    known = _known_command_norm(lowered)
-    if known is not None:
-        return known
-    return _safe_text(collapsed, MAX_COMMAND_CHARS)
-
-
-def _normalizable_command(command: str | None) -> str | None:
-    if command is None:
-        return None
-    collapsed = _primary_command_segment(_collapse_whitespace(command))
-    return collapsed or None
-
-
-def _known_command_norm(lowered: list[str]) -> str | None:
-    first = lowered[0]
-    if first in {"pnpm", "npm", "yarn"}:
-        return _package_command_norm(first, lowered)
-    if first == "bun":
-        return _single_arg_command_norm("bun", lowered)
-    if first == "uv":
-        return _uv_command_norm(lowered)
-    if first in {"python", "python3", "py"}:
-        return _python_module_norm(first, lowered)
-    if first == "pytest":
-        return "pytest"
-    if first in {"bash", "sh", "pwsh", "powershell", "cmd"}:
-        return first
-    return None
-
-
-def _package_command_norm(first: str, lowered: list[str]) -> str:
-    if len(lowered) >= 3 and lowered[1] == "run":
-        return f"{first} run {lowered[2]}"
-    if len(lowered) >= 2:
-        return f"{first} run {lowered[1]}"
-    return first
-
-
-def _single_arg_command_norm(first: str, lowered: list[str]) -> str:
-    if len(lowered) >= 2:
-        return f"{first} {lowered[1]}"
-    return first
-
-
-def _uv_command_norm(lowered: list[str]) -> str | None:
-    if len(lowered) >= 3 and lowered[1] == "run":
-        return f"uv run {lowered[2]}"
-    return None
-
-
-def _python_module_norm(first: str, lowered: list[str]) -> str | None:
-    if len(lowered) >= 3 and lowered[1] == "-m":
-        return f"{first} -m {lowered[2]}"
-    return None
-
-
-def _primary_command_segment(command: str) -> str:
-    segments = _split_shell_segments(command)
-    for segment in segments:
-        tokens = _shell_tokens(segment)
-        if not tokens:
-            continue
-        command_name = tokens[0].lower()
-        if command_name in {"cd", "pushd", "popd"}:
-            continue
-        if command_name in {"if", "then"}:
-            continue
-        return segment
-    return command
-
-
-def _split_shell_segments(command: str) -> list[str]:
-    segments: list[str] = []
-    current: list[str] = []
-    quote: str | None = None
-    index = 0
-    while index < len(command):
-        char = command[index]
-        if quote is not None:
-            current.append(char)
-            if char == quote:
-                quote = None
-            index += 1
-            continue
-        if char in {"'", '"'}:
-            quote = char
-            current.append(char)
-            index += 1
-            continue
-        if char == ";":
-            _append_segment(segments, current)
-            current = []
-            index += 1
-            continue
-        if command.startswith("&&", index) or command.startswith("||", index):
-            _append_segment(segments, current)
-            current = []
-            index += 2
-            continue
-        current.append(char)
-        index += 1
-    _append_segment(segments, current)
-    return segments or [command]
-
-
-def _append_segment(segments: list[str], current: list[str]) -> None:
-    segment = _collapse_whitespace("".join(current))
-    if segment:
-        segments.append(segment)
-
-
-def _shell_tokens(command: str) -> list[str]:
-    try:
-        return shlex.split(command, posix=True)
-    except ValueError:
-        return command.split()
 
 
 def _insert_candidate(
@@ -553,149 +431,6 @@ def _failure_kind(
     return None
 
 
-def _event_exit_code(event: sqlite3.Row, meta: dict[str, Any]) -> int | None:
-    if event["exit_code"] is not None:
-        return int(event["exit_code"])
-    for value in _exit_code_text_candidates(meta):
-        exit_code = _parse_exit_code_text(value)
-        if exit_code is not None:
-            return exit_code
-    return None
-
-
-def _exit_code_text_candidates(meta: dict[str, Any]) -> list[str]:
-    values: list[str] = []
-    for value in (
-        meta.get("error"),
-        meta.get("stderr"),
-        _nested_get(meta.get("tool_response"), "error"),
-        _nested_get(meta.get("tool_response"), "stderr"),
-        _nested_get(meta.get("toolUseResult"), "error"),
-        _nested_get(meta.get("toolUseResult"), "stderr"),
-    ):
-        if isinstance(value, str):
-            values.append(value)
-    values.extend(_nested_error_strings(meta))
-    return values
-
-
-def _parse_exit_code_text(value: str) -> int | None:
-    lowered = value.lower()
-    for marker in (
-        "exit_code",
-        "exit code",
-        "exit status",
-        "exited with status",
-        "exited with code",
-        "exited with",
-    ):
-        start = lowered.find(marker)
-        if start == -1:
-            continue
-        exit_code = _integer_after_marker(value, start + len(marker))
-        if exit_code is not None:
-            return exit_code
-    return None
-
-
-def _integer_after_marker(value: str, start: int) -> int | None:
-    index = _skip_exit_code_separator(value, start)
-    sign = 1
-    if index < len(value) and value[index] == "-":
-        sign = -1
-        index += 1
-    end = index
-    while end < len(value) and value[end].isdigit():
-        end += 1
-    if end == index:
-        return None
-    return sign * int(value[index:end])
-
-
-def _skip_exit_code_separator(value: str, index: int) -> int:
-    while index < len(value) and value[index].isspace():
-        index += 1
-    if index < len(value) and value[index] in {":", "="}:
-        index += 1
-    while index < len(value) and value[index].isspace():
-        index += 1
-    return index
-
-
-def _first_error_line(meta: dict[str, Any]) -> str | None:
-    for value in (
-        meta.get("error"),
-        meta.get("stderr"),
-        _nested_get(meta.get("tool_response"), "stderr"),
-        _nested_get(meta.get("toolUseResult"), "stderr"),
-    ):
-        line = _first_meaningful_line(value)
-        if line is not None:
-            return line
-    for value in _nested_error_strings(meta):
-        line = _first_meaningful_line(value)
-        if line is not None:
-            return line
-    return None
-
-
-def _first_meaningful_line(value: Any) -> str | None:
-    if not isinstance(value, str):
-        return None
-    for line in value.splitlines():
-        normalized = _collapse_whitespace(ANSI_RE.sub("", line))
-        if normalized:
-            return normalized
-    return None
-
-
-def _normalize_error_line(value: str) -> str:
-    normalized = _collapse_whitespace(ANSI_RE.sub("", value))
-    normalized = WINDOWS_ABS_PATH_RE.sub("<path>", normalized)
-    normalized = _mask_unix_abs_paths(normalized)
-    return _safe_text(normalized, MAX_ERROR_CHARS) or "unknown failure"
-
-
-def _mask_unix_abs_paths(value: str) -> str:
-    masked: list[str] = []
-    index = 0
-    while index < len(value):
-        if _starts_unix_abs_path(value, index):
-            end = _path_end(value, index)
-            path = value[index:end]
-            if path.count("/") >= 2:
-                masked.append("<path>")
-                index = end
-                continue
-        masked.append(value[index])
-        index += 1
-    return "".join(masked)
-
-
-def _starts_unix_abs_path(value: str, index: int) -> bool:
-    if value[index] != "/":
-        return False
-    return index == 0 or not value[index - 1].isalnum()
-
-
-def _path_end(value: str, start: int) -> int:
-    end = start
-    while end < len(value) and not _is_path_boundary(value[end]):
-        end += 1
-    return end
-
-
-def _is_path_boundary(char: str) -> bool:
-    return char.isspace() or char in {"'", '"'}
-
-
-def _signature_hash(
-    command_norm: str | None, exit_code: int | None, error_signature: str
-) -> str:
-    payload = f"{command_norm or ''}|{'' if exit_code is None else exit_code}|{error_signature}"
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
-
-
 def _events_for_run(conn: sqlite3.Connection, run_id: str) -> list[sqlite3.Row]:
     return conn.execute(
         """
@@ -748,137 +483,6 @@ def _pattern_lifecycle(status: str) -> dict[str, Any]:
             "v0 does not reactivate retired patterns"
         ),
     }
-
-
-def _input_metadata(value: Any) -> Any:
-    if isinstance(value, dict):
-        collected = []
-        for key in INPUT_CONTAINER_KEYS:
-            if key in value:
-                collected.append(value[key])
-        return collected
-    return {}
-
-
-def _nested_command(value: Any) -> str | None:
-    return _nested_find(value, _command_from_dict)
-
-
-def _command_from_dict(value: dict[str, Any]) -> str | None:
-    for key in ("command", "cmd"):
-        child = value.get(key)
-        if isinstance(child, str):
-            return child
-    return None
-
-
-def _interrupted(value: Any) -> bool:
-    return _nested_match(value, _dict_has_interrupted)
-
-
-def _dict_has_interrupted(value: dict[str, Any]) -> bool:
-    return any(key.lower() == "interrupted" and child is True for key, child in value.items())
-
-
-def _nested_find(value: Any, reader: Callable[[dict[str, Any]], str | None]) -> str | None:
-    if isinstance(value, dict):
-        found = reader(value)
-        if found is not None:
-            return found
-        return _nested_find_in_children(value.values(), reader)
-    if isinstance(value, list):
-        return _nested_find_in_children(value, reader)
-    return None
-
-
-def _nested_find_in_children(
-    values: Iterable[Any], reader: Callable[[dict[str, Any]], str | None]
-) -> str | None:
-    for child in values:
-        found = _nested_find(child, reader)
-        if found is not None:
-            return found
-    return None
-
-
-def _nested_match(value: Any, predicate: Callable[[dict[str, Any]], bool]) -> bool:
-    if isinstance(value, dict):
-        return predicate(value) or any(
-            _nested_match(child, predicate) for child in value.values()
-        )
-    if isinstance(value, list):
-        return any(_nested_match(child, predicate) for child in value)
-    return False
-
-
-def _nested_get(value: Any, target_key: str) -> Any:
-    if isinstance(value, dict):
-        if target_key in value:
-            return value[target_key]
-        for child in value.values():
-            found = _nested_get(child, target_key)
-            if found is not None:
-                return found
-    if isinstance(value, list):
-        for child in value:
-            found = _nested_get(child, target_key)
-            if found is not None:
-                return found
-    return None
-
-
-def _nested_error_strings(value: Any) -> list[str]:
-    found: list[str] = []
-    if isinstance(value, dict):
-        for key, child in value.items():
-            if "error" in key.lower() and isinstance(child, str):
-                found.append(child)
-            found.extend(_nested_error_strings(child))
-    elif isinstance(value, list):
-        for child in value:
-            found.extend(_nested_error_strings(child))
-    return found
-
-
-def _is_shell_tool(tool: Any) -> bool:
-    return str(tool or "").lower() in {"bash", "shell", "powershell", "pwsh", "cmd"}
-
-
-def _decode_meta(meta_json: str | None) -> dict[str, Any]:
-    if not meta_json:
-        return {}
-    try:
-        decoded = json.loads(meta_json)
-    except (TypeError, json.JSONDecodeError):
-        return {}
-    return decoded if isinstance(decoded, dict) else {}
-
-
-def _decode_json_object(value: str) -> dict[str, Any]:
-    try:
-        decoded = json.loads(value)
-    except json.JSONDecodeError:
-        return {"decode_error": "invalid_json"}
-    return decoded if isinstance(decoded, dict) else {"decode_error": "non_object"}
-
-
-def _required_redacted_text(name: str, value: str | None) -> str:
-    if value is None or not value.strip():
-        raise ValueError(f"{name} is required")
-    return _safe_text(redact_text(value.strip()), MAX_REVIEW_TEXT_CHARS)
-
-
-def _safe_text(value: str | None, max_chars: int) -> str:
-    if value is None:
-        return ""
-    collapsed = _collapse_whitespace(value)
-    if len(collapsed) <= max_chars:
-        return collapsed
-    return collapsed[: max_chars - 14].rstrip() + "...[truncated]"
-
-
-def _collapse_whitespace(value: str) -> str:
-    return " ".join(value.strip().split())
 
 
 def _next_commit_seq(conn: sqlite3.Connection) -> int:
