@@ -13,6 +13,7 @@ MIGRATIONS = (
     ("4", "004_experience_notes.sql"),
     ("5", "005_failure_candidates.sql"),
     ("6", "006_failure_patterns.sql"),
+    ("7", "007_preference_memory.sql"),
 )
 LATEST_SCHEMA_VERSION = MIGRATIONS[-1][0]
 

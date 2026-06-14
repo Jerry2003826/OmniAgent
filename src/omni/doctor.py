@@ -38,7 +38,7 @@ class DoctorCheck:
 class DoctorResult:
     ok: bool
     checks: tuple[DoctorCheck, ...]
-    experimental: bool = True
+    experimental: bool = False
 
     def as_json(self) -> str:
         return json.dumps(

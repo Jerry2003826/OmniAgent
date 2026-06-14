@@ -1,4 +1,4 @@
-"""Non-interactive review operations for fact candidates."""
+"""Interactive and non-interactive review operations for fact candidates."""
 
 from __future__ import annotations
 

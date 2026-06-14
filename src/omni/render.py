@@ -58,8 +58,9 @@ def render_project(
     path = base / GENERATED_PATH
     facts = _active_facts(conn)
     notes = _active_experience_notes(conn)
+    preference_notes = _active_preference_notes(conn)
     failure_patterns = _active_failure_patterns(conn)
-    body, line_hashes = _render_body(facts, notes, failure_patterns)
+    body, line_hashes = _render_body(facts, notes, preference_notes, failure_patterns)
     text = _with_header(body)
     rendered_diff = _diff(path, text)
 
@@ -110,6 +111,17 @@ def _active_experience_notes(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     ).fetchall()
 
 
+def _active_preference_notes(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    return conn.execute(
+        """
+        SELECT note_id, scope, kind, body, suggested_action
+        FROM preference_notes
+        WHERE status = 'active'
+        ORDER BY kind, suggested_action, body, note_id
+        """
+    ).fetchall()
+
+
 def _active_failure_patterns(conn: sqlite3.Connection) -> list[sqlite3.Row]:
     return conn.execute(
         """
@@ -125,6 +137,7 @@ def _active_failure_patterns(conn: sqlite3.Connection) -> list[sqlite3.Row]:
 def _render_body(
     facts: list[sqlite3.Row],
     notes: list[sqlite3.Row],
+    preference_notes: list[sqlite3.Row],
     failure_patterns: list[sqlite3.Row],
 ) -> tuple[str, dict[Dependency, str]]:
     sections: dict[str, list[tuple[Dependency, str]]] = {
@@ -132,6 +145,7 @@ def _render_body(
         "Fast Path": [],
         "Known Failures": [],
         "Experience Notes": [],
+        "Preferences": [],
         "Boundaries": [],
         "Project": [],
     }
@@ -180,6 +194,12 @@ def _render_body(
             _render_experience_note_line(note, test_command, post_test_commands),
         )
 
+    for pref_note in preference_notes:
+        append_unique(
+            ("preference_note", pref_note["note_id"]),
+            _render_preference_note_line(pref_note),
+        )
+
     for pattern in failure_patterns:
         append_unique(
             ("failure_pattern", pattern["pattern_id"]),
@@ -193,6 +213,7 @@ def _render_body(
         "Commands",
         "Known Failures",
         "Experience Notes",
+        "Preferences",
         "Boundaries",
         "Project",
     )
@@ -283,6 +304,15 @@ def _render_experience_note_line(
     if not action:
         return None
     return ("Experience Notes", f"- {action}")
+
+
+def _render_preference_note_line(note: sqlite3.Row) -> tuple[str, str] | None:
+    action = _collapse_whitespace(str(note["suggested_action"] or ""))
+    if not action:
+        action = _collapse_whitespace(str(note["body"] or ""))
+    if not action:
+        return None
+    return ("Preferences", f"- {action}")
 
 
 def _validation_rediscovery_waste_note_id(notes: list[sqlite3.Row]) -> str | None:

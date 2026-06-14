@@ -18,6 +18,23 @@ from omni import db
 from omni.redact import redact
 
 VERIFY_PREDICATE = "uses_test_command"
+PROFILE_VALUES = frozenset({"default", "release", "test"})
+PROFILE_PREDICATES = {
+    "default": "uses_test_command",
+    "test": "uses_test_command",
+    "release": "uses_build_command",
+}
+TASK_TYPE_VALUES = frozenset(
+    {"validation", "bugfix", "docs", "refactor", "exploration", "unknown"}
+)
+TASK_QUALIFIER_HINTS: dict[str, str | None] = {
+    "validation": None,
+    "bugfix": "node:unit",
+    "docs": None,
+    "refactor": None,
+    "exploration": None,
+    "unknown": None,
+}
 DEFAULT_TIMEOUT_SECONDS = 120
 MAX_COMMAND_CHARS = 300
 MAX_OUTPUT_CHARS = 4000
@@ -112,15 +129,36 @@ def run_preflight(
     *,
     timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS,
     qualifier: str | None = None,
+    task_type: str | None = None,
+    profile: str | None = None,
 ) -> dict[str, Any]:
     """Execute the active project test command without writing Omni state."""
 
     if timeout_seconds <= 0:
         raise ValueError("timeout_seconds must be positive")
+    if task_type is not None and task_type not in TASK_TYPE_VALUES:
+        allowed = ", ".join(sorted(TASK_TYPE_VALUES))
+        raise ValueError(f"invalid task_type: {task_type!r}; expected one of: {allowed}")
+    if profile is not None and profile not in PROFILE_VALUES:
+        allowed = ", ".join(sorted(PROFILE_VALUES))
+        raise ValueError(f"invalid profile: {profile!r}; expected one of: {allowed}")
 
     root_path = Path(root).resolve()
-    selection = _select_verification_command(conn, qualifier=qualifier)
-    result = _base_result(root_path, timeout_seconds, selection)
+    predicate = _resolve_predicate(profile)
+    effective_qualifier = _resolve_qualifier(qualifier, task_type)
+    selection = _select_verification_command(
+        conn,
+        predicate=predicate,
+        qualifier=effective_qualifier,
+        task_type=task_type,
+        profile=profile,
+        explicit_qualifier=qualifier is not None,
+    )
+    result = _base_result(root_path, timeout_seconds, selection, predicate=predicate)
+    if task_type is not None:
+        result["task_type"] = task_type
+    if profile is not None:
+        result["profile"] = profile
     if selection["status"] != "selected":
         result["status"] = "unknown"
         result["reason"] = selection["reason"]
@@ -217,15 +255,34 @@ def as_json(value: dict[str, Any]) -> str:
     return defended + "\n"
 
 
+def _resolve_predicate(profile: str | None) -> str:
+    if profile is None:
+        return VERIFY_PREDICATE
+    return PROFILE_PREDICATES[profile]
+
+
+def _resolve_qualifier(
+    qualifier: str | None,
+    task_type: str | None,
+) -> str | None:
+    if qualifier is not None:
+        return qualifier
+    if task_type is None:
+        return None
+    return TASK_QUALIFIER_HINTS.get(task_type)
+
+
 def _base_result(
     root: Path,
     timeout_seconds: int,
     selection: dict[str, Any],
+    *,
+    predicate: str = VERIFY_PREDICATE,
 ) -> dict[str, Any]:
     result = {
         "status": "unknown",
         "reason_code": selection.get("reason_code", REASON_CODE_UNKNOWN),
-        "predicate": VERIFY_PREDICATE,
+        "predicate": predicate,
         "qualifier": selection.get("qualifier"),
         "command": selection.get("command"),
         "selection_mode": selection.get("selection_mode", "auto"),
@@ -252,18 +309,27 @@ def _base_result(
 def _select_verification_command(
     conn: sqlite3.Connection,
     *,
+    predicate: str = VERIFY_PREDICATE,
     qualifier: str | None = None,
+    task_type: str | None = None,
+    profile: str | None = None,
+    explicit_qualifier: bool = False,
 ) -> dict[str, Any]:
-    rows = _active_test_command_rows(conn)
+    rows = _active_command_rows(conn, predicate)
     candidates = _command_candidates(rows)
     limited, omitted = _limit_candidates(candidates)
+    selection_mode = _selection_mode(
+        explicit_qualifier=explicit_qualifier,
+        task_type=task_type,
+        profile=profile,
+    )
     if not candidates:
         return {
             "status": "missing",
             "reason_code": REASON_CODE_NO_ACTIVE_TEST_COMMAND,
-            "reason": "no active uses_test_command facts",
-            "selection_mode": "qualifier" if qualifier is not None else "auto",
-            "selection_reason": "no active uses_test_command facts",
+            "reason": f"no active {predicate} facts",
+            "selection_mode": selection_mode,
+            "selection_reason": f"no active {predicate} facts",
             "candidate_commands": [],
             "candidate_commands_omitted": 0,
         }
@@ -281,12 +347,12 @@ def _select_verification_command(
                 "status": "missing",
                 "reason_code": REASON_CODE_QUALIFIER_NOT_FOUND,
                 "reason": (
-                    "no active uses_test_command fact for qualifier "
+                    f"no active {predicate} fact for qualifier "
                     f"{display_qualifier}"
                 ),
-                "selection_mode": "qualifier",
+                "selection_mode": selection_mode,
                 "selection_reason": (
-                    "no active uses_test_command fact for qualifier "
+                    f"no active {predicate} fact for qualifier "
                     f"{display_qualifier}"
                 ),
                 "candidate_commands": limited,
@@ -296,14 +362,14 @@ def _select_verification_command(
         qualified_commands = _unique_commands(qualified_candidates)
         if len(qualified_commands) == 1:
             selection_reason = (
-                "selected active uses_test_command fact for qualifier "
+                f"selected active {predicate} fact for qualifier "
                 f"{display_qualifier}"
             )
             return _selected(
                 qualified_candidates,
                 qualified_commands[0],
                 candidates,
-                selection_mode="qualifier",
+                selection_mode=selection_mode,
                 selection_reason=selection_reason,
             )
         qualified_limited, qualified_omitted = _limit_candidates(qualified_candidates)
@@ -311,12 +377,12 @@ def _select_verification_command(
             "status": "ambiguous",
             "reason_code": REASON_CODE_AMBIGUOUS_QUALIFIER,
             "reason": (
-                "ambiguous active uses_test_command facts for qualifier "
+                f"ambiguous active {predicate} facts for qualifier "
                 f"{display_qualifier}"
             ),
-            "selection_mode": "qualifier",
+            "selection_mode": selection_mode,
             "selection_reason": (
-                "ambiguous active uses_test_command facts for qualifier "
+                f"ambiguous active {predicate} facts for qualifier "
                 f"{display_qualifier}"
             ),
             "candidate_commands": qualified_limited,
@@ -333,7 +399,7 @@ def _select_verification_command(
             base_candidates,
             base_commands[0],
             candidates,
-            selection_mode="auto",
+            selection_mode=selection_mode,
             selection_reason=SELECTION_REASON_SELECTED,
         )
 
@@ -343,23 +409,38 @@ def _select_verification_command(
             candidates,
             all_commands[0],
             candidates,
-            selection_mode="auto",
+            selection_mode=selection_mode,
             selection_reason=SELECTION_REASON_SELECTED,
         )
 
     return {
         "status": "ambiguous",
         "reason_code": REASON_CODE_AMBIGUOUS_ACTIVE_TEST_COMMAND,
-        "reason": "ambiguous active uses_test_command facts",
-        "selection_mode": "auto",
-        "selection_reason": "ambiguous active uses_test_command facts",
+        "reason": f"ambiguous active {predicate} facts",
+        "selection_mode": selection_mode,
+        "selection_reason": f"ambiguous active {predicate} facts",
         "candidate_commands": limited,
         "candidate_commands_omitted": omitted,
         "disambiguation_hint": DISAMBIGUATION_HINT,
     }
 
 
-def _active_test_command_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+def _selection_mode(
+    *,
+    explicit_qualifier: bool,
+    task_type: str | None,
+    profile: str | None,
+) -> str:
+    if explicit_qualifier:
+        return "qualifier"
+    if profile is not None:
+        return "profile"
+    if task_type is not None:
+        return "task"
+    return "auto"
+
+
+def _active_command_rows(conn: sqlite3.Connection, predicate: str) -> list[sqlite3.Row]:
     return conn.execute(
         """
         SELECT qualifier, object_norm
@@ -370,8 +451,12 @@ def _active_test_command_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
           AND predicate = ?
         ORDER BY qualifier, created_seq, object_norm
         """,
-        (VERIFY_PREDICATE,),
+        (predicate,),
     ).fetchall()
+
+
+def _active_test_command_rows(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    return _active_command_rows(conn, VERIFY_PREDICATE)
 
 
 def _command_candidates(rows: list[sqlite3.Row]) -> list[dict[str, str]]:

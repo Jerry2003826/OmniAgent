@@ -22,13 +22,17 @@ def test_top_level_help_includes_cli_only_v1_commands(
         "audit",
         "ingest",
         "status",
+        "doctor",
         "eval",
         "outcome",
         "experience",
         "failure",
+        "preference",
+        "project",
         "verify",
         "render",
         "inject",
+        "review",
     ):
         assert command in output
 
@@ -38,8 +42,7 @@ def test_top_level_help_keeps_internal_commands_hidden(
 ) -> None:
     output = _help_output(capsys)
 
-    assert "doctor" not in output
-    for command in ("hook", "parse", "run", "review"):
+    for command in ("hook", "parse", "run"):
         assert re.search(rf"^\s+{command}\s", output, flags=re.MULTILINE) is None
 
 

@@ -29,8 +29,8 @@ def build_parser() -> argparse.ArgumentParser:
         dest="command",
         required=True,
         metavar=(
-            "{init,audit,ingest,status,render,inject,dogfood,eval,outcome,"
-            "experience,failure,verify}"
+            "{init,audit,ingest,status,doctor,render,inject,dogfood,eval,outcome,"
+            "experience,failure,preference,project,verify,review}"
         ),
     )
     init_parser = subcommands.add_parser("init", help="Create a project-local .omni layout")
@@ -43,8 +43,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     init_parser.add_argument("--yes", action="store_true")
 
-    subcommands.add_parser("status", help="Show OmniMemory project status")
-    subcommands.add_parser("doctor", help=argparse.SUPPRESS)
+    status_parser = subcommands.add_parser("status", help="Show OmniMemory project status")
+    status_parser.add_argument(
+        "--all",
+        action="store_true",
+        help="Summarize all registered projects (read-only)",
+    )
+    subcommands.add_parser("doctor", help="Run read-only project health diagnostics")
     subcommands.add_parser("hook", help=argparse.SUPPRESS)
     parse_parser = subcommands.add_parser("parse", help=argparse.SUPPRESS)
     parse_parser.add_argument("transcript")
@@ -60,16 +65,16 @@ def build_parser() -> argparse.ArgumentParser:
     audit_parser = subcommands.add_parser("audit", help="Run safety audits")
     audit_subcommands = audit_parser.add_subparsers(dest="audit_command", required=True)
     audit_subcommands.add_parser("secrets")
-    review_parser = subcommands.add_parser("review", help=argparse.SUPPRESS)
+    review_parser = subcommands.add_parser("review", help="Review staged fact candidates")
     review_subcommands = review_parser.add_subparsers(
         dest="review_command",
         required=True,
-        metavar="{approve,reject}",
+        metavar="{approve,reject,interactive}",
     )
     for command in ("approve", "reject"):
         review_command = review_subcommands.add_parser(command)
         review_command.add_argument("cand_id")
-    review_subcommands.add_parser("interactive", help=argparse.SUPPRESS)
+    review_subcommands.add_parser("interactive", help="Interactively review pending fact candidates")
     render_parser = subcommands.add_parser("render", help="Render generated memory")
     render_parser.add_argument("--diff", action="store_true")
     render_parser.add_argument("--force", action="store_true")
@@ -80,6 +85,16 @@ def build_parser() -> argparse.ArgumentParser:
     verify_parser = subcommands.add_parser("verify", help="Run the known verification command")
     verify_parser.add_argument("--timeout-seconds", type=int, default=120)
     verify_parser.add_argument("--qualifier")
+    verify_parser.add_argument(
+        "--task",
+        choices=("validation", "bugfix", "docs", "refactor", "exploration", "unknown"),
+        help="Map task type to a preferred verification qualifier when --qualifier is omitted",
+    )
+    verify_parser.add_argument(
+        "--profile",
+        choices=("default", "release", "test"),
+        help="Select verification predicate profile (default=test command, release=build command)",
+    )
     dogfood_parser = subcommands.add_parser(
         "dogfood",
         help=(
@@ -182,6 +197,10 @@ def build_parser() -> argparse.ArgumentParser:
     outcome_mark_from_verify_parser.add_argument("--note")
     outcome_mark_from_verify_parser.add_argument("--timeout-seconds", type=int, default=120)
     outcome_mark_from_verify_parser.add_argument("--qualifier")
+    outcome_mark_from_verify_parser.add_argument(
+        "--profile",
+        choices=("default", "release", "test"),
+    )
     outcome_show_parser = outcome_subcommands.add_parser("show")
     outcome_show_parser.add_argument("run_id")
     outcome_ls_parser = outcome_subcommands.add_parser("ls")
@@ -275,11 +294,62 @@ def build_parser() -> argparse.ArgumentParser:
     failure_pattern_retire_parser = failure_pattern_subcommands.add_parser("retire")
     failure_pattern_retire_parser.add_argument("pattern_id")
 
+    preference_parser = subcommands.add_parser("preference", help="Review preference memory")
+    preference_subcommands = preference_parser.add_subparsers(
+        dest="preference_command",
+        required=True,
+        metavar="{extract,ls,show,approve,reject,note}",
+    )
+    preference_subcommands.add_parser("extract")
+    preference_ls_parser = preference_subcommands.add_parser("ls")
+    preference_ls_parser.add_argument(
+        "--state",
+        choices=("pending", "approved", "rejected", "all"),
+        default="pending",
+    )
+    preference_show_parser = preference_subcommands.add_parser("show")
+    preference_show_parser.add_argument("pref_cand_id")
+    preference_approve_parser = preference_subcommands.add_parser("approve")
+    preference_approve_parser.add_argument("pref_cand_id")
+    preference_approve_parser.add_argument("--suggested-action")
+    preference_reject_parser = preference_subcommands.add_parser("reject")
+    preference_reject_parser.add_argument("pref_cand_id")
+    preference_note_parser = preference_subcommands.add_parser("note")
+    preference_note_subcommands = preference_note_parser.add_subparsers(
+        dest="preference_note_command",
+        required=True,
+        metavar="{ls,show,retire}",
+    )
+    preference_note_ls_parser = preference_note_subcommands.add_parser("ls")
+    preference_note_ls_parser.add_argument(
+        "--status",
+        choices=("active", "retired", "all"),
+        default="active",
+    )
+    preference_note_show_parser = preference_note_subcommands.add_parser("show")
+    preference_note_show_parser.add_argument("note_id")
+    preference_note_retire_parser = preference_note_subcommands.add_parser("retire")
+    preference_note_retire_parser.add_argument("note_id")
+
+    project_parser = subcommands.add_parser("project", help="Manage the multi-project registry")
+    project_subcommands = project_parser.add_subparsers(
+        dest="project_command",
+        required=True,
+        metavar="{register,ls}",
+    )
+    project_register_parser = project_subcommands.add_parser("register")
+    project_register_parser.add_argument(
+        "path",
+        nargs="?",
+        help="Project root to register (defaults to discovered project root)",
+    )
+
+    project_subcommands.add_parser("ls")
+
     _hide_subcommands(
         subcommands,
-        {"doctor", "hook", "parse", "run", "review"},
+        {"hook", "parse", "run"},
     )
-    _hide_subcommands(review_subcommands, {"interactive"})
 
     return parser
 
@@ -325,13 +395,21 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "status":
+        from omni import projects
         from omni.status import status_json
 
-        _print_diff(status_json(project_root()))
+        if args.all:
+            _print_diff(projects.as_json(projects.status_all()))
+        else:
+            _print_diff(status_json(project_root()))
         return 0
 
     if args.command == "doctor":
-        return _experimental_disabled()
+        from omni import doctor
+
+        result = doctor.run(project_root())
+        _print_diff(result.as_json())
+        return 0 if result.ok else 1
 
     if args.command == "parse":
         from omni.parse import events_as_jsonl, parse_transcript
@@ -373,8 +451,6 @@ def main(argv: list[str] | None = None) -> int:
         from omni import gate
         from omni import review
 
-        if args.review_command == "interactive":
-            return _experimental_disabled()
         conn = review.connect_project(project_root())
         try:
             if args.review_command == "approve":
@@ -392,8 +468,11 @@ def main(argv: list[str] | None = None) -> int:
                 except (KeyError, ValueError) as exc:
                     print(_review_error_message(exc), file=sys.stderr)
                     return 2
-            else:
+            elif args.review_command == "interactive":
                 result = review.interactive(conn)
+            else:
+                parser.error(f"unknown review command: {args.review_command}")
+                return 2
         finally:
             conn.close()
         _print_diff(result.as_json())
@@ -447,6 +526,8 @@ def main(argv: list[str] | None = None) -> int:
                     root,
                     timeout_seconds=args.timeout_seconds,
                     qualifier=args.qualifier,
+                    task_type=args.task,
+                    profile=args.profile,
                 )
             except ValueError as exc:
                 print(str(exc), file=sys.stderr)
@@ -526,6 +607,7 @@ def main(argv: list[str] | None = None) -> int:
                         note=args.note,
                         timeout_seconds=args.timeout_seconds,
                         qualifier=args.qualifier,
+                        profile=args.profile,
                     )
                 elif args.outcome_command == "show":
                     result = outcome.show_outcome(conn, args.run_id)
@@ -658,6 +740,75 @@ def main(argv: list[str] | None = None) -> int:
         finally:
             conn.close()
         _print_diff(failure.as_json(result))
+        return 0
+
+    if args.command == "preference":
+        from omni import preference
+
+        try:
+            preference_readonly = args.preference_command in ("ls", "show") or (
+                args.preference_command == "note"
+                and args.preference_note_command in ("ls", "show")
+            )
+            if preference_readonly:
+                conn = preference.connect_project_readonly(project_root())
+            else:
+                conn = preference.connect_project(project_root())
+        except (FileNotFoundError, ValueError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        try:
+            try:
+                if args.preference_command == "extract":
+                    candidates = preference.extract_candidates(conn)
+                    result = {"created": len(candidates), "candidates": candidates}
+                elif args.preference_command == "ls":
+                    result = {"candidates": preference.list_candidates(conn, args.state)}
+                elif args.preference_command == "show":
+                    result = preference.show_candidate(conn, args.pref_cand_id)
+                elif args.preference_command == "approve":
+                    result = preference.approve_candidate(
+                        conn,
+                        args.pref_cand_id,
+                        suggested_action=args.suggested_action,
+                    )
+                elif args.preference_command == "reject":
+                    result = preference.reject_candidate(conn, args.pref_cand_id)
+                elif args.preference_command == "note":
+                    if args.preference_note_command == "ls":
+                        result = {"notes": preference.list_notes(conn, status=args.status)}
+                    elif args.preference_note_command == "show":
+                        result = preference.show_note(conn, args.note_id)
+                    elif args.preference_note_command == "retire":
+                        result = preference.retire_note(conn, args.note_id)
+                    else:
+                        parser.error(
+                            f"unknown preference note command: {args.preference_note_command}"
+                        )
+                        return 2
+                else:
+                    parser.error(f"unknown preference command: {args.preference_command}")
+                    return 2
+            except ValueError as exc:
+                print(str(exc), file=sys.stderr)
+                return 2
+        finally:
+            conn.close()
+        _print_diff(preference.as_json(result))
+        return 0
+
+    if args.command == "project":
+        from omni import projects
+
+        if args.project_command == "register":
+            target = args.path or str(project_root())
+            result = projects.register(target)
+        elif args.project_command == "ls":
+            result = projects.list_registered()
+        else:
+            parser.error(f"unknown project command: {args.project_command}")
+            return 2
+        _print_diff(projects.as_json(result))
         return 0
 
     parser.error(f"unknown command: {args.command}")

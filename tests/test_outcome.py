@@ -285,6 +285,7 @@ def test_mark_outcome_from_verify_passed_records_tests_without_success_inference
         *,
         timeout_seconds: int,
         qualifier: str | None = None,
+        **kwargs: object,
     ) -> dict[str, object]:
         assert verify_conn is conn
         assert Path(root) == tmp_path
@@ -357,6 +358,7 @@ def test_mark_outcome_from_verify_passes_explicit_qualifier(
         *,
         timeout_seconds: int,
         qualifier: str | None = None,
+        **kwargs: object,
     ) -> dict[str, object]:
         assert timeout_seconds == 45
         assert qualifier == "node:web"
@@ -408,6 +410,7 @@ def test_mark_outcome_from_verify_failed_marks_tests_failed_and_keeps_user_statu
         *,
         timeout_seconds: int,
         qualifier: str | None = None,
+        **kwargs: object,
     ) -> dict[str, object]:
         return {
             "status": "failed",
@@ -456,6 +459,7 @@ def test_mark_outcome_from_verify_startup_failure_keeps_tests_unknown(
         *,
         timeout_seconds: int,
         qualifier: str | None = None,
+        **kwargs: object,
     ) -> dict[str, object]:
         return {
             "status": "failed",
@@ -494,6 +498,7 @@ def test_mark_outcome_from_verify_unknown_run_does_not_execute_verify(
         *,
         timeout_seconds: int,
         qualifier: str | None = None,
+        **kwargs: object,
     ) -> dict[str, object]:
         raise AssertionError("verify should not run for an unknown run")
 
@@ -522,6 +527,7 @@ def test_mark_outcome_from_verify_redacts_evidence_and_omits_output_excerpts(
         *,
         timeout_seconds: int,
         qualifier: str | None = None,
+        **kwargs: object,
     ) -> dict[str, object]:
         return {
             "status": "failed",
@@ -594,6 +600,7 @@ def test_mark_outcome_from_verify_ambiguous_selection_stays_unknown(
         *,
         timeout_seconds: int,
         qualifier: str | None = None,
+        **kwargs: object,
     ) -> dict[str, object]:
         return {
             "status": "unknown",
@@ -634,6 +641,7 @@ def test_mark_outcome_from_verify_is_idempotent_and_preserves_created_at(
         *,
         timeout_seconds: int,
         qualifier: str | None = None,
+        **kwargs: object,
     ) -> dict[str, object]:
         return {
             "status": "passed",
@@ -682,6 +690,7 @@ def test_cli_outcome_mark_from_verify_writes_json(
         *,
         timeout_seconds: int,
         qualifier: str | None = None,
+        **kwargs: object,
     ) -> dict[str, object]:
         return {
             "status": "passed",
@@ -739,6 +748,7 @@ def test_cli_outcome_mark_from_verify_accepts_qualifier(
         *,
         timeout_seconds: int,
         qualifier: str | None = None,
+        **kwargs: object,
     ) -> dict[str, object]:
         assert qualifier == "node:web"
         return {
@@ -798,7 +808,7 @@ def test_cli_outcome_show_on_outdated_schema_is_read_only_and_exits_clearly(
     check.close()
 
     assert code == 2
-    assert "OmniMemory schema is outdated (found 2, need 6)" in captured.err
+    assert "OmniMemory schema is outdated (found 2, need 7)" in captured.err
     assert captured.out == ""
     assert version == "2"
 

@@ -1,22 +1,25 @@
-# OmniMemory CLI-only Claude Code v1 Readiness
+# OmniAgent Phase B (OmniMemory → OmniAgent transition)
 
 ## Goal
 
-Current phase: OmniMemory CLI-only Claude Code v1 Readiness.
+**Completed:** OmniMemory CLI-only Claude Code v1 (Layers 1–5). See
+`docs/cli-only-claude-code-v1-l1-5-completion-2026-06-15.md`.
 
-Build ONE closed loop:
+**Current phase:** OmniAgent Phase B — governed expansion per
+`docs/omniagent-phase-b-charter-2026-06-15.md`.
+
+Build ONE closed loop (unchanged):
 
 Claude Code run → redacted trace → deterministic facts → generated memory block → measurably changed behavior in the next run.
 
-CLI-only Claude Code v1 packages the existing v0.2-v0.5 loop into the first
-usable product shape: one local CLI for Claude Code users. This phase should
-make install, initialization, audit gating, hook capture, ingest, eval, outcome,
-experience/failure review, verify, render, injection, and lifecycle operations
-discoverable and explainable end to end. It must not add new memory types, new
-tables, migrations, services, adapters, supersede, reactivation, automatic
-success inference, automatic failure memory, or automatic memory evolution.
+Phase B adds, without breaking safety invariants:
 
-## Non-goals, hard this week
+- interactive fact review and read-only doctor diagnostics
+- task/profile-aware verify selection (still read-only)
+- one new review-gated memory type at a time (preference first)
+- multi-project read-only status overview
+
+## Non-goals, hard this phase
 
 NO LLM extractors.  
 NO MCP server.  
@@ -26,16 +29,27 @@ NO multi-engine router.
 NO Computer Use.  
 NO automatic evolution.  
 NO answer cache.  
-No new tables beyond approved migrations for the current phase. Approved now: 001_init.sql, 002_outcomes.sql, 003_experience_candidates.sql, 004_experience_notes.sql, 005_failure_candidates.sql, and 006_failure_patterns.sql.
+No new tables beyond approved migrations for the current phase. Approved now:
+001_init.sql through 006_failure_patterns.sql, plus 007+ only as listed in
+`docs/omniagent-phase-b-charter-2026-06-15.md`.
 
-Day-5B items are week-2 unless Day-5A acceptance passes early:
+Phase B approved (charter section 3):
+
+- `omni review interactive` (human-gated fact candidate review)
+- `omni doctor` (read-only project diagnostics)
+- `omni verify --task` / `--profile` (read-only selection mapping)
+- `007_preference_memory.sql` and `omni preference *` (Sub-C)
+- `omni project register|ls` and `omni status --all` (read-only multi-project)
+
+Still deferred beyond Phase B:
+
 - observed_command extractor
-- interactive review loop
-- omni doctor
+- additional memory types beyond the one approved Sub-C type
+- Layer 6–9 (task runtime, multi-agent orchestration, permission tiers, UI)
 
-If a task seems to need any of these, STOP and leave a TODO comment instead.
-`scripts/golden_demo.sh` may exist as a local sandbox harness, but Week-1
-acceptance remains the manual runbook in `docs/demo.md`.
+If a task needs something outside the charter, STOP and leave a TODO comment.
+`scripts/golden_demo.sh` may exist as a local sandbox harness; manual acceptance
+remains the runbook in `docs/demo.md` and Phase B closeout notes.
 
 ## Safety rules
 
@@ -68,6 +82,7 @@ Violations require reverting the commit.
    Only these commands write SQLite:
    - `omni ingest`
    - `omni review`
+   - `omni review interactive`
    - `omni render`
    - `omni outcome mark`
    - `omni outcome mark-from-verify`
@@ -79,11 +94,18 @@ Violations require reverting the commit.
    - `omni failure approve`
    - `omni failure reject`
    - `omni failure pattern retire`
+   - `omni preference extract`
+   - `omni preference approve`
+   - `omni preference reject`
+   - `omni preference note retire`
+   - `omni project register`
 
    These commands are read-only:
    - `omni parse`
    - `omni run show`
    - `omni status`
+   - `omni status --all`
+   - `omni doctor`
    - `omni eval run`
    - `omni eval dogfood`
    - `omni dogfood`
@@ -97,13 +119,21 @@ Violations require reverting the commit.
    - `omni failure show`
    - `omni failure pattern ls`
    - `omni failure pattern show`
+   - `omni preference ls`
+   - `omni preference show`
+   - `omni preference note ls`
+   - `omni preference note show`
+   - `omni project ls`
    - `omni verify`
 
    Read-only commands open SQLite in read-only mode and never run
    migrations; migrations run only inside approved write commands.
    `omni verify` is SQLite read-only but executes the selected project
-   verification command, including when `--qualifier` is used; it writes no
-   OmniMemory state.
+   verification command, including when `--qualifier`, `--task`, or
+   `--profile` is used; it writes no OmniMemory state.
+   `omni doctor` and `omni status --all` do not open project SQLite at all
+   when reporting aggregate health (doctor opens read-only for schema checks
+   on the current project only).
 
 4. Never modify user content in `CLAUDE.md` outside the managed region:
 

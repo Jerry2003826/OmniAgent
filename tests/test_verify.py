@@ -759,6 +759,57 @@ def test_cli_verify_invalid_command_still_outputs_json(
     assert output["reason_code"] == "parse_error_invalid_command"
 
 
+def test_verify_preflight_task_bugfix_maps_to_node_unit_qualifier(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    script = _script(tmp_path, "unit_test.py", "print('ok')\n")
+    _insert_fact(conn, _python_command(script), qualifier="node:unit")
+    _insert_fact(conn, "echo default", qualifier="default")
+
+    result = verify.run_preflight(conn, tmp_path, task_type="bugfix")
+
+    assert result["status"] == "passed"
+    assert result["selection_mode"] == "task"
+    assert result["task_type"] == "bugfix"
+    assert result["qualifier"] == "node:unit"
+
+
+def test_verify_preflight_profile_release_selects_build_command(tmp_path: Path) -> None:
+    conn = _fixture_db(tmp_path)
+    build_script = _script(tmp_path, "build.py", "print('built')\n")
+    _insert_fact(
+        conn,
+        _python_command(build_script),
+        qualifier="default",
+        predicate="uses_build_command",
+    )
+
+    result = verify.run_preflight(conn, tmp_path, profile="release")
+
+    assert result["status"] == "passed"
+    assert result["selection_mode"] == "profile"
+    assert result["profile"] == "release"
+    assert result["predicate"] == "uses_build_command"
+
+
+def test_cli_verify_accepts_task_and_profile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    conn = _fixture_db(tmp_path)
+    script = _script(tmp_path, "task_cli.py", "print('ok')\n")
+    _insert_fact(conn, _python_command(script), qualifier="node:unit")
+    conn.close()
+    monkeypatch.chdir(tmp_path)
+
+    code = cli.main(["verify", "--task", "bugfix"])
+    captured = capsys.readouterr()
+    output = json.loads(captured.out)
+
+    assert code == 0
+    assert captured.err == ""
+    assert output["selection_mode"] == "task"
+    assert output["qualifier"] == "node:unit"
+
+
 def test_cli_verify_missing_db_does_not_create_omni(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -804,6 +855,7 @@ def _insert_fact(
     command: str,
     *,
     qualifier: str = "node",
+    predicate: str = "uses_test_command",
 ) -> None:
     safe_id = "".join(ch if ch.isalnum() else "_" for ch in f"{qualifier}_{command}")[:80]
     conn.execute(
@@ -818,7 +870,7 @@ def _insert_fact(
             f"fact_{safe_id}",
             "project",
             ".",
-            "uses_test_command",
+            predicate,
             qualifier,
             command,
             "string",

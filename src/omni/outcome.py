@@ -160,18 +160,24 @@ def mark_outcome_from_verify(
     note: str | None = None,
     timeout_seconds: int = verify.DEFAULT_TIMEOUT_SECONDS,
     qualifier: str | None = None,
+    profile: str | None = None,
 ) -> dict[str, Any]:
     _ensure_run_exists(conn, run_id)
     _validate_choice("status", status, STATUS_VALUES)
     _validate_choice("task_type", task_type, TASK_TYPE_VALUES)
     if memory_effect is not None:
         _validate_choice("memory_effect", memory_effect, MEMORY_EFFECT_VALUES)
+    if profile is not None and profile not in verify.PROFILE_VALUES:
+        allowed = ", ".join(sorted(verify.PROFILE_VALUES))
+        raise ValueError(f"invalid profile: {profile!r}; expected one of: {allowed}")
 
     verify_result = verify.run_preflight(
         conn,
         root,
         timeout_seconds=timeout_seconds,
         qualifier=qualifier,
+        task_type=None if task_type == "unknown" else task_type,
+        profile=profile,
     )
     return mark_outcome(
         conn,

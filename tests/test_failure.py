@@ -32,7 +32,7 @@ def test_migration_006_creates_failure_patterns_and_sets_schema_version(
 
     assert "failure_candidates" in tables
     assert "failure_patterns" in tables
-    assert db.schema_version(conn) == "6"
+    assert db.schema_version(conn) == "7"
     failure_candidate_columns = {
         row["name"] for row in conn.execute("PRAGMA table_info(failure_candidates)")
     }
@@ -57,7 +57,7 @@ def test_migration_001_to_006_path_works(tmp_path: Path) -> None:
 
     db.migrate(conn)
 
-    assert db.schema_version(conn) == "6"
+    assert db.schema_version(conn) == "7"
     assert conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'failure_candidates'"
     ).fetchone()

@@ -599,25 +599,28 @@ def test_cli_help_smoke(tmp_path: Path) -> None:
     assert result.returncode == 0
     assert "init" in result.stdout
     assert "status" in result.stdout
-    assert "doctor" not in result.stdout
-    assert "review" not in result.stdout
+    assert "doctor" in result.stdout
+    assert "review" in result.stdout
+    assert "preference" in result.stdout
+    assert "project" in result.stdout
 
 
-def test_review_interactive_is_hidden_from_review_help(tmp_path: Path) -> None:
+def test_review_interactive_is_listed_in_review_help(tmp_path: Path) -> None:
     result = run_omni(tmp_path, "review", "--help")
 
     assert result.returncode == 0
     assert "approve" in result.stdout
     assert "reject" in result.stdout
-    assert "interactive" not in result.stdout
+    assert "interactive" in result.stdout
 
 
-def test_review_interactive_cli_is_disabled_for_week1(tmp_path: Path) -> None:
-    result = run_omni(tmp_path, "review", "interactive", input_text="")
+def test_review_interactive_cli_runs_on_empty_queue(tmp_path: Path) -> None:
+    run_omni(tmp_path, "init")
+    result = run_omni(tmp_path, "review", "interactive", input_text="q\n")
 
-    assert result.returncode == 2
-    assert "experimental disabled in Week-1" in result.stderr
-    assert not (tmp_path / ".omni").exists()
+    assert result.returncode == 0
+    assert "experimental disabled" not in result.stderr
+    assert '"remaining": 0' in result.stdout
 
 
 def test_review_cli_reports_missing_candidate_without_traceback(tmp_path: Path) -> None:
@@ -742,12 +745,13 @@ def test_status_cli_reports_hook_elapsed_percentiles_after_ingest_processed_spoo
     assert "hook_elapsed_ms_p95" in body
 
 
-def test_doctor_cli_is_disabled_for_week1(tmp_path: Path) -> None:
+def test_doctor_cli_reports_project_health(tmp_path: Path) -> None:
+    run_omni(tmp_path, "init")
     result = run_omni(tmp_path, "doctor")
 
-    assert result.returncode == 2
-    assert not (tmp_path / ".omni").exists()
-    assert "experimental disabled in Week-1" in result.stderr
+    assert result.returncode == 1
+    assert "experimental disabled" not in result.stderr
+    assert '"checks"' in result.stdout
 
 
 def test_hook_cli_redacts_stdin_to_spool_and_exits_zero(tmp_path: Path) -> None:
