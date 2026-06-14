@@ -352,6 +352,45 @@ Re-running `omni outcome mark-from-verify` for the same run is idempotent: it
 updates the outcome row in place, preserving `created_at` and advancing
 `updated_at`.
 
+## Verify reason codes (v0.5 reference)
+
+Every `omni verify` JSON response includes a stable `reason_code`. Selection and
+parse failures may also include `candidate_commands`, `available_qualifiers`
+(when `--qualifier` does not match), or `disambiguation_hint` (when multiple
+active facts match).
+
+| `reason_code` | Typical `status` | Meaning |
+| --- | --- | --- |
+| `passed` | `passed` | Selected command ran and exited 0. |
+| `failed_exit_code` | `failed` | Selected command ran and exited non-zero. |
+| `timed_out` | `failed` | Selected command exceeded the timeout. |
+| `start_failed` | `failed` | Selected command could not start. |
+| `selected` | (internal selection) | A single active fact was chosen; execution follows. |
+| `no_active_test_command` | `unknown` | No active `uses_test_command` facts. |
+| `ambiguous_active_test_command` | `unknown` | Multiple active facts; auto selection failed. |
+| `qualifier_not_found` | `unknown` | `--qualifier` did not match any active fact. |
+| `ambiguous_qualifier` | `unknown` | `--qualifier` matched multiple active facts. |
+| `parse_error_empty_command` | `unknown` | Configured command is empty. |
+| `parse_error_shell_operator` | `unknown` | Unquoted shell operator in configured command. |
+| `parse_error_shell_wrapper` | `unknown` | Unsupported shell wrapper in configured command. |
+| `parse_error_batch_metacharacter` | `unknown` | Unsupported batch metacharacter on Windows. |
+| `parse_error_invalid_command` | `unknown` | Configured command could not be parsed. |
+| `unknown` | `unknown` | Fallback when no other code applies. |
+
+`omni outcome mark-from-verify` maps verify output to outcome `tests_status`
+without inferring task `status`:
+
+| Verify `reason_code` | Outcome `tests_status` |
+| --- | --- |
+| `passed` | `passed` |
+| `failed_exit_code`, `timed_out` | `failed` |
+| everything else (selection, parse, `start_failed`) | `unknown` |
+
+When auto selection is ambiguous, or when `--qualifier` matches multiple facts,
+verify includes `disambiguation_hint`: pass `--qualifier <name>` to select one
+active `uses_test_command` fact. When `--qualifier` is not found, verify lists
+`available_qualifiers` from the active candidate set.
+
 ## Stage Closeout Evidence
 
 The first v0.2 Experience/Failure Memory foundation loop was closed against the

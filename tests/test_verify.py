@@ -120,6 +120,7 @@ def test_verify_preflight_reports_unknown_for_ambiguous_test_commands(
         {"qualifier": "node", "command": "echo node"},
         {"qualifier": "python", "command": "echo python"},
     ]
+    assert result["disambiguation_hint"] == verify.DISAMBIGUATION_HINT
 
 
 def test_verify_preflight_reports_unknown_without_active_test_command(
@@ -295,6 +296,7 @@ def test_verify_preflight_reports_unknown_for_missing_qualifier(tmp_path: Path) 
     assert result["reason"] == "no active uses_test_command fact for qualifier python"
     assert result["command"] is None
     assert result["stdout_excerpt"] == ""
+    assert result["available_qualifiers"] == ["node"]
 
 
 def test_verify_preflight_reports_unknown_for_ambiguous_qualifier(tmp_path: Path) -> None:
@@ -314,6 +316,7 @@ def test_verify_preflight_reports_unknown_for_ambiguous_qualifier(tmp_path: Path
         {"qualifier": "node:web", "command": "echo web e2e"},
         {"qualifier": "node:web", "command": "echo web unit"},
     ]
+    assert result["disambiguation_hint"] == verify.DISAMBIGUATION_HINT
 
 
 @pytest.mark.parametrize(
@@ -733,6 +736,7 @@ def test_cli_verify_ambiguous_qualifier_returns_two(
         {"qualifier": "node:web", "command": "echo web e2e"},
         {"qualifier": "node:web", "command": "echo web unit"},
     ]
+    assert output["disambiguation_hint"] == verify.DISAMBIGUATION_HINT
 
 
 def test_cli_verify_invalid_command_still_outputs_json(
