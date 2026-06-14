@@ -348,9 +348,7 @@ def handle_cli_action(
         if args.preference_note_command == "retire":
             return retire_note(conn, args.note_id)
         parser.error(f"unknown preference note command: {args.preference_note_command}")
-        return 2
     parser.error(f"unknown preference command: {args.preference_command}")
-    return 2
 
 
 if __name__ == "__main__":  # pragma: no cover

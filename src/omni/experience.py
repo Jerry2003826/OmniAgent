@@ -513,6 +513,4 @@ def handle_cli_action(
         if args.experience_note_command == "retire":
             return retire_note(conn, args.note_id)
         parser.error(f"unknown experience note command: {args.experience_note_command}")
-        return 2
     parser.error(f"unknown experience command: {args.experience_command}")
-    return 2
