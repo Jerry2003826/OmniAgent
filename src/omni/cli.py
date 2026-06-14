@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections.abc import Callable
+from typing import Any
 
 from omni import __version__
 from omni.config import (
@@ -21,18 +23,7 @@ def run_from_stdin():
     return hook_run_from_stdin()
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="omni")
-    parser.add_argument("--version", action="version", version=f"omni {__version__}")
-
-    subcommands = parser.add_subparsers(
-        dest="command",
-        required=True,
-        metavar=(
-            "{init,audit,ingest,status,doctor,render,inject,dogfood,eval,outcome,"
-            "experience,failure,preference,project,verify,review}"
-        ),
-    )
+def _add_init_parser(subcommands: argparse._SubParsersAction) -> None:
     init_parser = subcommands.add_parser("init", help="Create a project-local .omni layout")
     init_parser.add_argument("--install-claude-hooks", action="store_true")
     init_parser.add_argument(
@@ -43,28 +34,48 @@ def build_parser() -> argparse.ArgumentParser:
     )
     init_parser.add_argument("--yes", action="store_true")
 
+
+def _add_status_parser(subcommands: argparse._SubParsersAction) -> None:
     status_parser = subcommands.add_parser("status", help="Show OmniMemory project status")
     status_parser.add_argument(
         "--all",
         action="store_true",
         help="Summarize all registered projects (read-only)",
     )
+
+
+def _add_doctor_parser(subcommands: argparse._SubParsersAction) -> None:
     subcommands.add_parser("doctor", help="Run read-only project health diagnostics")
+
+
+def _add_hidden_core_parsers(subcommands: argparse._SubParsersAction) -> None:
     subcommands.add_parser("hook", help=argparse.SUPPRESS)
     parse_parser = subcommands.add_parser("parse", help=argparse.SUPPRESS)
     parse_parser.add_argument("transcript")
+
+
+def _add_ingest_parser(subcommands: argparse._SubParsersAction) -> None:
     ingest_parser = subcommands.add_parser("ingest", help="Ingest redacted Claude Code traces")
     ingest_parser.add_argument("run_id", nargs="?")
     ingest_parser.add_argument("--run-id", dest="run_id_option")
     ingest_parser.add_argument("--transcript")
+
+
+def _add_run_parser(subcommands: argparse._SubParsersAction) -> None:
     run_parser = subcommands.add_parser("run", help=argparse.SUPPRESS)
     run_subcommands = run_parser.add_subparsers(dest="run_command", required=True)
     run_show_parser = run_subcommands.add_parser("show")
     run_show_parser.add_argument("run_id")
     run_show_parser.add_argument("--seq", type=int)
+
+
+def _add_audit_parser(subcommands: argparse._SubParsersAction) -> None:
     audit_parser = subcommands.add_parser("audit", help="Run safety audits")
     audit_subcommands = audit_parser.add_subparsers(dest="audit_command", required=True)
     audit_subcommands.add_parser("secrets")
+
+
+def _add_review_parser(subcommands: argparse._SubParsersAction) -> None:
     review_parser = subcommands.add_parser("review", help="Review staged fact candidates")
     review_subcommands = review_parser.add_subparsers(
         dest="review_command",
@@ -75,13 +86,22 @@ def build_parser() -> argparse.ArgumentParser:
         review_command = review_subcommands.add_parser(command)
         review_command.add_argument("cand_id")
     review_subcommands.add_parser("interactive", help="Interactively review pending fact candidates")
+
+
+def _add_render_parser(subcommands: argparse._SubParsersAction) -> None:
     render_parser = subcommands.add_parser("render", help="Render generated memory")
     render_parser.add_argument("--diff", action="store_true")
     render_parser.add_argument("--force", action="store_true")
+
+
+def _add_inject_parser(subcommands: argparse._SubParsersAction) -> None:
     inject_parser = subcommands.add_parser("inject", help="Manage agent memory injection")
     inject_subcommands = inject_parser.add_subparsers(dest="inject_command", required=True)
     inject_claude_parser = inject_subcommands.add_parser("claude")
     inject_claude_parser.add_argument("--mode", choices=("preview", "link"), required=True)
+
+
+def _add_verify_parser(subcommands: argparse._SubParsersAction) -> None:
     verify_parser = subcommands.add_parser("verify", help="Run the known verification command")
     verify_parser.add_argument("--timeout-seconds", type=int, default=120)
     verify_parser.add_argument("--qualifier")
@@ -95,6 +115,9 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("default", "release", "test"),
         help="Select verification predicate profile (default=test command, release=build command)",
     )
+
+
+def _add_dogfood_parser(subcommands: argparse._SubParsersAction) -> None:
     dogfood_parser = subcommands.add_parser(
         "dogfood",
         help=(
@@ -107,6 +130,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--cold",
         help="optional cold baseline run id for pairwise compare",
     )
+
+
+def _add_eval_parser(subcommands: argparse._SubParsersAction) -> None:
     eval_parser = subcommands.add_parser("eval", help="Evaluate run behavior")
     eval_subcommands = eval_parser.add_subparsers(dest="eval_command", required=True)
     eval_run_parser = eval_subcommands.add_parser("run")
@@ -114,6 +140,9 @@ def build_parser() -> argparse.ArgumentParser:
     eval_dogfood_parser = eval_subcommands.add_parser("dogfood")
     eval_dogfood_parser.add_argument("--cold", required=True)
     eval_dogfood_parser.add_argument("--warm", required=True)
+
+
+def _add_outcome_parser(subcommands: argparse._SubParsersAction) -> None:
     outcome_parser = subcommands.add_parser("outcome", help="Record or show run outcomes")
     outcome_subcommands = outcome_parser.add_subparsers(
         dest="outcome_command",
@@ -220,6 +249,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--memory-effect",
         choices=("helped", "neutral", "failed_to_help", "unknown"),
     )
+
+
+def _add_experience_parser(subcommands: argparse._SubParsersAction) -> None:
     experience_parser = subcommands.add_parser("experience", help="Review experience memory")
     experience_subcommands = experience_parser.add_subparsers(
         dest="experience_command",
@@ -255,6 +287,9 @@ def build_parser() -> argparse.ArgumentParser:
     experience_note_show_parser.add_argument("note_id")
     experience_note_retire_parser = experience_note_subcommands.add_parser("retire")
     experience_note_retire_parser.add_argument("note_id")
+
+
+def _add_failure_parser(subcommands: argparse._SubParsersAction) -> None:
     failure_parser = subcommands.add_parser("failure", help="Review known failure memory")
     failure_subcommands = failure_parser.add_subparsers(
         dest="failure_command",
@@ -294,6 +329,8 @@ def build_parser() -> argparse.ArgumentParser:
     failure_pattern_retire_parser = failure_pattern_subcommands.add_parser("retire")
     failure_pattern_retire_parser.add_argument("pattern_id")
 
+
+def _add_preference_parser(subcommands: argparse._SubParsersAction) -> None:
     preference_parser = subcommands.add_parser("preference", help="Review preference memory")
     preference_subcommands = preference_parser.add_subparsers(
         dest="preference_command",
@@ -331,6 +368,8 @@ def build_parser() -> argparse.ArgumentParser:
     preference_note_retire_parser = preference_note_subcommands.add_parser("retire")
     preference_note_retire_parser.add_argument("note_id")
 
+
+def _add_project_parser(subcommands: argparse._SubParsersAction) -> None:
     project_parser = subcommands.add_parser("project", help="Manage the multi-project registry")
     project_subcommands = project_parser.add_subparsers(
         dest="project_command",
@@ -343,8 +382,39 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="?",
         help="Project root to register (defaults to discovered project root)",
     )
-
     project_subcommands.add_parser("ls")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="omni")
+    parser.add_argument("--version", action="version", version=f"omni {__version__}")
+
+    subcommands = parser.add_subparsers(
+        dest="command",
+        required=True,
+        metavar=(
+            "{init,audit,ingest,status,doctor,render,inject,dogfood,eval,outcome,"
+            "experience,failure,preference,project,verify,review}"
+        ),
+    )
+    _add_init_parser(subcommands)
+    _add_status_parser(subcommands)
+    _add_doctor_parser(subcommands)
+    _add_hidden_core_parsers(subcommands)
+    _add_ingest_parser(subcommands)
+    _add_run_parser(subcommands)
+    _add_audit_parser(subcommands)
+    _add_review_parser(subcommands)
+    _add_render_parser(subcommands)
+    _add_inject_parser(subcommands)
+    _add_verify_parser(subcommands)
+    _add_dogfood_parser(subcommands)
+    _add_eval_parser(subcommands)
+    _add_outcome_parser(subcommands)
+    _add_experience_parser(subcommands)
+    _add_failure_parser(subcommands)
+    _add_preference_parser(subcommands)
+    _add_project_parser(subcommands)
 
     _hide_subcommands(
         subcommands,
@@ -354,84 +424,124 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
-    args = parser.parse_args(argv)
-
-    if args.command == "init":
-        result = ensure_project_layout()
-        gitignore_updated = ensure_gitignore_entry(result.root, OMNI_GITIGNORE_ENTRIES)
-        if args.install_claude_hooks:
-            gitignore_updated = (
-                ensure_gitignore_entry(result.root, CLAUDE_HOOK_GITIGNORE_ENTRIES)
-                or gitignore_updated
-            )
-        print(f"Initialized OmniMemory at {result.omni_dir}")
-        if gitignore_updated:
-            print(f"Updated {result.root / '.gitignore'}")
-        if args.install_claude_hooks:
-            from omni.hook import install_claude_hooks
-            from omni.redact import redact
-
-            installed = install_claude_hooks(
-                result.root,
-                yes=args.yes,
-                scope=args.claude_hooks_scope,
-            )
-            if not installed.ok:
-                print(installed.message, file=sys.stderr)
-                return 2
-            safe_diff = redact(installed.diff.encode("utf-8")).data.decode(
-                "utf-8", errors="replace"
-            )
-            _print_diff(safe_diff)
-        return 0
-
-    if args.command == "hook":
+def _run_db_command(
+    *,
+    readonly: bool,
+    connect_rw: Callable[..., Any],
+    connect_ro: Callable[..., Any],
+    action: Callable[[Any], Any],
+    render: Callable[[Any], str],
+) -> int:
+    root = project_root()
+    try:
+        conn = connect_ro(root) if readonly else connect_rw(root)
+    except (FileNotFoundError, ValueError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    try:
         try:
-            run_from_stdin()
-        except Exception:
-            pass
-        return 0
+            result = action(conn)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+    finally:
+        conn.close()
+    _print_diff(render(result))
+    return 0
 
-    if args.command == "status":
-        from omni import projects
-        from omni.status import status_json
 
-        if args.all:
-            _print_diff(projects.as_json(projects.status_all()))
-        else:
-            _print_diff(status_json(project_root()))
-        return 0
+def _memory_command_readonly(
+    command: str,
+    nested_command: str | None,
+    *,
+    nested_parent: str,
+) -> bool:
+    if command in ("ls", "show"):
+        return True
+    return command == nested_parent and nested_command in ("ls", "show")
 
-    if args.command == "doctor":
-        from omni import doctor
 
-        result = doctor.run(project_root())
-        _print_diff(result.as_json())
-        return 0 if result.ok else 1
-
-    if args.command == "parse":
-        from omni.parse import events_as_jsonl, parse_transcript
-
-        result = parse_transcript(args.transcript)
-        _print_diff(events_as_jsonl(result.events))
-        return 0
-
-    if args.command == "ingest":
-        from omni.ingest import ingest as ingest_project
-
-        run_id = args.run_id_option or args.run_id
-        result = ingest_project(project_root(), run_id=run_id, transcript=args.transcript)
-        _print_diff(
-            f"run_ids={','.join(result.run_ids)} events_inserted={result.events_inserted} "
-            f"queue_drained={result.queue_drained}\n"
+def _cmd_init(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    result = ensure_project_layout()
+    gitignore_updated = ensure_gitignore_entry(result.root, OMNI_GITIGNORE_ENTRIES)
+    if args.install_claude_hooks:
+        gitignore_updated = (
+            ensure_gitignore_entry(result.root, CLAUDE_HOOK_GITIGNORE_ENTRIES)
+            or gitignore_updated
         )
-        return 0
+    print(f"Initialized OmniMemory at {result.omni_dir}")
+    if gitignore_updated:
+        print(f"Updated {result.root / '.gitignore'}")
+    if args.install_claude_hooks:
+        from omni.hook import install_claude_hooks
+        from omni.redact import redact
 
-    if args.command == "run" and args.run_command == "show":
-        from omni.ingest import run_show
+        installed = install_claude_hooks(
+            result.root,
+            yes=args.yes,
+            scope=args.claude_hooks_scope,
+        )
+        if not installed.ok:
+            print(installed.message, file=sys.stderr)
+            return 2
+        safe_diff = redact(installed.diff.encode("utf-8")).data.decode(
+            "utf-8", errors="replace"
+        )
+        _print_diff(safe_diff)
+    return 0
 
+
+def _cmd_hook(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    try:
+        run_from_stdin()
+    except Exception:
+        pass
+    return 0
+
+
+def _cmd_status(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    from omni import projects
+    from omni.status import status_json
+
+    if args.all:
+        _print_diff(projects.as_json(projects.status_all()))
+    else:
+        _print_diff(status_json(project_root()))
+    return 0
+
+
+def _cmd_doctor(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    from omni import doctor
+
+    result = doctor.run(project_root())
+    _print_diff(result.as_json())
+    return 0 if result.ok else 1
+
+
+def _cmd_parse(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    from omni.parse import events_as_jsonl, parse_transcript
+
+    result = parse_transcript(args.transcript)
+    _print_diff(events_as_jsonl(result.events))
+    return 0
+
+
+def _cmd_ingest(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    from omni.ingest import ingest as ingest_project
+
+    run_id = args.run_id_option or args.run_id
+    result = ingest_project(project_root(), run_id=run_id, transcript=args.transcript)
+    _print_diff(
+        f"run_ids={','.join(result.run_ids)} events_inserted={result.events_inserted} "
+        f"queue_drained={result.queue_drained}\n"
+    )
+    return 0
+
+
+def _cmd_run(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    from omni.ingest import run_show
+
+    if args.run_command == "show":
         try:
             result = run_show(project_root(), args.run_id, seq=args.seq)
         except FileNotFoundError as exc:
@@ -439,68 +549,78 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         _print_diff(result)
         return 0
+    parser.error(f"unknown run command: {args.run_command}")
+    return 2
 
-    if args.command == "audit" and args.audit_command == "secrets":
-        from omni.audit import run_audit_cli
 
+def _cmd_audit(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    from omni.audit import run_audit_cli
+
+    if args.audit_command == "secrets":
         code, body = run_audit_cli(project_root())
         _print_diff(body)
         return code
+    parser.error(f"unknown audit command: {args.audit_command}")
+    return 2
 
-    if args.command == "review":
-        from omni import gate
-        from omni import review
 
-        conn = review.connect_project(project_root())
-        try:
-            if args.review_command == "approve":
-                try:
-                    result = review.approve(conn, args.cand_id)
-                except gate.ConflictRequiresSupersede as exc:
-                    print(str(exc), file=sys.stderr)
-                    return 2
-                except (KeyError, ValueError) as exc:
-                    print(_review_error_message(exc), file=sys.stderr)
-                    return 2
-            elif args.review_command == "reject":
-                try:
-                    result = review.reject(conn, args.cand_id)
-                except (KeyError, ValueError) as exc:
-                    print(_review_error_message(exc), file=sys.stderr)
-                    return 2
-            elif args.review_command == "interactive":
-                result = review.interactive(conn)
-            else:
-                parser.error(f"unknown review command: {args.review_command}")
-                return 2
-        finally:
-            conn.close()
-        _print_diff(result.as_json())
-        return 0
+def _cmd_review(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    from omni import gate
+    from omni import review
 
-    if args.command == "render":
-        from omni import render
-
-        root = project_root()
-        conn = render.connect_project(root)
-        try:
+    conn = review.connect_project(project_root())
+    try:
+        if args.review_command == "approve":
             try:
-                result = render.render_project(conn, root, diff=args.diff, force=args.force)
-            except render.ManualEditError as exc:
-                _print_diff(exc.diff)
+                result = review.approve(conn, args.cand_id)
+            except gate.ConflictRequiresSupersede as exc:
                 print(str(exc), file=sys.stderr)
                 return 2
-        finally:
-            conn.close()
-        if args.diff:
-            _print_diff(result.diff)
+            except (KeyError, ValueError) as exc:
+                print(_review_error_message(exc), file=sys.stderr)
+                return 2
+        elif args.review_command == "reject":
+            try:
+                result = review.reject(conn, args.cand_id)
+            except (KeyError, ValueError) as exc:
+                print(_review_error_message(exc), file=sys.stderr)
+                return 2
+        elif args.review_command == "interactive":
+            result = review.interactive(conn)
         else:
-            _print_diff(f"rendered {result.path}\n")
-        return 0
+            parser.error(f"unknown review command: {args.review_command}")
+            return 2
+    finally:
+        conn.close()
+    _print_diff(result.as_json())
+    return 0
 
-    if args.command == "inject" and args.inject_command == "claude":
-        from omni import inject
 
+def _cmd_render(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    from omni import render
+
+    root = project_root()
+    conn = render.connect_project(root)
+    try:
+        try:
+            result = render.render_project(conn, root, diff=args.diff, force=args.force)
+        except render.ManualEditError as exc:
+            _print_diff(exc.diff)
+            print(str(exc), file=sys.stderr)
+            return 2
+    finally:
+        conn.close()
+    if args.diff:
+        _print_diff(result.diff)
+    else:
+        _print_diff(f"rendered {result.path}\n")
+    return 0
+
+
+def _cmd_inject(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    from omni import inject
+
+    if args.inject_command == "claude":
         try:
             result = inject.inject_claude(project_root(), mode=args.mode)
         except inject.ManagedRegionEditedError as exc:
@@ -509,310 +629,306 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         _print_diff(result.body if args.mode == "preview" else result.diff)
         return 0
+    parser.error(f"unknown inject command: {args.inject_command}")
+    return 2
 
-    if args.command == "verify":
-        from omni import verify
 
-        root = project_root()
+def _cmd_verify(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    from omni import verify
+
+    root = project_root()
+    try:
+        conn = verify.connect_project_readonly(root)
+    except (FileNotFoundError, ValueError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    try:
         try:
-            conn = verify.connect_project_readonly(root)
-        except (FileNotFoundError, ValueError) as exc:
+            result = verify.run_preflight(
+                conn,
+                root,
+                timeout_seconds=args.timeout_seconds,
+                qualifier=args.qualifier,
+                task_type=args.task,
+                profile=args.profile,
+            )
+        except ValueError as exc:
             print(str(exc), file=sys.stderr)
             return 2
-        try:
-            try:
-                result = verify.run_preflight(
-                    conn,
-                    root,
-                    timeout_seconds=args.timeout_seconds,
-                    qualifier=args.qualifier,
-                    task_type=args.task,
-                    profile=args.profile,
-                )
-            except ValueError as exc:
-                print(str(exc), file=sys.stderr)
-                return 2
-        finally:
-            conn.close()
-        _print_diff(verify.as_json(result))
-        if result["status"] == "passed":
-            return 0
-        if result["status"] == "failed":
-            return 1
+    finally:
+        conn.close()
+    _print_diff(verify.as_json(result))
+    if result["status"] == "passed":
+        return 0
+    if result["status"] == "failed":
+        return 1
+    return 2
+
+
+def _cmd_dogfood(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    from omni import eval as behavior_eval
+
+    result = behavior_eval.review_dogfood(
+        project_root(),
+        warm_run_id=args.warm,
+        cold_run_id=args.cold,
+    )
+    _print_diff(behavior_eval.as_json(result))
+    return 0
+
+
+def _cmd_eval(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    from omni import eval as behavior_eval
+
+    if args.eval_command == "run":
+        result = behavior_eval.evaluate_run(project_root(), args.run_id)
+    elif args.eval_command == "dogfood":
+        result = behavior_eval.evaluate_dogfood(
+            project_root(),
+            cold_run_id=args.cold,
+            warm_run_id=args.warm,
+        )
+    else:
+        parser.error(f"unknown eval command: {args.eval_command}")
+        return 2
+    _print_diff(behavior_eval.as_json(result))
+    return 0
+
+
+def _cmd_outcome(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    from omni import outcome
+
+    root = project_root()
+
+    def action(conn):
+        if args.outcome_command == "mark":
+            return outcome.mark_outcome(
+                conn,
+                args.run_id,
+                status=args.outcome_status or "unknown",
+                tests_status=args.tests_status or "unknown",
+                memory_effect=args.memory_effect,
+                task_type=args.task_type,
+                task_summary=args.task_summary,
+                final_command=args.final_command,
+                note=args.note,
+            )
+        if args.outcome_command == "mark-from-verify":
+            return outcome.mark_outcome_from_verify(
+                conn,
+                args.run_id,
+                root,
+                status=args.outcome_status or "unknown",
+                memory_effect=args.memory_effect,
+                task_type=args.task_type,
+                task_summary=args.task_summary,
+                note=args.note,
+                timeout_seconds=args.timeout_seconds,
+                qualifier=args.qualifier,
+                profile=args.profile,
+            )
+        if args.outcome_command == "show":
+            return outcome.show_outcome(conn, args.run_id)
+        if args.outcome_command == "ls":
+            return outcome.list_outcomes(
+                conn,
+                task_type=args.task_type,
+                status=args.status,
+                tests_status=args.tests_status,
+                memory_effect=args.memory_effect,
+            )
+        parser.error(f"unknown outcome command: {args.outcome_command}")
         return 2
 
-    if args.command == "dogfood":
-        from omni import eval as behavior_eval
+    return _run_db_command(
+        readonly=args.outcome_command in {"show", "ls"},
+        connect_rw=outcome.connect_project,
+        connect_ro=outcome.connect_project_readonly,
+        action=action,
+        render=outcome.as_json,
+    )
 
-        result = behavior_eval.review_dogfood(
-            project_root(),
-            warm_run_id=args.warm,
-            cold_run_id=args.cold,
-        )
-        _print_diff(behavior_eval.as_json(result))
-        return 0
 
-    if args.command == "eval":
-        from omni import eval as behavior_eval
+def _cmd_experience(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    from omni import experience
 
-        if args.eval_command == "run":
-            result = behavior_eval.evaluate_run(project_root(), args.run_id)
-        elif args.eval_command == "dogfood":
-            result = behavior_eval.evaluate_dogfood(
-                project_root(),
-                cold_run_id=args.cold,
-                warm_run_id=args.warm,
+    def action(conn):
+        if args.experience_command == "extract":
+            candidates = experience.extract_candidates(conn, args.run_id)
+            return {"created": len(candidates), "candidates": candidates}
+        if args.experience_command == "ls":
+            return {"candidates": experience.list_candidates(conn, args.state)}
+        if args.experience_command == "show":
+            return experience.show_candidate(conn, args.exp_cand_id)
+        if args.experience_command == "approve":
+            return experience.approve_candidate(conn, args.exp_cand_id)
+        if args.experience_command == "reject":
+            return experience.reject_candidate(conn, args.exp_cand_id)
+        if args.experience_command == "note":
+            if args.experience_note_command == "ls":
+                return {"notes": experience.list_notes(conn, status=args.status)}
+            if args.experience_note_command == "show":
+                return experience.show_note(conn, args.note_id)
+            if args.experience_note_command == "retire":
+                return experience.retire_note(conn, args.note_id)
+            parser.error(f"unknown experience note command: {args.experience_note_command}")
+            return 2
+        parser.error(f"unknown experience command: {args.experience_command}")
+        return 2
+
+    return _run_db_command(
+        readonly=_memory_command_readonly(
+            args.experience_command,
+            getattr(args, "experience_note_command", None),
+            nested_parent="note",
+        ),
+        connect_rw=experience.connect_project,
+        connect_ro=experience.connect_project_readonly,
+        action=action,
+        render=experience.as_json,
+    )
+
+
+def _cmd_failure(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    from omni import failure
+
+    def action(conn):
+        if args.failure_command == "extract":
+            candidates = failure.extract_candidates(conn, args.run_id)
+            return {"created": len(candidates), "candidates": candidates}
+        if args.failure_command == "ls":
+            return {"candidates": failure.list_candidates(conn, args.state)}
+        if args.failure_command == "show":
+            return failure.show_candidate(conn, args.failure_cand_id)
+        if args.failure_command == "approve":
+            return failure.approve_candidate(
+                conn,
+                args.failure_cand_id,
+                summary=args.summary,
+                suggested_action=args.suggested_action,
             )
-        else:
-            parser.error(f"unknown eval command: {args.eval_command}")
-            return 2
-        _print_diff(behavior_eval.as_json(result))
-        return 0
-
-    if args.command == "outcome":
-        from omni import outcome
-
-        root = project_root()
-        try:
-            if args.outcome_command in {"show", "ls"}:
-                conn = outcome.connect_project_readonly(root)
-            else:
-                conn = outcome.connect_project(root)
-        except (FileNotFoundError, ValueError) as exc:
-            print(str(exc), file=sys.stderr)
-            return 2
-        try:
-            try:
-                if args.outcome_command == "mark":
-                    result = outcome.mark_outcome(
+        if args.failure_command == "reject":
+            return failure.reject_candidate(conn, args.failure_cand_id)
+        if args.failure_command == "pattern":
+            if args.failure_pattern_command == "ls":
+                return {
+                    "patterns": failure.list_patterns(
                         conn,
-                        args.run_id,
-                        status=args.outcome_status or "unknown",
-                        tests_status=args.tests_status or "unknown",
-                        memory_effect=args.memory_effect,
-                        task_type=args.task_type,
-                        task_summary=args.task_summary,
-                        final_command=args.final_command,
-                        note=args.note,
-                    )
-                elif args.outcome_command == "mark-from-verify":
-                    result = outcome.mark_outcome_from_verify(
-                        conn,
-                        args.run_id,
-                        root,
-                        status=args.outcome_status or "unknown",
-                        memory_effect=args.memory_effect,
-                        task_type=args.task_type,
-                        task_summary=args.task_summary,
-                        note=args.note,
-                        timeout_seconds=args.timeout_seconds,
-                        qualifier=args.qualifier,
-                        profile=args.profile,
-                    )
-                elif args.outcome_command == "show":
-                    result = outcome.show_outcome(conn, args.run_id)
-                elif args.outcome_command == "ls":
-                    result = outcome.list_outcomes(
-                        conn,
-                        task_type=args.task_type,
                         status=args.status,
-                        tests_status=args.tests_status,
-                        memory_effect=args.memory_effect,
                     )
-                else:
-                    parser.error(f"unknown outcome command: {args.outcome_command}")
-                    return 2
-            except ValueError as exc:
-                print(str(exc), file=sys.stderr)
-                return 2
-        finally:
-            conn.close()
-        _print_diff(outcome.as_json(result))
-        return 0
+                }
+            if args.failure_pattern_command == "show":
+                return failure.show_pattern(conn, args.pattern_id)
+            if args.failure_pattern_command == "retire":
+                return failure.retire_pattern(conn, args.pattern_id)
+            parser.error(f"unknown failure pattern command: {args.failure_pattern_command}")
+            return 2
+        parser.error(f"unknown failure command: {args.failure_command}")
+        return 2
 
-    if args.command == "experience":
-        from omni import experience
+    return _run_db_command(
+        readonly=_memory_command_readonly(
+            args.failure_command,
+            getattr(args, "failure_pattern_command", None),
+            nested_parent="pattern",
+        ),
+        connect_rw=failure.connect_project,
+        connect_ro=failure.connect_project_readonly,
+        action=action,
+        render=failure.as_json,
+    )
 
-        try:
-            experience_readonly = args.experience_command in ("ls", "show") or (
-                args.experience_command == "note"
-                and args.experience_note_command in ("ls", "show")
+
+def _cmd_preference(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    from omni import preference
+
+    def action(conn):
+        if args.preference_command == "extract":
+            candidates = preference.extract_candidates(conn)
+            return {"created": len(candidates), "candidates": candidates}
+        if args.preference_command == "ls":
+            return {"candidates": preference.list_candidates(conn, args.state)}
+        if args.preference_command == "show":
+            return preference.show_candidate(conn, args.pref_cand_id)
+        if args.preference_command == "approve":
+            return preference.approve_candidate(
+                conn,
+                args.pref_cand_id,
+                suggested_action=args.suggested_action,
             )
-            if experience_readonly:
-                conn = experience.connect_project_readonly(project_root())
-            else:
-                conn = experience.connect_project(project_root())
-        except (FileNotFoundError, ValueError) as exc:
-            print(str(exc), file=sys.stderr)
+        if args.preference_command == "reject":
+            return preference.reject_candidate(conn, args.pref_cand_id)
+        if args.preference_command == "note":
+            if args.preference_note_command == "ls":
+                return {"notes": preference.list_notes(conn, status=args.status)}
+            if args.preference_note_command == "show":
+                return preference.show_note(conn, args.note_id)
+            if args.preference_note_command == "retire":
+                return preference.retire_note(conn, args.note_id)
+            parser.error(f"unknown preference note command: {args.preference_note_command}")
             return 2
-        try:
-            try:
-                if args.experience_command == "extract":
-                    candidates = experience.extract_candidates(conn, args.run_id)
-                    result = {"created": len(candidates), "candidates": candidates}
-                elif args.experience_command == "ls":
-                    result = {"candidates": experience.list_candidates(conn, args.state)}
-                elif args.experience_command == "show":
-                    result = experience.show_candidate(conn, args.exp_cand_id)
-                elif args.experience_command == "approve":
-                    result = experience.approve_candidate(conn, args.exp_cand_id)
-                elif args.experience_command == "reject":
-                    result = experience.reject_candidate(conn, args.exp_cand_id)
-                elif args.experience_command == "note":
-                    if args.experience_note_command == "ls":
-                        result = {"notes": experience.list_notes(conn, status=args.status)}
-                    elif args.experience_note_command == "show":
-                        result = experience.show_note(conn, args.note_id)
-                    elif args.experience_note_command == "retire":
-                        result = experience.retire_note(conn, args.note_id)
-                    else:
-                        parser.error(
-                            f"unknown experience note command: {args.experience_note_command}"
-                        )
-                        return 2
-                else:
-                    parser.error(f"unknown experience command: {args.experience_command}")
-                    return 2
-            except ValueError as exc:
-                print(str(exc), file=sys.stderr)
-                return 2
-        finally:
-            conn.close()
-        _print_diff(experience.as_json(result))
-        return 0
+        parser.error(f"unknown preference command: {args.preference_command}")
+        return 2
 
-    if args.command == "failure":
-        from omni import failure
+    return _run_db_command(
+        readonly=_memory_command_readonly(
+            args.preference_command,
+            getattr(args, "preference_note_command", None),
+            nested_parent="note",
+        ),
+        connect_rw=preference.connect_project,
+        connect_ro=preference.connect_project_readonly,
+        action=action,
+        render=preference.as_json,
+    )
 
-        try:
-            failure_readonly = args.failure_command in ("ls", "show") or (
-                args.failure_command == "pattern"
-                and args.failure_pattern_command in ("ls", "show")
-            )
-            if failure_readonly:
-                conn = failure.connect_project_readonly(project_root())
-            else:
-                conn = failure.connect_project(project_root())
-        except (FileNotFoundError, ValueError) as exc:
-            print(str(exc), file=sys.stderr)
-            return 2
-        try:
-            try:
-                if args.failure_command == "extract":
-                    candidates = failure.extract_candidates(conn, args.run_id)
-                    result = {"created": len(candidates), "candidates": candidates}
-                elif args.failure_command == "ls":
-                    result = {"candidates": failure.list_candidates(conn, args.state)}
-                elif args.failure_command == "show":
-                    result = failure.show_candidate(conn, args.failure_cand_id)
-                elif args.failure_command == "approve":
-                    result = failure.approve_candidate(
-                        conn,
-                        args.failure_cand_id,
-                        summary=args.summary,
-                        suggested_action=args.suggested_action,
-                    )
-                elif args.failure_command == "reject":
-                    result = failure.reject_candidate(conn, args.failure_cand_id)
-                elif args.failure_command == "pattern":
-                    if args.failure_pattern_command == "ls":
-                        result = {
-                            "patterns": failure.list_patterns(
-                                conn,
-                                status=args.status,
-                            )
-                        }
-                    elif args.failure_pattern_command == "show":
-                        result = failure.show_pattern(conn, args.pattern_id)
-                    elif args.failure_pattern_command == "retire":
-                        result = failure.retire_pattern(conn, args.pattern_id)
-                    else:
-                        parser.error(
-                            f"unknown failure pattern command: {args.failure_pattern_command}"
-                        )
-                        return 2
-                else:
-                    parser.error(f"unknown failure command: {args.failure_command}")
-                    return 2
-            except ValueError as exc:
-                print(str(exc), file=sys.stderr)
-                return 2
-        finally:
-            conn.close()
-        _print_diff(failure.as_json(result))
-        return 0
 
-    if args.command == "preference":
-        from omni import preference
+def _cmd_project(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    from omni import projects
 
-        try:
-            preference_readonly = args.preference_command in ("ls", "show") or (
-                args.preference_command == "note"
-                and args.preference_note_command in ("ls", "show")
-            )
-            if preference_readonly:
-                conn = preference.connect_project_readonly(project_root())
-            else:
-                conn = preference.connect_project(project_root())
-        except (FileNotFoundError, ValueError) as exc:
-            print(str(exc), file=sys.stderr)
-            return 2
-        try:
-            try:
-                if args.preference_command == "extract":
-                    candidates = preference.extract_candidates(conn)
-                    result = {"created": len(candidates), "candidates": candidates}
-                elif args.preference_command == "ls":
-                    result = {"candidates": preference.list_candidates(conn, args.state)}
-                elif args.preference_command == "show":
-                    result = preference.show_candidate(conn, args.pref_cand_id)
-                elif args.preference_command == "approve":
-                    result = preference.approve_candidate(
-                        conn,
-                        args.pref_cand_id,
-                        suggested_action=args.suggested_action,
-                    )
-                elif args.preference_command == "reject":
-                    result = preference.reject_candidate(conn, args.pref_cand_id)
-                elif args.preference_command == "note":
-                    if args.preference_note_command == "ls":
-                        result = {"notes": preference.list_notes(conn, status=args.status)}
-                    elif args.preference_note_command == "show":
-                        result = preference.show_note(conn, args.note_id)
-                    elif args.preference_note_command == "retire":
-                        result = preference.retire_note(conn, args.note_id)
-                    else:
-                        parser.error(
-                            f"unknown preference note command: {args.preference_note_command}"
-                        )
-                        return 2
-                else:
-                    parser.error(f"unknown preference command: {args.preference_command}")
-                    return 2
-            except ValueError as exc:
-                print(str(exc), file=sys.stderr)
-                return 2
-        finally:
-            conn.close()
-        _print_diff(preference.as_json(result))
-        return 0
+    if args.project_command == "register":
+        target = args.path or str(project_root())
+        result = projects.register(target)
+    elif args.project_command == "ls":
+        result = projects.list_registered()
+    else:
+        parser.error(f"unknown project command: {args.project_command}")
+        return 2
+    _print_diff(projects.as_json(result))
+    return 0
 
-    if args.command == "project":
-        from omni import projects
 
-        if args.project_command == "register":
-            target = args.path or str(project_root())
-            result = projects.register(target)
-        elif args.project_command == "ls":
-            result = projects.list_registered()
-        else:
-            parser.error(f"unknown project command: {args.project_command}")
-            return 2
-        _print_diff(projects.as_json(result))
-        return 0
+_HANDLERS: dict[str, Callable[[argparse.Namespace, argparse.ArgumentParser], int]] = {
+    "init": _cmd_init,
+    "hook": _cmd_hook,
+    "status": _cmd_status,
+    "doctor": _cmd_doctor,
+    "parse": _cmd_parse,
+    "ingest": _cmd_ingest,
+    "run": _cmd_run,
+    "audit": _cmd_audit,
+    "review": _cmd_review,
+    "render": _cmd_render,
+    "inject": _cmd_inject,
+    "verify": _cmd_verify,
+    "dogfood": _cmd_dogfood,
+    "eval": _cmd_eval,
+    "outcome": _cmd_outcome,
+    "experience": _cmd_experience,
+    "failure": _cmd_failure,
+    "preference": _cmd_preference,
+    "project": _cmd_project,
+}
 
-    parser.error(f"unknown command: {args.command}")
-    return 2
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    handler = _HANDLERS.get(args.command)
+    if handler is None:
+        parser.error(f"unknown command: {args.command}")
+        return 2
+    return handler(args, parser)
 
 
 def _print_diff(diff: str) -> None:
