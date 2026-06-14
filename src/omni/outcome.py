@@ -10,7 +10,14 @@ from typing import Any
 
 from omni import eval as behavior_eval
 from omni import verify
-from omni._common import now_iso, validate_choice
+from omni._common import (
+    MEMORY_EFFECT_VALUES,
+    OUTCOME_STATUS_VALUES,
+    TASK_TYPE_VALUES,
+    TESTS_STATUS_VALUES,
+    now_iso,
+    validate_choice,
+)
 from omni.dbaccess import ensure_run_exists, root_from_connection
 from omni.ids import new_id
 from omni.jsonio import as_json, decode_json_dict, redact_text
@@ -21,10 +28,6 @@ from omni.verify import (
     REASON_CODE_TIMED_OUT,
 )
 
-STATUS_VALUES = {"success", "failed", "unknown"}
-TESTS_STATUS_VALUES = {"passed", "failed", "not_run", "unknown"}
-MEMORY_EFFECT_VALUES = {"helped", "neutral", "failed_to_help", "unknown"}
-TASK_TYPE_VALUES = {"validation", "bugfix", "docs", "refactor", "exploration", "unknown"}
 
 
 def mark_outcome(
@@ -41,7 +44,7 @@ def mark_outcome(
     evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     ensure_run_exists(conn, run_id)
-    validate_choice("status", status, STATUS_VALUES)
+    validate_choice("status", status, OUTCOME_STATUS_VALUES)
     validate_choice("tests_status", tests_status, TESTS_STATUS_VALUES)
     validate_choice("task_type", task_type, TASK_TYPE_VALUES)
     if memory_effect is None:
@@ -138,7 +141,7 @@ def mark_outcome_from_verify(
     profile: str | None = None,
 ) -> dict[str, Any]:
     ensure_run_exists(conn, run_id)
-    validate_choice("status", status, STATUS_VALUES)
+    validate_choice("status", status, OUTCOME_STATUS_VALUES)
     validate_choice("task_type", task_type, TASK_TYPE_VALUES)
     if memory_effect is not None:
         validate_choice("memory_effect", memory_effect, MEMORY_EFFECT_VALUES)
@@ -207,7 +210,7 @@ def list_outcomes(
         validate_choice("task_type", task_type, TASK_TYPE_VALUES)
         filters["task_type"] = task_type
     if status is not None:
-        validate_choice("status", status, STATUS_VALUES)
+        validate_choice("status", status, OUTCOME_STATUS_VALUES)
         filters["status"] = status
     if tests_status is not None:
         validate_choice("tests_status", tests_status, TESTS_STATUS_VALUES)
