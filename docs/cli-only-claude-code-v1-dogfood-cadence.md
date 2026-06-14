@@ -33,6 +33,28 @@ consolidated JSON report:
 ingest -> audit secrets -> eval run -> verify -> outcome mark-from-verify -> eval dogfood
 ```
 
+For a read-only summary after ingest (no writes), use:
+
+```powershell
+omni dogfood --warm <warm_run_id>
+omni dogfood --warm <warm_run_id> --cold <cold_run_id>
+```
+
+## Layer 3 — more real dogfood samples
+
+Adding more real-project dogfood samples is intentionally **not** automatable
+from code: each sample requires you to run Claude Code in the target project.
+OmniMemory cannot start or operate Claude Code on your behalf.
+
+After each real session:
+
+1. `omni ingest` and note the warm `run_id`.
+2. Run this cadence (write path) or `omni dogfood` (read-only review).
+3. Optionally archive notable runs to `docs/cli-only-claude-code-v1-*-YYYY-MM-DD.md`.
+
+Routine green runs do not each need a doc; Layer 3 is about deliberate,
+user-driven expansion of the real-dogfood evidence set over time.
+
 It never passes `--success` (task success stays user-marked), writes only through
 the approved `ingest` and `outcome mark-from-verify` commands, and adds no new
 state. Use `--skip-ingest` if the run is already ingested. Omit `--cold` to skip

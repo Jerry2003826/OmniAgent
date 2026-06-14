@@ -40,6 +40,9 @@ REASON_CODE_PARSE_ERROR_BATCH_METACHARACTER = "parse_error_batch_metacharacter"
 REASON_CODE_PARSE_ERROR_INVALID_COMMAND = "parse_error_invalid_command"
 REASON_CODE_SELECTED = "selected"
 REASON_CODE_UNKNOWN = "unknown"
+DISAMBIGUATION_HINT = (
+    "Pass --qualifier <name> to select one active uses_test_command fact."
+)
 WINDOWS_BATCH_EXTENSIONS = (".bat", ".cmd")
 WINDOWS_BATCH_META_CHARS = ("&", "<", ">", "^", "%", "!")
 ENV_WRAPPER_EXECUTABLES = {"env", "env.exe"}
@@ -219,7 +222,7 @@ def _base_result(
     timeout_seconds: int,
     selection: dict[str, Any],
 ) -> dict[str, Any]:
-    return {
+    result = {
         "status": "unknown",
         "reason_code": selection.get("reason_code", REASON_CODE_UNKNOWN),
         "predicate": VERIFY_PREDICATE,
@@ -240,6 +243,10 @@ def _base_result(
         "stderr_truncated": False,
         "reason": selection.get("reason", "unknown"),
     }
+    for key in ("available_qualifiers", "disambiguation_hint"):
+        if key in selection:
+            result[key] = selection[key]
+    return result
 
 
 def _select_verification_command(
@@ -284,6 +291,7 @@ def _select_verification_command(
                 ),
                 "candidate_commands": limited,
                 "candidate_commands_omitted": omitted,
+                "available_qualifiers": _available_qualifiers(candidates),
             }
         qualified_commands = _unique_commands(qualified_candidates)
         if len(qualified_commands) == 1:
@@ -313,6 +321,7 @@ def _select_verification_command(
             ),
             "candidate_commands": qualified_limited,
             "candidate_commands_omitted": qualified_omitted,
+            "disambiguation_hint": DISAMBIGUATION_HINT,
         }
 
     base_candidates = [
@@ -346,6 +355,7 @@ def _select_verification_command(
         "selection_reason": "ambiguous active uses_test_command facts",
         "candidate_commands": limited,
         "candidate_commands_omitted": omitted,
+        "disambiguation_hint": DISAMBIGUATION_HINT,
     }
 
 
@@ -418,6 +428,15 @@ def _unique_commands(candidates: list[dict[str, str]]) -> list[str]:
         if command not in commands:
             commands.append(command)
     return commands
+
+
+def _available_qualifiers(candidates: list[dict[str, str]]) -> list[str]:
+    qualifiers: list[str] = []
+    for candidate in candidates:
+        qualifier = candidate["_qualifier_raw"]
+        if qualifier not in qualifiers:
+            qualifiers.append(qualifier)
+    return sorted(qualifiers)
 
 
 def _limit_candidates(candidates: list[dict[str, str]]) -> tuple[list[dict[str, str]], int]:

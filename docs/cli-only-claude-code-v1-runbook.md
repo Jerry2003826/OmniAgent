@@ -87,6 +87,11 @@ flow, the write into the Outcome Log happens through
 `--success` only after a passing verification command; use `--failed` or
 `--unknown` when the user has not confirmed task success.
 
+For the full `reason_code` enumeration and the `reason_code` → `tests_status`
+mapping used by `omni outcome mark-from-verify`, see
+[Verify reason codes](experience-memory-v0.md#verify-reason-codes-v05-reference)
+in `docs/experience-memory-v0.md`.
+
 `omni outcome show <run_id>` shows one run; `omni outcome ls` lists every
 recorded outcome with a per-field tally (status, tests_status, memory_effect,
 task_type). Both are read-only with respect to OmniMemory state.
