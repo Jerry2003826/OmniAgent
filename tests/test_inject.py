@@ -81,6 +81,12 @@ def test_link_accepts_managed_region_at_eof_without_trailing_newline(
     assert claude_md.read_text(encoding="utf-8") == MANAGED_REGION.rstrip("\n")
 
 
+def test_inject_cli_unknown_target_returns_exit_2(tmp_path: Path) -> None:
+    result = run_omni(tmp_path, "inject", "unknown", "--mode", "preview")
+    assert result.returncode == 2
+    assert "invalid choice" in result.stderr
+
+
 def test_inject_cli_preview_and_link_modes(tmp_path: Path) -> None:
     preview = run_omni(tmp_path, "inject", "claude", "--mode", "preview")
     link = run_omni(tmp_path, "inject", "claude", "--mode", "link")
