@@ -96,6 +96,16 @@ def _add_review_parser(subcommands: argparse._SubParsersAction) -> None:
     review_subcommands.add_parser("interactive", help="Interactively review pending fact candidates")
 
 
+def _add_memory_parser(subcommands: argparse._SubParsersAction) -> None:
+    memory_parser = subcommands.add_parser("memory", help="Read structured project memory")
+    memory_subcommands = memory_parser.add_subparsers(
+        dest="memory_command",
+        required=True,
+        metavar="{read}",
+    )
+    memory_subcommands.add_parser("read", help="Read rendered memory as JSON")
+
+
 def _add_render_parser(subcommands: argparse._SubParsersAction) -> None:
     render_parser = subcommands.add_parser("render", help="Render generated memory")
     render_parser.add_argument("--diff", action="store_true")
@@ -103,10 +113,13 @@ def _add_render_parser(subcommands: argparse._SubParsersAction) -> None:
 
 
 def _add_inject_parser(subcommands: argparse._SubParsersAction) -> None:
+    from omni.inject import TARGETS
+
     inject_parser = subcommands.add_parser("inject", help="Manage agent memory injection")
     inject_subcommands = inject_parser.add_subparsers(dest="inject_command", required=True)
-    inject_claude_parser = inject_subcommands.add_parser("claude")
-    inject_claude_parser.add_argument("--mode", choices=("preview", "link"), required=True)
+    for name in sorted(TARGETS):
+        target_parser = inject_subcommands.add_parser(name)
+        target_parser.add_argument("--mode", choices=("preview", "link"), required=True)
 
 
 def _add_verify_parser(subcommands: argparse._SubParsersAction) -> None:
@@ -119,6 +132,22 @@ def _add_verify_parser(subcommands: argparse._SubParsersAction) -> None:
         help="Map task type to a preferred verification qualifier when --qualifier is omitted",
     )
     verify_parser.add_argument(
+        "--profile",
+        choices=("default", "release", "test"),
+        help="Select verification predicate profile (default=test command, release=build command)",
+    )
+    verify_subcommands = verify_parser.add_subparsers(dest="verify_command", required=False)
+    plan_parser = verify_subcommands.add_parser(
+        "plan",
+        help="Show what verify would run without executing it",
+    )
+    plan_parser.add_argument("--qualifier")
+    plan_parser.add_argument(
+        "--task",
+        choices=TASK_TYPE_VALUES,
+        help="Map task type to a preferred verification qualifier when --qualifier is omitted",
+    )
+    plan_parser.add_argument(
         "--profile",
         choices=("default", "release", "test"),
         help="Select verification predicate profile (default=test command, release=build command)",
@@ -302,8 +331,9 @@ def _add_failure_parser(subcommands: argparse._SubParsersAction) -> None:
     failure_subcommands = failure_parser.add_subparsers(
         dest="failure_command",
         required=True,
-        metavar="{extract,ls,show,approve,reject,pattern}",
+        metavar="{extract,ls,show,approve,reject,read,pattern}",
     )
+    failure_subcommands.add_parser("read", help="Read active failure patterns as JSON")
     failure_extract_parser = failure_subcommands.add_parser("extract")
     failure_extract_parser.add_argument("run_id")
     failure_ls_parser = failure_subcommands.add_parser("ls")
@@ -401,7 +431,7 @@ def build_parser() -> argparse.ArgumentParser:
         dest="command",
         required=True,
         metavar=(
-            "{init,audit,ingest,status,doctor,render,inject,dogfood,eval,outcome,"
+            "{init,audit,ingest,status,doctor,memory,render,inject,dogfood,eval,outcome,"
             "experience,failure,preference,project,verify,review}"
         ),
     )
@@ -413,6 +443,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_run_parser(subcommands)
     _add_audit_parser(subcommands)
     _add_review_parser(subcommands)
+    _add_memory_parser(subcommands)
     _add_render_parser(subcommands)
     _add_inject_parser(subcommands)
     _add_verify_parser(subcommands)
@@ -594,6 +625,20 @@ def _cmd_review(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
     return 0
 
 
+def _cmd_memory(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    from omni import render
+    from omni.jsonio import as_json
+
+    if args.memory_command != "read":
+        parser.error(f"unknown memory command: {args.memory_command}")
+        return 2
+    return _run_db_command(
+        readonly=True,
+        action=render.read_view,
+        render=as_json,
+    )
+
+
 def _cmd_render(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     from omni import render
     from omni.dbaccess import connect_project_migrate
@@ -619,20 +664,23 @@ def _cmd_render(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
 def _cmd_inject(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     from omni import inject
 
-    if args.inject_command == "claude":
-        try:
-            result = inject.inject_claude(project_root(), mode=args.mode)
-        except inject.ManagedRegionEditedError as exc:
-            _print_diff(exc.diff)
-            print(str(exc), file=sys.stderr)
-            return 2
-        _print_diff(result.body if args.mode == "preview" else result.diff)
-        return 0
-    parser.error(f"unknown inject command: {args.inject_command}")
-    return 2
+    if args.inject_command not in inject.TARGETS:
+        parser.error(f"unknown inject command: {args.inject_command}")
+        return 2
+    try:
+        result = inject.inject(project_root(), target=args.inject_command, mode=args.mode)
+    except inject.ManagedRegionEditedError as exc:
+        _print_diff(exc.diff)
+        print(str(exc), file=sys.stderr)
+        return 2
+    _print_diff(result.body if args.mode == "preview" else result.diff)
+    return 0
 
 
 def _cmd_verify(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    if getattr(args, "verify_command", None) == "plan":
+        return _cmd_verify_plan(args, parser)
+
     from omni import verify
     from omni.dbaccess import connect_project_readonly_verify
 
@@ -663,6 +711,34 @@ def _cmd_verify(args: argparse.Namespace, parser: argparse.ArgumentParser) -> in
     if result["status"] == "failed":
         return 1
     return 2
+
+
+def _cmd_verify_plan(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    from omni import verify
+    from omni.dbaccess import connect_project_readonly_verify
+    from omni.jsonio import as_json
+
+    root = project_root()
+    try:
+        conn = connect_project_readonly_verify(root)
+    except (FileNotFoundError, ValueError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    try:
+        try:
+            result = verify.plan_view(
+                conn,
+                qualifier=args.qualifier,
+                task_type=args.task,
+                profile=args.profile,
+            )
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+    finally:
+        conn.close()
+    _print_diff(as_json(result))
+    return 0
 
 
 def _cmd_dogfood(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
@@ -763,6 +839,7 @@ _HANDLERS: dict[str, Callable[[argparse.Namespace, argparse.ArgumentParser], int
     "audit": _cmd_audit,
     "review": _cmd_review,
     "render": _cmd_render,
+    "memory": _cmd_memory,
     "inject": _cmd_inject,
     "verify": _cmd_verify,
     "dogfood": _cmd_dogfood,

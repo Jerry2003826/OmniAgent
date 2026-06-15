@@ -33,6 +33,7 @@ from omni.verify.selection import (
     REASON_CODE_SELECTED,
     REASON_CODE_UNKNOWN,
     VERIFY_PREDICATE,
+    plan_view,
 )
 from omni.verify.text import MAX_OUTPUT_CHARS, as_json
 
@@ -64,4 +65,5 @@ __all__ = [
     "VerifyCommandError",
     "as_json",
     "run_preflight",
+    "plan_view",
 ]

@@ -133,18 +133,23 @@ Violations require reverting the commit.
    - `omni failure show`
    - `omni failure pattern ls`
    - `omni failure pattern show`
+   - `omni failure read`
    - `omni preference ls`
    - `omni preference show`
    - `omni preference note ls`
    - `omni preference note show`
    - `omni project ls`
+   - `omni memory read`
    - `omni verify`
+   - `omni verify plan`
 
    Read-only commands open SQLite in read-only mode and never run
    migrations; migrations run only inside approved write commands.
    `omni verify` is SQLite read-only but executes the selected project
    verification command, including when `--qualifier`, `--task`, or
    `--profile` is used; it writes no OmniMemory state.
+   `omni verify plan` uses the same read-only selection layer but spawns
+   no verification subprocess.
    `omni doctor` and `omni status --all` do not open project SQLite at all
    when reporting aggregate health (doctor opens read-only for schema checks
    on the current project only).

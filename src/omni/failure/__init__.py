@@ -28,6 +28,7 @@ from omni.failure.repo import (
     extract_candidates,
     list_candidates,
     list_patterns,
+    read_view,
     reject_candidate,
     retire_pattern,
     show_candidate,
@@ -53,6 +54,7 @@ __all__ = [
     "extract_candidates",
     "list_candidates",
     "list_patterns",
+    "read_view",
     "normalize_command",
     "reject_candidate",
     "retire_pattern",
@@ -62,6 +64,8 @@ __all__ = [
 
 
 def cli_command_readonly(args: argparse.Namespace) -> bool:
+    if args.failure_command == "read":
+        return True
     return memory_cli_readonly(
         args.failure_command,
         getattr(args, "failure_pattern_command", None),
@@ -74,6 +78,8 @@ def handle_cli_action(
     args: argparse.Namespace,
     parser: argparse.ArgumentParser,
 ) -> Any:
+    if args.failure_command == "read":
+        return read_view(conn)
     if args.failure_command == "extract":
         candidates = extract_candidates(conn, args.run_id)
         return {"created": len(candidates), "candidates": candidates}

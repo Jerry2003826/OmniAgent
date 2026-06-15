@@ -85,6 +85,34 @@ def list_patterns(conn: sqlite3.Connection, status: str = "active") -> list[dict
     return [_pattern_from_row(row) for row in rows]
 
 
+PATTERN_READ_VIEW_FIELDS: tuple[tuple[str, bool], ...] = (
+    ("summary", True),
+    ("suggested_action", True),
+    ("command_norm", False),
+)
+
+
+def read_view(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    """Return active failure patterns stripped to public machine-read fields."""
+
+    return [
+        _project_pattern_read_view(pattern)
+        for pattern in list_patterns(conn, status="active")
+    ]
+
+
+def _project_pattern_read_view(pattern: dict[str, Any]) -> dict[str, Any]:
+    projected: dict[str, Any] = {}
+    for field, required in PATTERN_READ_VIEW_FIELDS:
+        value = pattern.get(field)
+        if value is None or value == "":
+            if required:
+                projected[field] = ""
+            continue
+        projected[field] = redact_text(str(value))
+    return projected
+
+
 def show_pattern(conn: sqlite3.Connection, pattern_id: str) -> dict[str, Any]:
     row = _pattern_row(conn, pattern_id)
     return _pattern_from_row(row)

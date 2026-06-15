@@ -174,6 +174,45 @@ def _select_verification_command(
     }
 
 
+PLAN_VIEW_SCHEMA_VERSION = 1
+
+
+def plan_view(
+    conn: sqlite3.Connection,
+    *,
+    qualifier: str | None = None,
+    task_type: str | None = None,
+    profile: str | None = None,
+) -> dict[str, Any]:
+    """Return verify selection without executing the chosen command."""
+
+    if task_type is not None and task_type not in TASK_TYPE_VALUES:
+        allowed = ", ".join(sorted(TASK_TYPE_VALUES))
+        raise ValueError(f"invalid task_type: {task_type!r}; expected one of: {allowed}")
+    if profile is not None and profile not in PROFILE_VALUES:
+        allowed = ", ".join(sorted(PROFILE_VALUES))
+        raise ValueError(f"invalid profile: {profile!r}; expected one of: {allowed}")
+
+    predicate = _resolve_predicate(profile)
+    effective_qualifier = _resolve_qualifier(qualifier, task_type)
+    selection = _select_verification_command(
+        conn,
+        predicate=predicate,
+        qualifier=effective_qualifier,
+        task_type=task_type,
+        profile=profile,
+        explicit_qualifier=qualifier is not None,
+    )
+    return {
+        "schema_version": PLAN_VIEW_SCHEMA_VERSION,
+        "predicate": predicate,
+        "qualifier": effective_qualifier,
+        "profile": profile,
+        "candidate_commands": selection.get("candidate_commands", []),
+        "selection_mode": selection.get("selection_mode"),
+    }
+
+
 def _selection_mode(
     *,
     explicit_qualifier: bool,

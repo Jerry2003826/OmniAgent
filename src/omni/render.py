@@ -11,9 +11,12 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from typing import Any
+
 from omni.jsonio import redact_text
 
 RENDER_VER = 1
+READ_VIEW_SCHEMA_VERSION = 1
 BLOCK_ID = "project_memory"
 GENERATED_PATH = Path(".omni") / "generated" / "memory.md"
 HEADER_RE = re.compile(
@@ -21,6 +24,15 @@ HEADER_RE = re.compile(
 )
 MAX_BODY_CHARS = 6000
 TRUNCATION_NOTICE = "- Additional entries omitted due to size limit."
+MEMORY_SECTION_ORDER = (
+    "Fast Path",
+    "Commands",
+    "Known Failures",
+    "Experience Notes",
+    "Preferences",
+    "Boundaries",
+    "Project",
+)
 Dependency = tuple[str, str]
 
 
@@ -69,69 +81,48 @@ def render_project(
     return RenderResult(path=path, body=text, diff=rendered_diff, wrote=True, dirty=dirty)
 
 
-def _active_facts(conn: sqlite3.Connection) -> list[sqlite3.Row]:
-    return conn.execute(
-        """
-        SELECT fact_id, scope, subject, predicate, qualifier, object_norm
-        FROM facts
-        WHERE retired_seq IS NULL
-        ORDER BY
-          CASE predicate
-            WHEN 'uses_test_command' THEN 0
-            WHEN 'uses_build_command' THEN 1
-            WHEN 'uses_lint_command' THEN 2
-            WHEN 'uses_typecheck_command' THEN 3
-            WHEN 'uses_dev_command' THEN 4
-            ELSE 5
-          END,
-          predicate,
-          qualifier,
-          subject,
-          object_norm
-        """
-    ).fetchall()
+def read_view(conn: sqlite3.Connection) -> dict[str, Any]:
+    """Return structured, leak-free memory for machine consumers."""
+
+    sections = _collect_memory_sections(
+        _active_facts(conn),
+        _active_experience_notes(conn),
+        _active_preference_notes(conn),
+        _active_failure_patterns(conn),
+    )
+    output_sections: list[dict[str, Any]] = []
+    omitted = False
+    budget_lines: list[str] = ["# Project memory", ""]
+    for section in MEMORY_SECTION_ORDER:
+        entries = sections[section]
+        if not entries:
+            continue
+        items: list[str] = []
+        for _dep, line in entries:
+            if omitted or _body_length(budget_lines) + len(line) + 1 > MAX_BODY_CHARS:
+                omitted = True
+                break
+            redacted = redact_text(line)
+            if redacted is None:
+                continue
+            items.append(redacted)
+            budget_lines.append(line)
+        if items:
+            output_sections.append({"kind": section, "items": items})
+        budget_lines.append("")
+        if omitted:
+            break
+    if omitted and output_sections:
+        output_sections[-1]["items"].append(TRUNCATION_NOTICE)
+    return {"schema_version": READ_VIEW_SCHEMA_VERSION, "sections": output_sections}
 
 
-def _active_experience_notes(conn: sqlite3.Connection) -> list[sqlite3.Row]:
-    return conn.execute(
-        """
-        SELECT note_id, scope, task_type, kind, body, suggested_action
-        FROM experience_notes
-        WHERE status = 'active'
-        ORDER BY task_type, kind, suggested_action, body, note_id
-        """
-    ).fetchall()
-
-
-def _active_preference_notes(conn: sqlite3.Connection) -> list[sqlite3.Row]:
-    return conn.execute(
-        """
-        SELECT note_id, scope, kind, body, suggested_action
-        FROM preference_notes
-        WHERE status = 'active'
-        ORDER BY kind, suggested_action, body, note_id
-        """
-    ).fetchall()
-
-
-def _active_failure_patterns(conn: sqlite3.Connection) -> list[sqlite3.Row]:
-    return conn.execute(
-        """
-        SELECT pattern_id, scope, command_norm, failure_kind, error_signature,
-               error_signature_hash, summary, suggested_action
-        FROM failure_patterns
-        WHERE status = 'active'
-        ORDER BY command_norm, failure_kind, error_signature_hash, summary, suggested_action
-        """
-    ).fetchall()
-
-
-def _render_body(
+def _collect_memory_sections(
     facts: list[sqlite3.Row],
     notes: list[sqlite3.Row],
     preference_notes: list[sqlite3.Row],
     failure_patterns: list[sqlite3.Row],
-) -> tuple[str, dict[Dependency, str]]:
+) -> dict[str, list[tuple[Dependency, str]]]:
     sections: dict[str, list[tuple[Dependency, str]]] = {
         "Commands": [],
         "Fast Path": [],
@@ -197,19 +188,77 @@ def _render_body(
             ("failure_pattern", pattern["pattern_id"]),
             _render_failure_pattern_line(pattern),
         )
+    return sections
+
+
+def _active_facts(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    return conn.execute(
+        """
+        SELECT fact_id, scope, subject, predicate, qualifier, object_norm
+        FROM facts
+        WHERE retired_seq IS NULL
+        ORDER BY
+          CASE predicate
+            WHEN 'uses_test_command' THEN 0
+            WHEN 'uses_build_command' THEN 1
+            WHEN 'uses_lint_command' THEN 2
+            WHEN 'uses_typecheck_command' THEN 3
+            WHEN 'uses_dev_command' THEN 4
+            ELSE 5
+          END,
+          predicate,
+          qualifier,
+          subject,
+          object_norm
+        """
+    ).fetchall()
+
+
+def _active_experience_notes(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    return conn.execute(
+        """
+        SELECT note_id, scope, task_type, kind, body, suggested_action
+        FROM experience_notes
+        WHERE status = 'active'
+        ORDER BY task_type, kind, suggested_action, body, note_id
+        """
+    ).fetchall()
+
+
+def _active_preference_notes(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    return conn.execute(
+        """
+        SELECT note_id, scope, kind, body, suggested_action
+        FROM preference_notes
+        WHERE status = 'active'
+        ORDER BY kind, suggested_action, body, note_id
+        """
+    ).fetchall()
+
+
+def _active_failure_patterns(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    return conn.execute(
+        """
+        SELECT pattern_id, scope, command_norm, failure_kind, error_signature,
+               error_signature_hash, summary, suggested_action
+        FROM failure_patterns
+        WHERE status = 'active'
+        ORDER BY command_norm, failure_kind, error_signature_hash, summary, suggested_action
+        """
+    ).fetchall()
+
+
+def _render_body(
+    facts: list[sqlite3.Row],
+    notes: list[sqlite3.Row],
+    preference_notes: list[sqlite3.Row],
+    failure_patterns: list[sqlite3.Row],
+) -> tuple[str, dict[Dependency, str]]:
+    sections = _collect_memory_sections(facts, notes, preference_notes, failure_patterns)
 
     lines: list[tuple[str, Dependency | None]] = [("# Project memory", None), ("", None)]
     omitted = False
-    section_order = (
-        "Fast Path",
-        "Commands",
-        "Known Failures",
-        "Experience Notes",
-        "Preferences",
-        "Boundaries",
-        "Project",
-    )
-    for section in section_order:
+    for section in MEMORY_SECTION_ORDER:
         if not sections[section]:
             continue
         lines.append((f"## {section}", None))
