@@ -208,7 +208,8 @@ def close_task(
         _clear_current_task_if(conn, task_id)
         conn.commit()
     except Exception:
-        conn.rollback()
+        if conn.in_transaction:
+            conn.rollback()
         raise
     return show_task(conn, task_id)
 
@@ -236,6 +237,7 @@ def abandon_task(
 
 
 def read_view(conn: sqlite3.Connection) -> dict[str, Any]:
+    """Return a leak-free machine-read view of open tasks only."""
     rows = conn.execute(
         """
         SELECT * FROM tasks
@@ -385,7 +387,10 @@ def _transition_task(
         refreshed = _task_row(conn, task_id)
         if refreshed["status"] == target:
             return
-        raise ValueError(f"task transition failed: {task_id}")
+        raise ValueError(
+            f"task transition failed: {task_id} "
+            f"(current={refreshed['status']}, target={target})"
+        )
 
 
 def _project_id_from_conn(conn: sqlite3.Connection) -> str:

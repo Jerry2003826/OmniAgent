@@ -1,39 +1,46 @@
-# OmniAgent Phase B (OmniMemory → OmniAgent transition)
+# OmniAgent Phase C (governed brain layer transition)
 
 > **Vision update (2026-06-15).** OmniAgent is now scoped as an *agent-agnostic*
 > governed brain layer for **all** AI Coding Agents (Claude Code, Codex, OpenCode,
 > QwenCode, Cursor), delivered in four stages — ① OmniMemory Kernel · ② OmniBridge
 > (multi-engine adapters + a read-only access surface) · ③ OmniRuntime (task
-> lifecycle + multi-agent handoff) · ④ Product. The Kernel (Layers 1–5) is done.
-> The **"MCP server / multi-engine router / task runtime / multi-agent"** items in
-> the Non-goals below are **no longer permanent non-goals — they are approved
-> future direction**, governed one stage at a time starting with
-> [`docs/omniagent-phase-c-charter.md`](docs/omniagent-phase-c-charter.md) (DRAFT).
-> Until Phase C is approved and merged, the Phase B boundaries below remain in
-> force and **every safety invariant is unchanged**.
+> lifecycle + multi-agent handoff) · ④ Product. The Kernel (Layers 1–5) is done;
+> Phase B is done; Phase C has partial approvals. OmniBridge foundation
+> (capture/inject seams + machine read) and OmniRuntime C-5 task lifecycle have
+> landed. A second engine, read-only MCP, multi-agent handoff, permission tiers,
+> and UI remain governed future work. **Every safety invariant is unchanged.**
 
 ## Goal
 
 **Completed:** OmniMemory CLI-only Claude Code v1 (Layers 1–5). See
 `docs/cli-only-claude-code-v1-l1-5-completion-2026-06-15.md`.
 
-**Current phase:** OmniAgent Phase B — governed expansion per
-`docs/omniagent-phase-b-charter-2026-06-15.md`.
+**Current phase:** OmniAgent Phase C — partial governed expansion per
+`docs/omniagent-phase-c-charter.md`.
 
-Build ONE closed loop (unchanged):
+Current proven loop (unchanged):
 
 Claude Code run → redacted trace → deterministic facts → generated memory block → measurably changed behavior in the next run.
 
-Phase B adds, without breaking safety invariants:
+Phase B added, without breaking safety invariants:
 
 - interactive fact review and read-only doctor diagnostics
 - task/profile-aware verify selection (still read-only)
 - one new review-gated memory type at a time (preference first)
 - multi-project read-only status overview
 
+Phase C approved and landed so far:
+
+- OmniBridge foundation: capture-engine seam, inject-target seam, and
+  read-only machine surfaces (`omni memory read`, `omni failure read`,
+  `omni verify plan`)
+- OmniRuntime C-5: `008_task_runtime.sql` and `omni task *` lifecycle commands
+  for a single open task; multi-agent handoff remains deferred
+
 ## Non-goals, hard this phase
 
-*(Hard for **Phase B**. Per the Vision update at the top, MCP server / multi-engine router / task runtime / multi-agent are reclassified as approved future direction under Phase C — they stay unimplemented until that charter is approved and merged.)*
+*(Hard for the currently approved Phase C scope. Items below stay unimplemented
+unless a matching charter row and `AGENTS.md` update approve them first.)*
 
 NO LLM extractors.  
 NO MCP server.  
@@ -44,8 +51,7 @@ NO Computer Use.
 NO automatic evolution.  
 NO answer cache.  
 No new tables beyond approved migrations for the current phase. Approved now:
-001_init.sql through 007_preference_memory.sql, plus **008_task_runtime.sql** as
-listed in `docs/omniagent-phase-c-charter.md` (C-5).
+001_init.sql through **008_task_runtime.sql**.
 
 Phase B approved (charter section 3):
 
@@ -55,15 +61,23 @@ Phase B approved (charter section 3):
 - `007_preference_memory.sql` and `omni preference *` (Sub-C)
 - `omni project register|ls` and `omni status --all` (read-only multi-project)
 
-Still deferred beyond Phase B:
+Phase C approved and landed:
 
-- observed_command extractor
+- C-1/C-3 OmniBridge foundation: capture/inject seams plus read-only machine
+  surfaces (`omni memory read`, `omni failure read`, `omni verify plan`)
+- C-5 task lifecycle: `omni task start|status|ls|show|close|abandon|read`,
+  `008_task_runtime.sql`, and ingest attachment to the current open task
+
+Still deferred beyond the current Phase C approvals:
+
+- automatic/default observed_command extractor behavior
 - additional memory types beyond the one approved Sub-C type
+- second-engine adapter and read-only MCP wrapper until explicitly approved
 - multi-agent orchestration / handoff, permission tiers, UI (Layer 6–9 beyond task lifecycle)
 
 If a task needs something outside the charter, STOP and leave a TODO comment.
 `scripts/golden_demo.sh` may exist as a local sandbox harness; manual acceptance
-remains the runbook in `docs/demo.md` and Phase B closeout notes.
+remains the runbook in `docs/demo.md` and the relevant closeout notes.
 
 ## Safety rules
 

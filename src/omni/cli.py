@@ -882,6 +882,8 @@ def _cmd_task(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
         try:
             result = task.handle_cli_action(conn, args, parser, root=root)
         except ValueError as exc:
+            if conn.in_transaction:
+                conn.rollback()
             print(str(exc), file=sys.stderr)
             return 2
     finally:

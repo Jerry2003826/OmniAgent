@@ -17,22 +17,10 @@ from omni import outcome
 from omni import task
 from omni.dbaccess import connect_project_readonly
 from omni.ids import project_id_for_path
+from tests.leak_helpers import assert_no_metadata_leak
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-
-FORBIDDEN_KEY_FRAGMENTS = (
-    "run_id",
-    "_cand_id",
-    "note_id",
-    "pattern_id",
-    "evidence",
-    "created_at",
-    "updated_at",
-    "confidence",
-    "timestamp",
-    "task_id",
-)
 
 
 def run_omni(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -46,18 +34,6 @@ def run_omni(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         check=False,
     )
-
-
-def assert_no_metadata_leak(value: Any) -> None:
-    if isinstance(value, dict):
-        for key, item in value.items():
-            key_lower = str(key).lower()
-            for forbidden in FORBIDDEN_KEY_FRAGMENTS:
-                assert forbidden not in key_lower, f"leaked key: {key}"
-            assert_no_metadata_leak(item)
-    elif isinstance(value, list):
-        for item in value:
-            assert_no_metadata_leak(item)
 
 
 def connect(tmp_path: Path) -> sqlite3.Connection:
@@ -464,7 +440,10 @@ def test_close_loses_race_to_abandon_and_writes_no_outcome(
 
     monkeypatch.setattr(task, "_transition_task", racing_transition)
 
-    with pytest.raises(ValueError, match="task already abandoned|task transition failed"):
+    with pytest.raises(
+        ValueError,
+        match=r"task already abandoned|task transition failed:.*current=.*target=",
+    ):
         task.close_task(conn, tmp_path, status="success")
 
     assert (

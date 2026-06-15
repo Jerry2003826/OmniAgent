@@ -3,8 +3,9 @@
 Date: 2026-06-15
 Governs: Phase C sub-projects **C-1 (capture/inject seam)** and **C-3 (machine read)**
 of [`docs/omniagent-phase-c-charter.md`](../../omniagent-phase-c-charter.md).
-Status: implementation plan. A second-engine adapter (C-2) and MCP wrapper (C-4)
-build on this but are out of scope here.
+Status: completed implementation plan. WP-1 through WP-3 have landed. A
+second-engine adapter (C-2) and MCP wrapper (C-4) build on this but remain out
+of scope here.
 
 > **Read this whole file before writing any code.** Sections 2 (invariants) and 3
 > (anti-patterns) are not advice — a violation is grounds for reverting the commit.
@@ -18,14 +19,14 @@ build on this but are out of scope here.
 
 Three seams, each small and independently shippable:
 
-| WP | What | Kind | New command |
-|----|------|------|-------------|
-| **WP-1** | Extract a `capture`/engine seam so Claude hook specifics live behind one interface | refactor (no behavior change) | none |
-| **WP-2** | Make `inject` target-parametrized (file path + region + import syntax) | refactor (no behavior change) | `omni inject <target>` keeps `claude` working identically |
-| **WP-3** | Add a **read-only**, machine-facing JSON read surface (memory / known-failures / verify-plan) | additive | `omni memory read`, `omni failure read`, `omni verify plan` (all `R`) |
+| WP | What | Kind | New command | Status |
+|----|------|------|-------------|---|
+| **WP-1** | Extract a `capture`/engine seam so Claude hook specifics live behind one interface | refactor (no behavior change) | none | done |
+| **WP-2** | Make `inject` target-parametrized (file path + region + import syntax) | refactor (no behavior change) | `omni inject <target>` keeps `claude` working identically | done |
+| **WP-3** | Add a **read-only**, machine-facing JSON read surface (memory / known-failures / verify-plan) | additive | `omni memory read`, `omni failure read`, `omni verify plan` (all `R`) | done |
 
-Recommended order: **WP-1 → WP-2 → WP-3**. They do not depend on each other at
-runtime, but doing the seams first keeps the read surface engine-neutral from day one.
+Completed order: **WP-1 → WP-2 → WP-3**. The remaining OmniBridge proof points
+are C-2 (a real second engine) and C-4 (a thin read-only MCP wrapper).
 
 ---
 

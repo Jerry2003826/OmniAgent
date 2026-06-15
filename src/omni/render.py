@@ -90,7 +90,7 @@ def read_view(conn: sqlite3.Connection) -> dict[str, Any]:
         _active_preference_notes(conn),
         _active_failure_patterns(conn),
     )
-    trimmed, omitted = _trim_sections_to_body_budget(sections)
+    trimmed, output_lines = _entries_within_budget(sections)
     output_sections: list[dict[str, Any]] = []
     for section in MEMORY_SECTION_ORDER:
         entries = trimmed[section]
@@ -102,15 +102,65 @@ def read_view(conn: sqlite3.Connection) -> dict[str, Any]:
             if redacted is not None:
                 items.append(redacted)
         output_sections.append({"kind": section, "items": items})
-    if omitted and output_sections:
-        output_sections[-1]["items"].append(TRUNCATION_NOTICE)
+    if _truncation_notice_shown(output_lines):
+        if output_sections:
+            output_sections[-1]["items"].append(TRUNCATION_NOTICE)
+        else:
+            output_sections.append({"kind": "Project", "items": [TRUNCATION_NOTICE]})
     return {"schema_version": READ_VIEW_SCHEMA_VERSION, "sections": output_sections}
+
+
+def _entries_within_budget(
+    sections: dict[str, list[tuple[Dependency, str]]],
+) -> tuple[dict[str, list[tuple[Dependency, str]]], list[tuple[str, Dependency | None]]]:
+    """Return kept section entries and the exact markdown output lines.
+
+    Budget is measured against the rendered markdown body, including the
+    ``# Project memory`` header, each non-empty ``## <section>`` title line, and
+    TRUNCATION_NOTICE when it fits after the second-pass trim.
+    """
+    trimmed, omitted = _trim_sections_to_body_budget(sections)
+    if not omitted:
+        return trimmed, _lines_from_sections(trimmed)
+
+    output_lines = _with_truncation_notice(_lines_from_sections(trimmed))
+    return _sections_from_lines(output_lines, source=trimmed), output_lines
+
+
+def _truncation_notice_shown(lines: list[tuple[str, Dependency | None]]) -> bool:
+    return any(text == TRUNCATION_NOTICE for text, _dep in lines)
+
+
+def _lines_from_sections(
+    trimmed: dict[str, list[tuple[Dependency, str]]],
+) -> list[tuple[str, Dependency | None]]:
+    lines: list[tuple[str, Dependency | None]] = [("# Project memory", None), ("", None)]
+    for section in MEMORY_SECTION_ORDER:
+        if not trimmed[section]:
+            continue
+        lines.append((f"## {section}", None))
+        for dep, line in trimmed[section]:
+            lines.append((line, dep))
+        lines.append(("", None))
+    return lines
+
+
+def _sections_from_lines(
+    lines: list[tuple[str, Dependency | None]],
+    *,
+    source: dict[str, list[tuple[Dependency, str]]],
+) -> dict[str, list[tuple[Dependency, str]]]:
+    kept_deps: set[Dependency] = {dep for _text, dep in lines if dep is not None}
+    return {
+        section: [entry for entry in source[section] if entry[0] in kept_deps]
+        for section in MEMORY_SECTION_ORDER
+    }
 
 
 def _trim_sections_to_body_budget(
     sections: dict[str, list[tuple[Dependency, str]]],
 ) -> tuple[dict[str, list[tuple[Dependency, str]]], bool]:
-    """Trim section entries to MAX_BODY_CHARS using the same rules as _render_body."""
+    """First-pass trim by markdown body length; notice space is resolved later."""
 
     trimmed = {name: [] for name in sections}
     budget_lines: list[str] = ["# Project memory", ""]
@@ -276,18 +326,7 @@ def _render_body(
     failure_patterns: list[sqlite3.Row],
 ) -> tuple[str, dict[Dependency, str]]:
     sections = _collect_memory_sections(facts, notes, preference_notes, failure_patterns)
-    trimmed, omitted = _trim_sections_to_body_budget(sections)
-
-    lines: list[tuple[str, Dependency | None]] = [("# Project memory", None), ("", None)]
-    for section in MEMORY_SECTION_ORDER:
-        if not trimmed[section]:
-            continue
-        lines.append((f"## {section}", None))
-        for dep, line in trimmed[section]:
-            lines.append((line, dep))
-        lines.append(("", None))
-    if omitted:
-        lines = _with_truncation_notice(lines)
+    _trimmed, lines = _entries_within_budget(sections)
     rendered_lines = _line_texts(lines)
     joined = "\n".join(rendered_lines).rstrip() + "\n"
     body = redact_text(joined)
