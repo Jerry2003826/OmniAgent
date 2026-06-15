@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 
+from omni import cli
 from omni import db
 from omni import ingest
 from omni import outcome
@@ -193,6 +194,32 @@ def test_ingest_without_task_leaves_task_id_null(tmp_path: Path) -> None:
     conn.commit()
     row = conn.execute(
         "SELECT task_id FROM runs WHERE run_id = 'run_unattached'"
+    ).fetchone()
+    assert row["task_id"] is None
+    conn.close()
+
+
+def test_ingest_does_not_attach_run_after_task_closes_during_lookup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    conn = connect(tmp_path)
+    task.start_task(conn, tmp_path, "race close")
+    project_id = project_id_for_path(tmp_path)
+    closed = False
+
+    def close_before_insert(_root: Path) -> str:
+        nonlocal closed
+        if not closed:
+            closed = True
+            task.close_task(conn, tmp_path, status="unknown")
+        return project_id
+
+    monkeypatch.setattr(ingest, "project_id_for_path", close_before_insert)
+
+    ingest._ensure_run(conn, tmp_path, "run_after_close", None)
+    conn.commit()
+    row = conn.execute(
+        "SELECT task_id FROM runs WHERE run_id = 'run_after_close'"
     ).fetchone()
     assert row["task_id"] is None
     conn.close()
@@ -542,3 +569,86 @@ def test_cli_task_ls_show_close_abandon_smoke(tmp_path: Path) -> None:
     abandon = run_omni(tmp_path, "task", "abandon", "--reason", "smoke stop")
     assert abandon.returncode == 0, abandon.stderr
     assert json.loads(abandon.stdout)["status"] == "abandoned"
+
+
+@pytest.mark.parametrize(
+    "option",
+    [
+        ("--timeout-seconds", "1"),
+        ("--qualifier", "python"),
+        ("--profile", "release"),
+    ],
+)
+def test_task_close_rejects_verify_options_without_from_verify(
+    tmp_path: Path, option: tuple[str, str]
+) -> None:
+    conn = connect(tmp_path)
+    task.start_task(conn, tmp_path, "reject ignored verify option")
+    conn.close()
+
+    result = run_omni(tmp_path, "task", "close", option[0], option[1])
+
+    assert result.returncode == 2
+    assert "requires --from-verify" in result.stderr
+
+    conn = db.connect(tmp_path / ".omni" / "omni.sqlite3")
+    try:
+        row = conn.execute("SELECT status FROM tasks").fetchone()
+        assert row["status"] == "open"
+    finally:
+        conn.close()
+
+
+def test_task_close_from_verify_rejects_non_positive_timeout(tmp_path: Path) -> None:
+    conn = connect(tmp_path)
+    task.start_task(conn, tmp_path, "reject bad verify timeout")
+    seed_run(conn, tmp_path, "run_bad_timeout")
+    conn.execute(
+        """
+        UPDATE runs
+        SET task_id = (SELECT task_id FROM tasks),
+            status = 'closed'
+        WHERE run_id = ?
+        """,
+        ("run_bad_timeout",),
+    )
+    conn.commit()
+    conn.close()
+
+    result = run_omni(
+        tmp_path,
+        "task",
+        "close",
+        "--from-verify",
+        "--timeout-seconds",
+        "0",
+    )
+
+    assert result.returncode == 2
+    assert "timeout_seconds must be positive" in result.stderr
+
+    conn = db.connect(tmp_path / ".omni" / "omni.sqlite3")
+    try:
+        task_row = conn.execute("SELECT status FROM tasks").fetchone()
+        outcome_row = conn.execute("SELECT 1 FROM outcomes").fetchone()
+        assert task_row["status"] == "open"
+        assert outcome_row is None
+    finally:
+        conn.close()
+
+
+def test_task_write_command_reports_project_open_error(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def fail_project_root() -> Path:
+        raise FileNotFoundError("missing project root")
+
+    monkeypatch.setattr(cli, "project_root", fail_project_root)
+
+    result = cli.main(["task", "start", "cannot open"])
+
+    captured = capsys.readouterr()
+    assert result == 2
+    assert captured.out == ""
+    assert "missing project root" in captured.err
+    assert "Traceback" not in captured.err

@@ -273,13 +273,18 @@ def handle_cli_action(
     if args.task_command == "read":
         return read_view(conn)
     if args.task_command == "close":
+        _validate_verify_options(args, parser)
         outcome_status = _cli_outcome_status(args)
         return close_task(
             conn,
             root,
             status=outcome_status,
             from_verify=args.from_verify,
-            timeout_seconds=args.timeout_seconds,
+            timeout_seconds=(
+                args.timeout_seconds
+                if args.timeout_seconds is not None
+                else verify.DEFAULT_TIMEOUT_SECONDS
+            ),
             qualifier=args.qualifier,
             profile=args.profile,
             close_reason=args.reason,
@@ -287,6 +292,21 @@ def handle_cli_action(
     if args.task_command == "abandon":
         return abandon_task(conn, root, reason=args.reason)
     parser.error(f"unknown task command: {args.task_command}")
+
+
+def _validate_verify_options(
+    args: argparse.Namespace, parser: argparse.ArgumentParser
+) -> None:
+    verify_options = {
+        "--timeout-seconds": args.timeout_seconds,
+        "--qualifier": args.qualifier,
+        "--profile": args.profile,
+    }
+    if args.from_verify:
+        return
+    used = [name for name, value in verify_options.items() if value is not None]
+    if used:
+        parser.error(f"{', '.join(used)} requires --from-verify")
 
 
 def _cli_outcome_status(args: argparse.Namespace) -> str:

@@ -440,7 +440,7 @@ def _add_task_parser(subcommands: argparse._SubParsersAction) -> None:
     close_status.add_argument("--failed", action="store_true")
     close_status.add_argument("--unknown", action="store_true")
     task_close_parser.add_argument("--from-verify", action="store_true")
-    task_close_parser.add_argument("--timeout-seconds", type=int, default=120)
+    task_close_parser.add_argument("--timeout-seconds", type=int)
     task_close_parser.add_argument("--qualifier")
     task_close_parser.add_argument(
         "--profile",
@@ -876,8 +876,12 @@ def _cmd_task(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
             render=as_json,
         )
 
-    root = project_root()
-    conn = connect_project_migrate(root)
+    try:
+        root = project_root()
+        conn = connect_project_migrate(root)
+    except (FileNotFoundError, ValueError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
     try:
         try:
             result = task.handle_cli_action(conn, args, parser, root=root)
