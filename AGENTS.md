@@ -44,8 +44,8 @@ NO Computer Use.
 NO automatic evolution.  
 NO answer cache.  
 No new tables beyond approved migrations for the current phase. Approved now:
-001_init.sql through 006_failure_patterns.sql, plus 007+ only as listed in
-`docs/omniagent-phase-b-charter-2026-06-15.md`.
+001_init.sql through 007_preference_memory.sql, plus **008_task_runtime.sql** as
+listed in `docs/omniagent-phase-c-charter.md` (C-5).
 
 Phase B approved (charter section 3):
 
@@ -59,7 +59,7 @@ Still deferred beyond Phase B:
 
 - observed_command extractor
 - additional memory types beyond the one approved Sub-C type
-- Layer 6–9 (task runtime, multi-agent orchestration, permission tiers, UI)
+- multi-agent orchestration / handoff, permission tiers, UI (Layer 6–9 beyond task lifecycle)
 
 If a task needs something outside the charter, STOP and leave a TODO comment.
 `scripts/golden_demo.sh` may exist as a local sandbox harness; manual acceptance
@@ -113,6 +113,9 @@ Violations require reverting the commit.
    - `omni preference reject`
    - `omni preference note retire`
    - `omni project register`
+   - `omni task start`
+   - `omni task close`
+   - `omni task abandon`
 
    These commands are read-only:
    - `omni parse`
@@ -142,6 +145,10 @@ Violations require reverting the commit.
    - `omni memory read`
    - `omni verify`
    - `omni verify plan`
+   - `omni task status`
+   - `omni task ls`
+   - `omni task show`
+   - `omni task read`
 
    Read-only commands open SQLite in read-only mode and never run
    migrations; migrations run only inside approved write commands.
