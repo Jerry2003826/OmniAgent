@@ -17,22 +17,10 @@ from omni import verify
 from omni.dbaccess import connect_project_readonly
 from omni.failure.repo import read_view as failure_read_view
 from omni.render import READ_VIEW_SCHEMA_VERSION
+from tests.leak_helpers import assert_no_metadata_leak
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-
-FORBIDDEN_KEY_FRAGMENTS = (
-    "run_id",
-    "_cand_id",
-    "note_id",
-    "pattern_id",
-    "evidence",
-    "created_at",
-    "updated_at",
-    "confidence",
-    "timestamp",
-    "trust",
-)
 
 
 def run_omni(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -46,23 +34,6 @@ def run_omni(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         check=False,
     )
-
-
-def assert_no_metadata_leak(value: Any) -> None:
-    if isinstance(value, dict):
-        for key, item in value.items():
-            key_lower = str(key).lower()
-            for forbidden in FORBIDDEN_KEY_FRAGMENTS:
-                assert forbidden not in key_lower, f"leaked key: {key}"
-            assert_no_metadata_leak(item)
-    elif isinstance(value, list):
-        for item in value:
-            assert_no_metadata_leak(item)
-    elif isinstance(value, str):
-        lowered = value.lower()
-        assert "fact_" not in lowered
-        assert "failure_cand_" not in lowered
-        assert "exp_cand_" not in lowered
 
 
 def connect(tmp_path: Path) -> sqlite3.Connection:

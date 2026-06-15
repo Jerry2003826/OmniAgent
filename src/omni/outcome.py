@@ -42,6 +42,7 @@ def mark_outcome(
     final_command: str | None = None,
     note: str | None = None,
     evidence: dict[str, Any] | None = None,
+    commit: bool = True,
 ) -> dict[str, Any]:
     ensure_run_exists(conn, run_id)
     validate_choice("status", status, OUTCOME_STATUS_VALUES)
@@ -122,7 +123,8 @@ def mark_outcome(
                 run_id,
             ),
         )
-    conn.commit()
+    if commit:
+        conn.commit()
     return show_outcome(conn, run_id)
 
 
@@ -139,6 +141,7 @@ def mark_outcome_from_verify(
     timeout_seconds: int = verify.DEFAULT_TIMEOUT_SECONDS,
     qualifier: str | None = None,
     profile: str | None = None,
+    commit: bool = True,
 ) -> dict[str, Any]:
     ensure_run_exists(conn, run_id)
     validate_choice("status", status, OUTCOME_STATUS_VALUES)
@@ -172,6 +175,7 @@ def mark_outcome_from_verify(
             "run_id": run_id,
             "verify": _verify_evidence(verify_result),
         },
+        commit=commit,
     )
 
 

@@ -22,6 +22,7 @@ from omni.config import ensure_project_layout
 from omni.ids import project_id_for_path
 from omni.parse import NormalizedEvent, parse_transcript
 from omni.redact import redact
+from omni.task import CURRENT_TASK_META_KEY
 from omni.spool import (
     HookRecord,
     ack_hook_records,
@@ -278,8 +279,19 @@ def _ingest_one(
 def _ensure_run(conn: sqlite3.Connection, root: Path, run_id: str, transcript: Path | None) -> None:
     conn.execute(
         """
-        INSERT OR IGNORE INTO runs(run_id, project_id, cwd, transcript_path, snapshot_seq, status)
-        VALUES(?,?,?,?,?,?)
+        INSERT OR IGNORE INTO runs(
+          run_id, project_id, cwd, transcript_path, snapshot_seq, status, task_id
+        )
+        VALUES(
+          ?,?,?,?,?,?,
+          (
+            SELECT meta.value
+            FROM meta
+            JOIN tasks ON tasks.task_id = meta.value
+            WHERE meta.key = ? AND tasks.status = 'open'
+            LIMIT 1
+          )
+        )
         """,
         (
             run_id,
@@ -288,7 +300,25 @@ def _ensure_run(conn: sqlite3.Connection, root: Path, run_id: str, transcript: P
             str(transcript) if transcript is not None else None,
             0,
             "open",
+            CURRENT_TASK_META_KEY,
         ),
+    )
+    conn.execute(
+        """
+        WITH open_task AS (
+          SELECT meta.value AS task_id
+          FROM meta
+          JOIN tasks ON tasks.task_id = meta.value
+          WHERE meta.key = ? AND tasks.status = 'open'
+          LIMIT 1
+        )
+        UPDATE runs
+        SET task_id = (SELECT task_id FROM open_task)
+        WHERE run_id = ?
+          AND task_id IS NULL
+          AND EXISTS (SELECT 1 FROM open_task)
+        """,
+        (CURRENT_TASK_META_KEY, run_id),
     )
 
 

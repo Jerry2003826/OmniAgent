@@ -1,15 +1,17 @@
 <div align="center">
 
-# 🧠 OmniMemory
+# 🧠 OmniAgent
 
-**A local, CLI-only memory loop that makes Claude Code learn from its own runs.**
+**A local, CLI-first governed brain layer for AI Coding Agents.**
 
-The first milestone of the [OmniAgent](https://github.com/Jerry2003826/OmniAgent) project.
+OmniMemory is the shipped kernel inside OmniAgent: the local memory loop that
+makes Claude Code learn from its own runs, then exposes that knowledge through
+governed CLI and machine-read surfaces.
 
 [![CI](https://github.com/Jerry2003826/OmniAgent/actions/workflows/ci.yml/badge.svg)](https://github.com/Jerry2003826/OmniAgent/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue.svg)
 ![Runtime deps](https://img.shields.io/badge/runtime%20deps-0-success.svg)
-![Release](https://img.shields.io/badge/release-CLI--only%20Claude%20Code%20v1-blueviolet.svg)
+![Status](https://img.shields.io/badge/status-Phase%20C%20partial-blueviolet.svg)
 
 **English** · [简体中文](README.zh-CN.md)
 
@@ -17,11 +19,11 @@ The first milestone of the [OmniAgent](https://github.com/Jerry2003826/OmniAgent
 
 ---
 
-Claude Code starts every session from zero. It re-scans your repo, re-discovers
-which test command to run, and re-learns the same lessons it learned yesterday.
-**OmniMemory closes that loop.** It captures what Claude Code actually did,
-turns it into reviewable memory, and feeds it back into the next run — so the
-next session starts where the last one ended.
+AI coding agents often start every session from zero. They re-scan your repo,
+re-discover which test command to run, and re-learn the same lessons they learned
+yesterday. **OmniAgent closes that loop.** Its OmniMemory Kernel captures what a
+coding agent actually did, turns it into reviewable memory, and feeds it back
+into the next run — so the next session starts where the last one ended.
 
 No service. No cloud. No vector database. No LLM calls. Everything is
 project-local under `.omni/`, and **every byte is redacted before it is written
@@ -31,23 +33,23 @@ to disk.**
 
 ```mermaid
 flowchart LR
-    A[Claude Code run] --> B[Redacted trace]
+    A[Coding agent run] --> B[Redacted trace]
     B --> C[omni ingest]
     C --> D[Behavior eval]
     D --> E[User-marked outcome]
-    E --> F["Reviewed experience<br/>& failure memory"]
+    E --> F["Reviewed experience,<br/>failure & preference memory"]
     F --> G["omni render<br/>(memory.md)"]
-    G --> H[Next Claude Code run]
+    G --> H[Next coding agent run]
     H --> I[Dogfood comparison]
     I -. measure & improve .-> A
 ```
 
 A run is captured as a redacted trace, ingested into a local SQLite store,
 evaluated for behavior, and anchored with a user-marked outcome. Deterministic
-facts become **experience** and **failure** candidates that *you* approve before
-they ever reach memory. Approved memory is rendered into a `memory.md` block that
-Claude Code reads on the next run — and a cold/warm comparison measures whether
-behavior actually improved.
+facts become **experience**, **failure**, and **preference** candidates that
+*you* approve before they ever reach memory. Approved memory is rendered into a
+`memory.md` block that the next agent run can read — and a cold/warm comparison
+measures whether behavior actually improved.
 
 ## ✨ Principles
 
@@ -138,7 +140,7 @@ omni render
 
 `R` = read-only (opens SQLite read-only, runs no migrations) · `W` = writes SQLite.
 
-| Stage | Command | | What it does |
+| Area | Command | | What it does |
 |---|---|:--:|---|
 | **Setup** | `omni init [--install-claude-hooks] [--yes]` | — | Create `.omni/`; optionally install Claude Code hooks |
 | | `omni audit secrets` | R | Safety gate — scans the whole `.omni/` tree for leaks |
@@ -146,18 +148,36 @@ omni render
 | **Capture** | `omni hook` *(auto-invoked)* | — | Redacts hook input and appends to the spool; always exits `0` |
 | | `omni ingest` | W | Import redacted traces into the local store |
 | | `omni status` | R | Project health: link, database, generated memory |
+| | `omni status --all` | R | Read-only multi-project status overview |
+| | `omni doctor` | R | Read-only project diagnostics |
+| **Machine read** | `omni memory read` | R | Read rendered memory as structured JSON |
+| | `omni failure read` | R | Read active known failures as structured JSON |
+| | `omni verify plan` | R | Show selected verification commands without executing them |
 | **Evaluate** | `omni eval run <run_id>` | R | Heuristic behavior eval for one run |
 | | `omni eval dogfood --cold <id> --warm <id>` | R | Cold/warm behavior comparison |
-| | `omni verify [--qualifier <q>]` | R\* | Run the known verification command (read-only to OmniMemory state) |
+| | `omni dogfood ...` | R | Consolidated dogfood summary over eval/outcome data |
+| | `omni verify [--qualifier <q>] [--task <t>] [--profile <p>]` | R\* | Run the selected verification command (read-only to OmniMemory state) |
+| **Review** | `omni review approve\|reject <id>` | W | Human-gate deterministic fact candidates |
+| | `omni review interactive` | W | Interactive approve/reject/skip loop for pending facts |
 | **Outcome** | `omni outcome mark-from-verify <run_id> ...` | W | Bridge a `verify` result into the outcome log |
 | | `omni outcome mark <run_id> ...` | W | Manually record an outcome |
-| | `omni outcome show <run_id>` | R | Show a recorded outcome |
+| | `omni outcome show\|ls` | R | Inspect recorded outcomes |
 | **Experience** | `omni experience extract\|ls\|show` | R/W | Propose and inspect experience candidates |
 | | `omni experience approve\|reject <id>` | W | Approve a candidate into an active note (or reject it) |
 | | `omni experience note ls\|show\|retire` | R/W | Manage rendered experience notes |
 | **Failure** | `omni failure extract\|ls\|show` | R/W | Propose and inspect failure candidates |
 | | `omni failure approve\|reject <id>` | W | Approve a candidate into a known-failure pattern |
 | | `omni failure pattern ls\|show\|retire` | R/W | Manage rendered failure patterns |
+| **Preference** | `omni preference extract\|ls\|show` | R/W | Propose and inspect preference candidates |
+| | `omni preference approve\|reject <id>` | W | Approve or reject a preference candidate |
+| | `omni preference note ls\|show\|retire` | R/W | Manage rendered preference notes |
+| **Project** | `omni project register` | W | Register a project for multi-project overview |
+| | `omni project ls` | R | List registered projects |
+| **Task** | `omni task start <intent> [--task-type <type>]` | W | Start one open operational task |
+| | `omni task status\|ls\|show` | R | Inspect operational task state |
+| | `omni task read` | R | Read open task context as leak-free machine JSON |
+| | `omni task close (--success\|--failed\|--unknown) [--from-verify]` | W | Close the open task and optionally bridge verify/outcome |
+| | `omni task abandon [--reason <text>]` | W | Abandon the open task and clear the pointer |
 | **Render** | `omni render [--diff]` | W | Render `.omni/generated/memory.md` |
 
 \* `omni verify` writes no OmniMemory state, but it *does* execute your project's
@@ -185,20 +205,22 @@ comparison is the stronger signal** that behavior actually changed.
 
 ## 🎯 Scope
 
-This release is deliberately narrow. It is the smallest thing that proves the
-loop works end to end for one local Claude Code user.
+The original v1 release deliberately proved the local Claude Code loop first.
+The current repo has since added Phase B governance features and the approved
+Phase C slices that are already present in code.
 
-| ✅ In v1 | 🚫 Not in v1 |
+| ✅ Current repo includes | 🚫 Still out of scope |
 |---|---|
-| Project-local `.omni/` state | MCP server / background service |
-| Claude Code hook capture | Vector / embedding search |
+| Project-local `.omni/` state | Background service |
+| Claude Code hook capture behind a capture-engine seam | Read-only MCP server |
 | `omni audit secrets` safety gate | Dashboard / TUI |
-| Ingest, behavior eval, dogfood comparison | Multi-agent / multi-engine adapters |
+| Ingest, behavior eval, dogfood comparison | Multi-agent orchestration / handoff |
 | User-marked outcomes | LLM extractors |
-| Reviewable experience & failure memory | Automatic success / failure inference |
+| Reviewable experience, failure, and preference memory | Automatic success / failure inference |
 | Retirable rendered guidance | Automatic memory evolution |
-| Read-only `omni verify` preflight | Supersede / reactivation lifecycle |
-| Deterministic `memory.md` rendering | New DB tables beyond migrations `001`–`006` |
+| Read-only `omni verify`, `verify plan`, memory read, and failure read | Vector / embedding search |
+| Task lifecycle (`start/status/ls/show/close/abandon/read`) | New DB tables beyond migrations `001`–`008` |
+| Deterministic `memory.md` rendering and managed injection | External write paths for other agents |
 
 See [`AGENTS.md`](AGENTS.md) for the authoritative governance and non-goals.
 
@@ -211,14 +233,15 @@ verification, and failure governance across engines.
 
 | Stage | What it adds | Status |
 |---|---|:--:|
-| **① OmniMemory Kernel** | capture → redact → eval → outcome → reviewed experience / failure memory → verify bridge | ✅ shipped (this release) |
-| **② OmniBridge** | agent-agnostic capture/inject seam, a read-only machine read surface, and a read-only MCP server so other engines read the same brain | 🔜 next — [Phase C charter](docs/omniagent-phase-c-charter.md) (draft) |
-| **③ OmniRuntime** | task lifecycle (start / verify / close / outcome / evidence) and multi-agent handoff | planned |
+| **① OmniMemory Kernel** | capture → redact → eval → outcome → reviewed experience / failure memory → verify bridge | ✅ done |
+| **② OmniBridge** | agent-agnostic capture/inject seam and a read-only machine read surface; second engine and MCP wrapper build on this | ✅ foundation shipped; C-2/C-4 still pending |
+| **③ OmniRuntime** | task lifecycle (`start/status/ls/show/close/abandon/read`) plus verify/outcome close bridge; multi-agent handoff later | ✅ C-5 partial shipped |
 | **④ Product** | multi-agent orchestration, permission tiers, audit reports, memory console | planned |
 
-Today the I/O is bound to Claude Code, but the core brain (eval, outcome, verify,
-experience / failure memory, render) is already engine-neutral — the work toward
-stage ② is mostly a capture/inject adapter seam plus a read-only access surface.
+Claude is still the only installed capture/inject target today, but the core
+brain and the machine-read surfaces are engine-neutral. The next proof point is
+a real second engine or a thin read-only MCP wrapper over the existing read
+surface.
 
 ## 🏗️ Architecture
 
@@ -238,15 +261,18 @@ Core modules live in [`src/omni/`](src/omni/):
 | `redact.py` | Redaction core — fail-closed, irreversible |
 | `hook.py` / `spool.py` | Capture hook input → redacted spool |
 | `parse.py` / `ingest.py` / `store.py` | Parse transcripts, ingest, content-addressed storage |
-| `db.py` | SQLite connection & migrations (`migrations/001`–`006`) |
+| `db.py` | SQLite connection & migrations (`migrations/001`–`008`) |
 | `audit.py` | `omni audit secrets` safety gate |
+| `capture/` | Capture engine registry with Claude as the first implementation |
 | `extract/` | Deterministic fact extraction (package manager, scripts, observed) |
 | `gate.py` / `review.py` | Fact review gating |
 | `eval.py` | Behavior eval & dogfood comparison |
 | `outcome.py` | User-marked outcome log |
-| `experience.py` / `failure.py` | Candidate → reviewed memory lifecycle |
+| `experience.py` / `failure.py` / `preference.py` | Candidate → reviewed memory lifecycle |
+| `projects.py` / `doctor.py` | Multi-project registry and read-only diagnostics |
 | `verify.py` | Read-only verification preflight |
-| `render.py` / `inject.py` | Render `memory.md` & inject the `CLAUDE.md` region |
+| `render.py` / `inject.py` | Render `memory.md` & inject managed prompt-file regions |
+| `task.py` | Operational task lifecycle and task read view |
 
 ## 🛡️ Safety invariants
 
@@ -265,6 +291,7 @@ These are hard rules — a violation is grounds for reverting the change:
 - [`docs/cli-only-claude-code-v1-runbook.md`](docs/cli-only-claude-code-v1-runbook.md) — full operator path
 - [`docs/cli-only-claude-code-v1-release-notes.md`](docs/cli-only-claude-code-v1-release-notes.md) — what shipped
 - [`docs/cli-only-claude-code-v1-closeout-2026-06-15.md`](docs/cli-only-claude-code-v1-closeout-2026-06-15.md) — dogfood evidence
+- [`docs/omniagent-phase-b-charter-2026-06-15.md`](docs/omniagent-phase-b-charter-2026-06-15.md) · [`docs/omniagent-phase-c-charter.md`](docs/omniagent-phase-c-charter.md) — governed expansion records
 - [`docs/experience-memory-v0.md`](docs/experience-memory-v0.md) · [`docs/failure-memory-v0.md`](docs/failure-memory-v0.md) — memory model
 
 ## 🧑‍💻 Development

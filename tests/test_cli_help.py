@@ -28,6 +28,7 @@ def test_top_level_help_includes_cli_only_v1_commands(
         "experience",
         "failure",
         "preference",
+        "task",
         "project",
         "verify",
         "render",

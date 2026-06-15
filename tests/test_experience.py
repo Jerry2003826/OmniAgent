@@ -534,7 +534,7 @@ def test_cli_experience_ls_on_outdated_schema_is_read_only_and_exits_clearly(
     check.close()
 
     assert code == 2
-    assert "OmniMemory schema is outdated (found 3, need 7)" in captured.err
+    assert "OmniMemory schema is outdated (found 3, need 8)" in captured.err
     assert "omni render" in captured.err
     assert captured.out == ""
     assert version == "3"
@@ -879,7 +879,7 @@ def test_note_lifecycle_adds_no_new_tables(tmp_path: Path) -> None:
     experience.retire_note(conn, "note_tables")
 
     assert db.schema_version(conn) == db.LATEST_SCHEMA_VERSION
-    assert db.schema_version(conn) == "7"
+    assert db.schema_version(conn) == "8"
     assert _table_names(conn) == tables_before
 
 

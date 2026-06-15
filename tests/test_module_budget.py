@@ -24,6 +24,7 @@ MODULE_LINE_BUDGETS: dict[str, int] = {
     "eval/meta.py": 140,
     "eval/command_match.py": 150,
     "capture/claude.py": 350,
+    "task.py": 550,
 }
 
 PACKAGE_SUBMODULE_MAX = 600

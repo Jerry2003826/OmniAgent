@@ -409,6 +409,49 @@ def _add_preference_parser(subcommands: argparse._SubParsersAction) -> None:
     preference_note_retire_parser.add_argument("note_id")
 
 
+def _add_task_parser(subcommands: argparse._SubParsersAction) -> None:
+    from omni.task import LIST_TASK_STATUS_VALUES
+
+    task_parser = subcommands.add_parser("task", help="Manage operational task lifecycle")
+    task_subcommands = task_parser.add_subparsers(
+        dest="task_command",
+        required=True,
+        metavar="{start,status,ls,show,close,abandon,read}",
+    )
+    task_start_parser = task_subcommands.add_parser("start")
+    task_start_parser.add_argument("intent")
+    task_start_parser.add_argument(
+        "--task-type",
+        choices=TASK_TYPE_VALUES,
+        default="unknown",
+    )
+    task_subcommands.add_parser("status")
+    task_ls_parser = task_subcommands.add_parser("ls")
+    task_ls_parser.add_argument(
+        "--status",
+        choices=sorted(LIST_TASK_STATUS_VALUES),
+        default="open",
+    )
+    task_show_parser = task_subcommands.add_parser("show")
+    task_show_parser.add_argument("task_id")
+    task_close_parser = task_subcommands.add_parser("close")
+    close_status = task_close_parser.add_mutually_exclusive_group(required=True)
+    close_status.add_argument("--success", action="store_true")
+    close_status.add_argument("--failed", action="store_true")
+    close_status.add_argument("--unknown", action="store_true")
+    task_close_parser.add_argument("--from-verify", action="store_true")
+    task_close_parser.add_argument("--timeout-seconds", type=int)
+    task_close_parser.add_argument("--qualifier")
+    task_close_parser.add_argument(
+        "--profile",
+        choices=("default", "release", "test"),
+    )
+    task_close_parser.add_argument("--reason")
+    task_abandon_parser = task_subcommands.add_parser("abandon")
+    task_abandon_parser.add_argument("--reason")
+    task_subcommands.add_parser("read", help="Read open tasks as leak-free JSON")
+
+
 def _add_project_parser(subcommands: argparse._SubParsersAction) -> None:
     project_parser = subcommands.add_parser("project", help="Manage the multi-project registry")
     project_subcommands = project_parser.add_subparsers(
@@ -434,7 +477,7 @@ def build_parser() -> argparse.ArgumentParser:
         required=True,
         metavar=(
             "{init,audit,ingest,status,doctor,memory,render,inject,dogfood,eval,outcome,"
-            "experience,failure,preference,project,verify,review}"
+            "experience,failure,preference,task,project,verify,review}"
         ),
     )
     _add_init_parser(subcommands)
@@ -455,6 +498,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_experience_parser(subcommands)
     _add_failure_parser(subcommands)
     _add_preference_parser(subcommands)
+    _add_task_parser(subcommands)
     _add_project_parser(subcommands)
 
     _hide_subcommands(
@@ -818,6 +862,40 @@ def _cmd_preference(args: argparse.Namespace, parser: argparse.ArgumentParser) -
     )
 
 
+def _cmd_task(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    from omni import task
+    from omni.dbaccess import connect_project_migrate
+    from omni.jsonio import as_json
+
+    if task.cli_command_readonly(args):
+        return _run_db_command(
+            readonly=True,
+            action=lambda conn: task.handle_cli_action(
+                conn, args, parser, root=project_root()
+            ),
+            render=as_json,
+        )
+
+    try:
+        root = project_root()
+        conn = connect_project_migrate(root)
+    except (FileNotFoundError, ValueError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    try:
+        try:
+            result = task.handle_cli_action(conn, args, parser, root=root)
+        except ValueError as exc:
+            if conn.in_transaction:
+                conn.rollback()
+            print(str(exc), file=sys.stderr)
+            return 2
+    finally:
+        conn.close()
+    _print_diff(as_json(result))
+    return 0
+
+
 def _cmd_project(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     from omni import projects
 
@@ -853,6 +931,7 @@ _HANDLERS: dict[str, Callable[[argparse.Namespace, argparse.ArgumentParser], int
     "experience": _cmd_experience,
     "failure": _cmd_failure,
     "preference": _cmd_preference,
+    "task": _cmd_task,
     "project": _cmd_project,
 }
 

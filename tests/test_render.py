@@ -1341,3 +1341,146 @@ def test_fast_path_uses_generic_known_verification_command_without_fact(
         "or the user explicitly asks for configuration-first exploration. After tests "
         "pass, run build and lint if broader validation is needed."
     ) in text
+
+
+def _render_body_items(body: str) -> list[str]:
+    # Memory lines are bullet-formatted today; adjust if non-bullet lines are added.
+    return [
+        line
+        for line in body.splitlines()
+        if line.startswith("- ") and line != render.TRUNCATION_NOTICE
+    ]
+
+
+def _read_view_items(view: dict[str, object]) -> list[str]:
+    items: list[str] = []
+    for section in view["sections"]:
+        for item in section["items"]:
+            if item != render.TRUNCATION_NOTICE:
+                items.append(str(item))
+    return items
+
+
+def test_render_and_read_view_truncate_at_same_entry(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    conn = connect(tmp_path)
+    monkeypatch.setattr(render, "MAX_BODY_CHARS", 220)
+    for index in range(15):
+        add_fact(
+            conn,
+            predicate=f"boundary_rule_{index:02d}",
+            qualifier="default",
+            object_norm=f"keep generated memory concise rule {index:02d}",
+        )
+
+    result = render.render_project(conn, tmp_path)
+    view = render.read_view(conn)
+
+    render_items = _render_body_items(result.body)
+    read_items = _read_view_items(view)
+    assert render_items == read_items
+    assert (render.TRUNCATION_NOTICE in result.body) == any(
+        render.TRUNCATION_NOTICE in section["items"]
+        for section in view["sections"]
+    )
+
+
+def test_render_and_read_view_align_across_section_priorities(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    conn = connect(tmp_path)
+    monkeypatch.setattr(render, "MAX_BODY_CHARS", 220)
+    add_experience_candidate(
+        conn,
+        exp_cand_id="exp_cand_align_priority",
+        run_id="run_align_priority",
+        kind="fast_path",
+    )
+    experience.approve_candidate(conn, "exp_cand_align_priority")
+    add_fact(
+        conn,
+        predicate="boundary_rule",
+        qualifier="default",
+        object_norm="x" * 160,
+    )
+
+    result = render.render_project(conn, tmp_path)
+    view = render.read_view(conn)
+
+    assert "prefer the known verification command early" in result.body
+    assert "boundary rule: x" not in result.body
+    assert _render_body_items(result.body) == _read_view_items(view)
+    assert (render.TRUNCATION_NOTICE in result.body) == any(
+        render.TRUNCATION_NOTICE in section["items"]
+        for section in view["sections"]
+    )
+
+
+def test_render_and_read_view_agree_when_truncation_notice_does_not_fit(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    conn = connect(tmp_path)
+    monkeypatch.setattr(render, "MAX_BODY_CHARS", 55)
+    add_fact(
+        conn,
+        predicate="boundary_rule",
+        qualifier="default",
+        object_norm="keep generated memory concise rule 00",
+    )
+
+    result = render.render_project(conn, tmp_path)
+    view = render.read_view(conn)
+
+    assert render.TRUNCATION_NOTICE not in result.body
+    assert not any(
+        render.TRUNCATION_NOTICE in section["items"] for section in view["sections"]
+    )
+    assert _render_body_items(result.body) == _read_view_items(view)
+
+
+def test_render_and_read_view_agree_when_only_truncation_notice_remains(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    conn = connect(tmp_path)
+    monkeypatch.setattr(render, "MAX_BODY_CHARS", 65)
+    add_fact(
+        conn,
+        predicate="boundary_rule",
+        qualifier="default",
+        object_norm="keep generated memory concise rule 00",
+    )
+
+    result = render.render_project(conn, tmp_path)
+    view = render.read_view(conn)
+
+    assert render.TRUNCATION_NOTICE in result.body
+    assert any(
+        render.TRUNCATION_NOTICE in section["items"] for section in view["sections"]
+    )
+    assert _render_body_items(result.body) == _read_view_items(view)
+
+
+def test_read_view_truncation_stays_leak_free(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from tests.leak_helpers import assert_no_metadata_leak
+
+    conn = connect(tmp_path)
+    monkeypatch.setattr(render, "MAX_BODY_CHARS", 220)
+    for index in range(15):
+        add_fact(
+            conn,
+            predicate=f"boundary_rule_{index:02d}",
+            qualifier="default",
+            object_norm=f"keep generated memory concise rule {index:02d}",
+        )
+
+    view = render.read_view(conn)
+    assert view["schema_version"] == render.READ_VIEW_SCHEMA_VERSION
+    assert_no_metadata_leak(view)

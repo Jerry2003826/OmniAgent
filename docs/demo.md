@@ -120,6 +120,50 @@ omni outcome mark-from-verify <run_id> --task-type validation
 This is the approved write bridge. `omni verify` itself remains SQLite read-only
 and writes no OmniMemory state.
 
+## Task Lifecycle Acceptance
+
+This verifies the Phase C task lifecycle without changing the cold/warm memory
+acceptance above. Run it in the same sandbox only after `omni audit secrets`
+passes.
+
+Before starting a fresh agent run:
+
+```bash
+omni task start "manual task lifecycle demo" --task-type validation
+```
+
+Ask the agent to run the project tests, then ingest the completed run:
+
+```bash
+omni ingest
+```
+
+Inspect the read-only task surfaces:
+
+```bash
+omni task status
+omni task read
+omni task ls --status open
+```
+
+Expected results:
+
+- `omni task status` reports one open task with at least one attached run.
+- `omni task read` returns leak-free JSON for the current project's open task
+  only; it must not expose internal ids, timestamps, evidence, or confidence.
+- The read-only commands above do not migrate or write OmniMemory state.
+
+Close the task with explicit outcome status:
+
+```bash
+omni task close --success --from-verify
+```
+
+Expected result: the task becomes `closed`, the current task pointer is cleared,
+and the task evidence records the verify `reason_code`. If the task should be
+stopped without recording an outcome, use `omni task abandon --reason "<why>"`
+instead of `task close`.
+
 ## S12 Planted Secret Check
 
 The sandbox intentionally contains fake planted secrets in `.env` and

@@ -1,10 +1,11 @@
-# OmniAgent Phase C Charter (DRAFT — pending approval)
+# OmniAgent Phase C Charter (DRAFT — partial approvals landed)
 
 Date: 2026-06-15
-Status: **DRAFT.** Records the boundary change implied by the 2026-06-15 vision
-update (OmniAgent reframed as an *agent-agnostic* governed brain layer). No Phase C
-sub-project may land before this charter and a matching `AGENTS.md` update are
-approved and merged — the same rule Phase B used.
+Status: **C-1**, **C-3**, and **C-5** are approved and merged. **C-2** (a real
+second engine), **C-4** (read-only MCP), and remaining Product/Runtime scope are
+still draft/proposed. Any remaining Phase C sub-project still requires explicit
+approval and a matching `AGENTS.md` update before implementation — the same rule
+Phase B used.
 
 ## Purpose
 
@@ -31,9 +32,10 @@ still proceeds one governed sub-project at a time.
 ### New invariants introduced by multi-agent scope
 
 - **External agents are read-only consumers.** Any adapter or MCP surface may
-  *read* rendered memory, known failures, verify plans, and audit summaries. It
-  **must not** write OmniMemory state. Every write still goes through the
-  human-gated CLI write commands listed in `AGENTS.md`.
+  *read* rendered memory, known failures, verify plans, task read views, and
+  future approved audit summaries. It **must not** write OmniMemory state. Every
+  write still goes through the human-gated CLI write commands listed in
+  `AGENTS.md`.
 - **Capture stays append-only and redacted.** A new capture adapter (OpenCode,
   Codex, …) obeys the same contract as the Claude hook: redact → append spool,
   never touch the DB, never block the host agent.
@@ -45,40 +47,61 @@ Violations require reverting the commit.
 | Vision stage | Status in this repo |
 |---|---|
 | ① OmniMemory Kernel | **done** (Phase A/B); I/O currently bound to Claude Code |
-| ② OmniBridge | **Phase C target** (this charter) |
-| ③ OmniRuntime (task lifecycle, multi-agent handoff) | deferred beyond Phase C |
+| ② OmniBridge | **foundation done** (C-1 capture/inject seams + C-3 machine read); second engine and MCP wrapper still pending |
+| ③ OmniRuntime (task lifecycle, multi-agent handoff) | **C-5 partial done** — task lifecycle only; handoff deferred |
 | ④ Product (orchestration, permission tiers, UI) | deferred |
 
 ## 3. Relaxations (Phase C only)
 
 | Area | Pre-C boundary | Phase C allowance |
 |---|---|---|
-| Agent binding | Claude-only hook / transcript / `CLAUDE.md` | extract a `capture` + `inject-target` seam; Claude becomes one implementation; add **one** second engine |
-| MCP | forbidden | a **read-only** MCP server exposing memory / known-failures / verify-plan / audit-summary — **no write tools** |
-| Machine read | human-facing CLI text only | a stable machine-facing JSON read surface (unified memory read, known failures read, verify plan, audit summary) |
-| Inject target | `CLAUDE.md` only | parametrized managed-region injection (`AGENTS.md`, `.cursor/rules`, …) reusing the existing `<!-- omni:begin/end -->` mechanism |
+| Agent binding | Claude-only hook / transcript / `CLAUDE.md` | **C-1 done:** capture + inject-target seams with Claude as the first implementation; **C-2 pending:** add one real second engine |
+| MCP | forbidden | **C-4 pending:** a read-only MCP server over the machine-read surface — **no write tools** |
+| Machine read | human-facing CLI text only | **C-3 done:** stable JSON for `omni memory read`, `omni failure read`, and `omni verify plan`; audit summary remains future scope |
+| Inject target | `CLAUDE.md` only | **C-1 done:** parametrized managed-region injection; new targets require recorded syntax, not guesses |
 
-**Still forbidden in Phase C** (defer to Runtime/Product): task runtime &
-lifecycle commands, multi-agent orchestration / handoff, permission tiers,
-dashboard / TUI, vector / embedding search, LLM extractors, automatic memory
-evolution, **any external write path**, Computer Use.
+**Still forbidden in Phase C** (defer to Runtime/Product): multi-agent orchestration /
+handoff, permission tiers, dashboard / TUI, vector / embedding search, LLM extractors,
+automatic memory evolution, **any external write path**, Computer Use.
 
-## 4. Proposed sub-projects (PROPOSED — each needs explicit approval + DoD before code)
+**Approved and landed in Phase C (Stage ③ — task lifecycle, C-5):** `omni task *` lifecycle
+commands and migration **`008_task_runtime.sql`** (`tasks` table + nullable
+`runs.task_id`). Tasks are **operational state, not memory** — closing a task does
+not auto-create experience/failure/preference rows or infer success without the
+existing human-gated commands.
 
-| Sub-project | Scope | New surface | Migration |
-|---|---|---|---|
-| **C-1: capture/inject seam** | refactor `hook`/`ingest` capture and `inject` into adapter interfaces; Claude becomes one impl behind them (pure refactor, behavior unchanged) | internal interfaces; no new command | none |
-| **C-2: second engine** | one of OpenCode **or** Codex: capture adapter + inject target; prove one cold/warm loop end to end | `omni inject <target>`, capture wiring | none |
-| **C-3: machine read** | stable read-only JSON for memory / known-failures / verify-plan / audit-summary | e.g. `omni memory read --json` (R) | none |
-| **C-4: read-only MCP** | wrap C-3 as MCP tools, read-only | e.g. `omni mcp serve` (R) | none |
+**v0 decisions (locked for C-5 implementation):**
+- Representative run for `task close`: the most recent run attached to the task; if
+  none, close records task-level `outcome_status` / `tests_status` only.
+- Second `task start` while one is open: hard error (no auto-close / supersede).
+- `task close` requires an explicit `--success`, `--failed`, or `--unknown`; no
+  silent default outcome status in automation.
+- `task read` is scoped to the current project and exposes only leak-free open
+  task context.
+- `eval` / memory `extract` stay run-keyed in this stage.
 
-Recommended order: **C-1 → C-3 → C-2 → C-4.** C-1 unlocks everything; C-3 defines
-the contract external engines consume; C-2 proves the agent-agnostic claim with a
-real second engine; C-4 packages C-3 for tool-calling agents. None require a new
-table; if engine provenance later needs persisting, follow the migration approval
-process for `008+`.
+## 4. Phase C sub-projects
+
+| Sub-project | Scope | New surface | Migration | Status |
+|---|---|---|---|---|
+| **C-1: capture/inject seam** | refactor `hook`/`ingest` capture and `inject` into adapter interfaces; Claude becomes one impl behind them (pure refactor, behavior unchanged) | internal interfaces; `omni inject claude` remains the only target | none | **done** |
+| **C-2: second engine** | one of OpenCode **or** Codex: capture adapter + inject target; prove one cold/warm loop end to end | `omni inject <target>`, capture wiring | none | proposed |
+| **C-3: machine read** | stable read-only JSON for memory / known-failures / verify-plan | `omni memory read`, `omni failure read`, `omni verify plan` (R) | none | **done** |
+| **C-4: read-only MCP** | wrap C-3 as MCP tools, read-only | e.g. `omni mcp serve` (R) | none | proposed |
+| **C-5: task lifecycle** | `tasks` table + `runs.task_id`; start/status/ls/show/close/abandon/read; ingest attaches runs to open task | `omni task *` | **`008_task_runtime.sql`** | **done** |
+
+Historical order: **C-1 → C-3 → C-2 → C-4 → C-5.** C-1, C-3, and C-5 have landed.
+Remaining recommended order is **C-2 → C-4**: prove the agent-agnostic claim with
+a real second engine, then package the read surface for tool-calling agents.
+Migrations beyond 008 follow the approval process in §5.
 
 ## 5. Definition of Done, migrations, execution protocol
+
+### Approved migrations (Phase C)
+
+| Migration | Table(s) / change | Sub-project |
+|---|---|---|
+| `008_task_runtime.sql` | `tasks`; nullable `runs.task_id`; `meta.current_task_id` pointer | C-5 |
 
 Reuse Phase B charter §4 (sub-project DoD template), §5 (migration approval
 006 → 007+ → 008+), and §6 (execution protocol: brainstorm → spec → plan → TDD,
@@ -88,8 +111,8 @@ one step = one commit). Each Phase C sub-project additionally asserts:
 - a second-engine adapter does not regress the Claude path
 - machine-read output passes the same metadata-leak tests as `render`
 
-## 6. Open decisions for the human (before C-1 lands)
+## 6. Remaining open decisions for the human
 
 1. Which second engine first — OpenCode or Codex? (vision lists both; pick one to prove the seam)
-2. Is the read surface delivered as `omni <noun> read --json` first, with MCP (C-4) as a thin wrapper later? (recommended) or MCP-first?
-3. Does `task` runtime (Stage ③) stay deferred until OmniBridge has a proven second engine? (recommended yes)
+2. Should C-4 expose only the existing C-3 read views first, or add a separately approved read-only audit summary before MCP?
+3. ~~Does `task` runtime (Stage ③) stay deferred until OmniBridge has a proven second engine?~~ **Resolved:** C-5 (task lifecycle) approved after OmniBridge; multi-agent handoff stays deferred.

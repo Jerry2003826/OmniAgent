@@ -54,7 +54,7 @@ def test_doctor_reports_outdated_schema_version(tmp_path: Path) -> None:
     assert result.ok is False
     assert names["database_schema"].ok is True
     assert names["schema_version"].ok is False
-    assert "schema_version '6' != expected '7'" in names["schema_version"].message
+    assert "schema_version '6' != expected '8'" in names["schema_version"].message
 
 
 def test_cli_doctor_outputs_json(
