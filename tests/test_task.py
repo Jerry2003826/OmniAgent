@@ -19,6 +19,47 @@ from omni.dbaccess import connect_project_readonly
 from omni.ids import project_id_for_path
 
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+FORBIDDEN_KEY_FRAGMENTS = (
+    "run_id",
+    "_cand_id",
+    "note_id",
+    "pattern_id",
+    "evidence",
+    "created_at",
+    "updated_at",
+    "confidence",
+    "timestamp",
+    "task_id",
+)
+
+
+def run_omni(cwd: Path, *args: str) -> subprocess.CompletedProcess[str]:
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(REPO_ROOT / "src")
+    return subprocess.run(
+        [sys.executable, "-m", "omni.cli", *args],
+        cwd=cwd,
+        env=env,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+
+def assert_no_metadata_leak(value: Any) -> None:
+    if isinstance(value, dict):
+        for key, item in value.items():
+            key_lower = str(key).lower()
+            for forbidden in FORBIDDEN_KEY_FRAGMENTS:
+                assert forbidden not in key_lower, f"leaked key: {key}"
+            assert_no_metadata_leak(item)
+    elif isinstance(value, list):
+        for item in value:
+            assert_no_metadata_leak(item)
+
+
 def connect(tmp_path: Path) -> sqlite3.Connection:
     (tmp_path / ".omni").mkdir(parents=True, exist_ok=True)
     conn = db.connect(tmp_path / ".omni" / "omni.sqlite3")
@@ -339,3 +380,87 @@ def test_close_loses_race_to_abandon_and_writes_no_outcome(
     ).fetchone()
     assert row["status"] == "abandoned"
     conn.close()
+
+
+def test_task_read_view_is_leak_free(tmp_path: Path) -> None:
+    conn = connect(tmp_path)
+    task.start_task(conn, tmp_path, "read view")
+    seed_run(conn, tmp_path, "run_hidden")
+    task_id = task.current_task_id_for_ingest(conn)
+    conn.execute(
+        "UPDATE runs SET task_id = ? WHERE run_id = 'run_hidden'",
+        (task_id,),
+    )
+    conn.execute(
+        """
+        UPDATE tasks
+        SET evidence = ?
+        WHERE task_id = ?
+        """,
+        (
+            json.dumps(
+                {
+                    "task_id": task_id,
+                    "run_id": "run_hidden",
+                    "confidence": 0.99,
+                },
+                sort_keys=True,
+            ),
+            task_id,
+        ),
+    )
+    conn.commit()
+    view = task.read_view(conn)
+    assert view["schema_version"] == task.READ_VIEW_SCHEMA_VERSION
+    assert_no_metadata_leak(view)
+    conn.close()
+
+
+def test_cli_task_start_and_read_smoke(tmp_path: Path) -> None:
+    init = run_omni(tmp_path, "init")
+    assert init.returncode == 0, init.stderr
+    result = run_omni(tmp_path, "task", "start", "smoke intent", "--task-type", "docs")
+    assert result.returncode == 0, result.stderr
+    read_result = run_omni(tmp_path, "task", "read")
+    assert read_result.returncode == 0, read_result.stderr
+    payload = json.loads(read_result.stdout)
+    assert_no_metadata_leak(payload)
+
+
+def test_cli_task_status_smoke(tmp_path: Path) -> None:
+    init = run_omni(tmp_path, "init")
+    assert init.returncode == 0, init.stderr
+    start = run_omni(tmp_path, "task", "start", "status smoke")
+    assert start.returncode == 0, start.stderr
+    status = run_omni(tmp_path, "task", "status")
+    assert status.returncode == 0, status.stderr
+    payload = json.loads(status.stdout)
+    assert payload["attached_run_count"] == 0
+    assert payload["open"]["title"] == "status smoke"
+
+
+def test_cli_task_ls_show_close_abandon_smoke(tmp_path: Path) -> None:
+    init = run_omni(tmp_path, "init")
+    assert init.returncode == 0, init.stderr
+    start = run_omni(tmp_path, "task", "start", "full smoke", "--task-type", "bugfix")
+    assert start.returncode == 0, start.stderr
+    started = json.loads(start.stdout)
+    task_id = started["task_id"]
+
+    ls = run_omni(tmp_path, "task", "ls", "--status", "open")
+    assert ls.returncode == 0, ls.stderr
+    assert len(json.loads(ls.stdout)["tasks"]) == 1
+
+    show = run_omni(tmp_path, "task", "show", task_id)
+    assert show.returncode == 0, show.stderr
+    assert json.loads(show.stdout)["status"] == "open"
+
+    close = run_omni(tmp_path, "task", "close", "--success")
+    assert close.returncode == 0, close.stderr
+    assert json.loads(close.stdout)["status"] == "closed"
+
+    start2 = run_omni(tmp_path, "task", "start", "abandon me")
+    assert start2.returncode == 0, start2.stderr
+    abandon = run_omni(tmp_path, "task", "abandon", "--reason", "smoke stop")
+    assert abandon.returncode == 0, abandon.stderr
+    assert json.loads(abandon.stdout)["status"] == "abandoned"
